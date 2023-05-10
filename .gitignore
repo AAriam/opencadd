@@ -102,5 +102,14 @@ ENV/
 # mypy
 .mypy_cache/
 
+# In-tree generated files
+*/_version.py
+
 # VSCode
 .vscode/
+
+# PyCharm
+.idea/
+
+# MacOS files
+.DS_Store
