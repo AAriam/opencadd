@@ -23,7 +23,7 @@ dependencies:
 
   # Chimera reimplementation
   - biotite
-  - biopython<=1.77
+  - biopython
 
   # mmligner
   - mmligner
@@ -41,12 +41,12 @@ dependencies:
   # Docs
   # Pin setuptools until this fix is part of latest MDA release:
   # https://github.com/volkamerlab/opencadd/issues/136
-  - setuptools<60
+  - setuptools
   - sphinx
   - sphinx_rtd_theme
   # Pin nbsphix until this fix is part of their latest release
   # https://github.com/spatialaudio/nbsphinx/pull/621
-  - nbsphinx<0.8.8
+  - nbsphinx
 
   # Linting and code style
   - pylint
