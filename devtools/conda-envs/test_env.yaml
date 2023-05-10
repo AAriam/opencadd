@@ -1,12 +1,16 @@
 name: test
+
 channels:
   - conda-forge
   - defaults
   - bioconda
+
 dependencies:
-  # Base depends
+
+  # Base dependencies
   - python
   - pip
+
   - pandas
   - matplotlib-base
   - redo
@@ -16,19 +20,24 @@ dependencies:
   - biopandas
   - rdkit
   - tqdm
+
   # Chimera reimplementation
   - biotite
   - biopython<=1.77
+
   # mmligner
   - mmligner
+
   # theseus
   - muscle
   - clustalo
   - theseus
+
   # Testing
   - pytest
   - pytest-cov
   - codecov
+
   # Docs
   # Pin setuptools until this fix is part of latest MDA release:
   # https://github.com/volkamerlab/opencadd/issues/136
@@ -38,6 +47,8 @@ dependencies:
   # Pin nbsphix until this fix is part of their latest release
   # https://github.com/spatialaudio/nbsphinx/pull/621
   - nbsphinx<0.8.8
+
   # Linting and code style
   - pylint
   - black
+
