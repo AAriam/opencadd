@@ -1,6 +1,6 @@
 include LICENSE
 include MANIFEST.in
-include versioneer.py
+include CODE_OF_CONDUCT.md
 
-graft opencadd
+graft opencadd FIXME: What is this?
 global-exclude *.py[cod] __pycache__ *.so
