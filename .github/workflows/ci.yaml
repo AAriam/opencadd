@@ -1,26 +1,37 @@
-#!/bin/bash
 name: CI
 
 on:
+
   push:
     branches:
-      - "master"
+      - "main"
+      - "dev"
+
   pull_request:
     branches:
-      - "master"
+      - "main"
+      - "dev"
+
   schedule:
-    # Run a cron job once weekly on Monday
-    - cron: "0 3 * * 1"
+    # Weekly tests run on main by default:
+    #  Scheduled workflows run on the latest commit on the default or base branch.
+    #  see: https://help.github.com/en/actions/reference/events-that-trigger-workflows#scheduled-events-schedule
+    - cron: "0 3 * * 1"  # Run a weekly cron job at 03:00 on Mondays
 
 jobs:
+
   test:
+
     name: Test on ${{ matrix.os }}, Python ${{ matrix.python-version }}
+
     runs-on: ${{ matrix.os }}
+
     strategy:
       fail-fast: false
       matrix:
-        os: [macOS-latest, ubuntu-latest]
-        python-version: [3.7, 3.8]
+        os: [macOS-latest, ubuntu-latest, windows-latest]
+        python-version: [3.9, 3.10, 3.11]
+
     env:
       CI_OS: ${{ matrix.os }}
       PYVER: ${{ matrix.python-version }}
@@ -36,14 +47,15 @@ jobs:
           df -h
           ulimit -a
 
-      - uses: conda-incubator/setup-miniconda@v2
+      # More info on options: https://github.com/marketplace/actions/provision-with-micromamba
+      - uses: mamba-org/provision-with-micromamba@main
         with:
-          python-version: ${{ matrix.python-version }}
-          miniforge-variant: Mambaforge
-          miniforge-version: latest
-          activate-environment: test
           environment-file: devtools/conda-envs/test_env.yaml
+          environment-name: test
           channels: conda-forge,defaults,bioconda
+          extra-specs: |
+            python=${{ matrix.python-version }}
+      
 
       # TODO: Remove this step when patched theseus makes it to CF
       - name: Build patched mmligner
@@ -54,58 +66,22 @@ jobs:
           conda build devtools/conda-recipes/mmligner/
 
       - name: Install package
-        shell: bash -l {0}
+        shell: bash -l {0}  # conda setup requires this special shell
         run: |
           conda install -c local mmligner pip
           python -m pip install . --no-deps
-          conda list
+          micromamba list
 
       - name: Run tests
-        shell: bash -l {0}
+        shell: bash -l {0}  # conda setup requires this special shell
         run: |
-          pytest -v --cov=${PACKAGE} --cov-report=xml --color=yes ${PACKAGE}/tests/
+          pytest -v --cov=${PACKAGE} --cov-report=xml --color=yes tests/
 
       - name: CodeCov
         uses: codecov/codecov-action@v1
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          name: codecov-${{ matrix.os }}-py${{ matrix.python-version }}
           file: ./coverage.xml
           flags: unittests
           yml: ./.codecov.yml
-
-  #############
-  lint-format:
-    runs-on: ubuntu-latest
-    env:
-      CI_OS: ubuntu-latest
-      PACKAGE: "opencadd"
-      PYVER: "3.8"
-
-    steps:
-      - name: Checkout the code
-        uses: actions/checkout@v3
-
-      - uses: conda-incubator/setup-miniconda@v2
-        with:
-          python-version: "3.8"
-          miniforge-variant: Mambaforge
-          miniforge-version: latest
-          activate-environment: test
-          environment-file: devtools/conda-envs/test_env.yaml
-          channels: conda-forge,defaults,bioconda
-
-      - name: Install linter and formatter
-        shell: bash -l {0}
-        run: |
-          conda install -y pylint black
-
-      - name: Run pylint
-        shell: bash -l {0}
-        run: |
-          pylint $PACKAGE/
-
-      - name: Run black check
-        shell: bash -l {0}
-        if: always()
-        run: |
-          black --check -l 99 $PACKAGE/
+          token: ${{ secrets.CODECOV_TOKEN }}
