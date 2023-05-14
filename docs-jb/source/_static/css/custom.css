@@ -10,6 +10,8 @@
   padding-right: .5em;
 }
 
+/*  make the article content grow to fit all available width */
+/* Ref: https://pydata-sphinx-theme.readthedocs.io/en/stable/user_guide/layout.html#horizontal-spacing */
 .bd-content {
   flex-grow: 1;
   max-width: 100%;
