@@ -114,3 +114,5 @@ ENV/
 /docs/build
 /docs-jb/_build/
 /docs/sample_temp/
+
+.DS_Store
