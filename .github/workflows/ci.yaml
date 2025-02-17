@@ -28,7 +28,7 @@ jobs:
       PACKAGE: "opencadd"
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Additional info about the build
         shell: bash
@@ -37,11 +37,9 @@ jobs:
           df -h
           ulimit -a
 
-      - uses: conda-incubator/setup-miniconda@v2
+      - uses: conda-incubator/setup-miniconda@v3
         with:
           python-version: ${{ matrix.python-version }}
-          miniforge-variant: Mambaforge
-          miniforge-version: latest
           activate-environment: test
           environment-file: devtools/conda-envs/test_env.yaml
           channels: conda-forge,defaults,bioconda
@@ -86,11 +84,9 @@ jobs:
       - name: Checkout the code
         uses: actions/checkout@v3
 
-      - uses: conda-incubator/setup-miniconda@v2
+      - uses: conda-incubator/setup-miniconda@v3
         with:
           python-version: "3.8"
-          miniforge-variant: Mambaforge
-          miniforge-version: latest
           activate-environment: test
           environment-file: devtools/conda-envs/test_env.yaml
           channels: conda-forge,defaults,bioconda
