@@ -1,4 +1,4 @@
-name: oepncadd_test
+name: test
 channels:
   - conda-forge
   - defaults
@@ -7,17 +7,14 @@ dependencies:
   # Base depends
   - python
   - pip
-  - numpy
-  - scipy
   - pandas
   - matplotlib-base
-  - rdkit
-  - openbabel
   - redo
   - mdanalysis
   - nglview
   - bravado
   - biopandas
+  - rdkit
   - tqdm
   # Chimera reimplementation
   - biotite
