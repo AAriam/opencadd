@@ -7,10 +7,10 @@ Defines schema used across the klifs module.
 from pathlib import Path
 
 import pandas as pd
-from opencadd.db.klifs.fields import Fields
+from opencadd.databases.klifs.fields import Fields
 
 # PATH_DATA = Path(__name__).parent / "opencadd/data"
-PATH_DATA = Path(__file__).parent / "../../_data"
+PATH_DATA = Path(__file__).parent / "../../data"
 
 PATH_FIELDS = PATH_DATA / "klifs_fields.csv"
 FIELDS = Fields(PATH_FIELDS)
