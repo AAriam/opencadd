@@ -1,5 +1,5 @@
-from typing import Sequence
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 
 
 class Volume(ABC):

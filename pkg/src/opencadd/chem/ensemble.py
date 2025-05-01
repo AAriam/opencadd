@@ -1,4 +1,6 @@
-from typing import Literal, Optional, Union, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Literal
+
 import jax.numpy as jnp
 import pandas as pd
 
@@ -28,9 +30,9 @@ class ChemicalEnsemble:
         return ChemicalEnsemble(composition=composition, conformation=conformation)
 
     def to_pdb(
-            self, model: Union[int, Sequence[int]],
+            self, model: int | Sequence[int],
             separate_models: bool = True
-    ) -> Union[str, Tuple[str, ...]]:
+    ) -> str | tuple[str, ...]:
         return self._pdb_writer.write(models=model, separate_models=separate_models)
 
 
@@ -43,7 +45,7 @@ def from_pdb_structure(structure):
 
 def from_pdb_id(
         pdb_id: str,
-        biological_assembly_id: Optional[int] = 1,
+        biological_assembly_id: int | None = 1,
 ):
     return from_pdb_structure(
         oc.io.pdb.read.from_pdb_id(pdb_id=pdb_id, biological_assembly_id=biological_assembly_id)

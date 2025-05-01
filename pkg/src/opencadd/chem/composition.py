@@ -1,10 +1,9 @@
-from abc import ABC, abstractmethod
-from typing import Sequence, Optional, Literal
+from collections.abc import Sequence
+from typing import Literal
 
-import numpy as np
 import jax.numpy as jnp
+import numpy as np
 
-from opencadd._typing import ArrayLike
 from opencadd.chem import abc
 
 
@@ -12,8 +11,8 @@ class MolecularComposition (abc.Composition):
     def __init__(
             self,
             atomic_numbers: Sequence[int],
-            mass_numbers: Optional[Sequence[int]] = None,
-            charges: Optional[Sequence[float]] = None,
+            mass_numbers: Sequence[int] | None = None,
+            charges: Sequence[float] | None = None,
     ):
         self._z: jnp.ndarray
         self._a: jnp.ndarray

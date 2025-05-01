@@ -2,14 +2,13 @@
 General exceptions raised within the openCADD library.
 """
 
-from typing import Any, NoReturn, Type, Optional, Sequence, Tuple, Union, Literal
-from functools import partial
 import operator
-import numpy as np
+from collections.abc import Sequence
+from functools import partial
+from typing import Any, Literal, NoReturn
+
 import jax.numpy as jnp
-
-from opencadd import _typing
-
+import numpy as np
 
 __author__ = "Armin Ariamajd"
 
@@ -20,7 +19,7 @@ def error_string(
         param_arg: Any,
         expectation: str,
         catch: str,
-        title: Optional[str] = None
+        title: str | None = None
 ) -> str:
     err = (
         f"Parameter `{param_name}` of `{parent_name}` expects {expectation}, "
@@ -31,7 +30,7 @@ def error_string(
 
 def raise_for_type(
         parent_name: str,
-        *args: Tuple[str, Any, Type]
+        *args: tuple[str, Any, type]
 ) -> NoReturn:
     """
     Check the type of a series of input arguments for a function/method, and raise a TypeError if necessary.
@@ -64,7 +63,7 @@ def raise_for_type(
 
 def raise_literal(
         parent_name: str,
-        *args: Tuple[str, Any, Sequence[Any]]
+        *args: tuple[str, Any, Sequence[Any]]
 ) -> NoReturn:
     for param_name, param_arg, expected_vals in args:
         if param_arg not in expected_vals:
@@ -83,7 +82,7 @@ def raise_literal(
 def raise_array(
         parent_name: str,
         param_name: str,
-        array: Union[np.ndarray, jnp.ndarray],
+        array: np.ndarray | jnp.ndarray,
         **kwargs
         # ndim_lt: Optional[int] = None,
         # ndim_eq: Optional[int] = None,
@@ -189,11 +188,11 @@ def raise_array(
 
 def check_number(
         number,
-        dtypes: Optional[Union[np.dtype, Sequence[np.dtype], Literal["real"]]] = None,
-        ge: Optional[float] = None,
-        gt: Optional[float] = None,
-        le: Optional[float] = None,
-        lt: Optional[float] = None,
+        dtypes: np.dtype | Sequence[np.dtype] | Literal["real"] | None = None,
+        ge: float | None = None,
+        gt: float | None = None,
+        le: float | None = None,
+        lt: float | None = None,
 ):
     if dtypes is None:
         dtypes = [np.number]
@@ -203,14 +202,10 @@ def check_number(
         dtypes = [dtypes]
     num_type = type(number)
     if not np.any([np.issubdtype(num_type, dtype) for dtype in dtypes]):
-        raise ValueError()
-    if ge is not None and number < ge:
-        raise ValueError()
-    elif gt is not None and number <= gt:
-        raise ValueError()
-    if le is not None and number > le:
-        raise ValueError()
-    elif lt is not None and number >= lt:
-        raise ValueError()
+        raise ValueError
+    if (ge is not None and number < ge) or (gt is not None and number <= gt):
+        raise ValueError
+    if (le is not None and number > le) or (lt is not None and number >= lt):
+        raise ValueError
     return
 

@@ -2,21 +2,22 @@
 Read a PDB file from various sources.
 """
 
-from typing import Literal, Optional, Union, Sequence
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Literal
 
 from opencadd import _typing
 from opencadd.db.pdb import file
-from . import struct, _parser, parts
 
+from . import _parser, parts, struct
 
 __author__ = "Armin Ariamajd"
 
 
 def from_pdb_id(
         pdb_id: str,
-        biological_assembly_id: Optional[int] = None,
-        parse_only: Optional[Sequence[Union[parts.Records, parts.Sections]]] = None,
+        biological_assembly_id: int | None = None,
+        parse_only: Sequence[parts.Records | parts.Sections] | None = None,
         strictness: Literal[0, 1, 2, 3] = 0,
 ) -> struct.PDBStructure:
     """
@@ -50,7 +51,7 @@ def from_pdb_id(
 
 def from_filepath(
         filepath: _typing.PathLike,
-        parse_only: Optional[Sequence[Union[parts.Records, parts.Sections]]] = None,
+        parse_only: Sequence[parts.Records | parts.Sections] | None = None,
         strictness: Literal[0, 1, 2, 3] = 0,
 ):
     """
@@ -76,7 +77,7 @@ def from_url(
         url: str,
         strictness: Literal[0, 1, 2, 3] = 0,
         parse: bool = True,
-) -> Union[_parser.PDBParser, struct.PDBStructure]:
+) -> _parser.PDBParser | struct.PDBStructure:
     """
     Parse a PDB file from a URL.
 
@@ -90,14 +91,13 @@ def from_url(
     -------
 
     """
-    pass
 
 
 def from_file_content(
-        content: Union[str, bytes],
-        parse_only: Optional[Sequence[Union[parts.Records, parts.Sections]]] = None,
+        content: str | bytes,
+        parse_only: Sequence[parts.Records | parts.Sections] | None = None,
         strictness: Literal[0, 1, 2, 3] = 0,
-) -> Union[_parser.PDBParser, struct.PDBStructure]:
+) -> _parser.PDBParser | struct.PDBStructure:
     """
     Parse a PDB file from string or byte contents.
 
@@ -128,5 +128,5 @@ def from_file_content(
             elif isinstance(record_or_section, parts.Sections):
                 records.extend(record_or_section.value)
             else:
-                raise ValueError()
+                raise ValueError
     return _parser.PDBParser(content=content, strictness=strictness).parse(records=records)

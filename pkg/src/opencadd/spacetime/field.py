@@ -1,14 +1,17 @@
 
 # Standard library
-from typing import Literal, Sequence, Optional, Tuple, Union, Any
-import operator
+from collections.abc import Sequence
+from typing import Any, Literal
+
+import jax.numpy as jnp
+
 # 3rd-party
 import numpy as np
 import numpy.typing as npt
-import jax.numpy as jnp
+
+from opencadd import _exceptions
 from opencadd._typing import ArrayLike
 from opencadd.spacetime.grid import Grid
-from opencadd import _exceptions
 
 
 class ToxelField:
@@ -22,7 +25,7 @@ class ToxelField:
             self,
             tensor: ArrayLike,
             grid: Grid,
-            names: Optional[Sequence[Any]] = None,
+            names: Sequence[Any] | None = None,
     ):
         """
         Parameters
@@ -130,7 +133,7 @@ class ToxelField:
     def fields_count(self) -> int:
         return self._tensor.shape[-1]
 
-    def index_field(self, name: Union[Any, Sequence[Any]]) -> np.ndarray:
+    def index_field(self, name: Any | Sequence[Any]) -> np.ndarray:
         names = np.asarray(name).reshape(-1, 1)
         indices = np.argwhere(self._field_names == names)
         if indices.shape[0] != names.size:
@@ -145,7 +148,7 @@ class ToxelField:
     def calculate_vacancy(
             self,
             energy_cutoff: float = +0.6,
-            mode: Optional[Literal["max", "min", "avg", "sum"]] = "min",
+            mode: Literal["max", "min", "avg", "sum"] | None = "min",
     ) -> np.ndarray:
         """
         Calculate whether each grid point is vacant, or occupied by a target atom.
@@ -210,10 +213,10 @@ def from_tensor_grid(
 
 def from_array_like(
         field_tensor: npt.ArrayLike,
-        order_axes: Tuple[Literal[0, 1, 2, 3, 4]] = (0, 1, 2, 3, 4),
-        field_names: Optional[Sequence[str]] = None,
+        order_axes: tuple[Literal[0, 1, 2, 3, 4]] = (0, 1, 2, 3, 4),
+        field_names: Sequence[str] | None = None,
         field_datatype: npt.DTypeLike = np.single,
-        grid_origin: Tuple[float, float, float] = (0, 0, 0),
+        grid_origin: tuple[float, float, float] = (0, 0, 0),
         grid_point_spacing: float = 1,
 ):
     """
@@ -311,11 +314,11 @@ def from_array_like(
 def empty(
         self,
         temporal_length: int,
-        grid_shape: Tuple[int, int, int],
+        grid_shape: tuple[int, int, int],
         grid_spacing: float,
-        field_shape: Tuple[int],
+        field_shape: tuple[int],
         field_datatype: npt.DTypeLike = np.single,
-        field_names: Optional[Sequence[str]] = None,
-        grid_origin: Tuple[float, float, float] = (0, 0, 0),
+        field_names: Sequence[str] | None = None,
+        grid_origin: tuple[float, float, float] = (0, 0, 0),
 ):
     pass

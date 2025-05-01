@@ -1,8 +1,7 @@
 
-from typing import IO, Union, Optional
-from opencadd._typing import FileLike, PathLike, FileContentLike
 from pathlib import Path
-import io
+
+from opencadd._typing import FileContentLike, FileLike, PathLike
 
 
 def filelike_to_filepath(file: FileLike) -> Path:
@@ -33,24 +32,24 @@ def filelike_to_filepath(file: FileLike) -> Path:
 
 def filelike_to_data_string(file):
     if isinstance(file, Path):
-        with open(file, "r") as f:
+        with open(file) as f:
             return f.read()
     if isinstance(file, str):
         possible_path = Path(file)
         if possible_path.is_file():
-            with open(possible_path, "r") as f:
+            with open(possible_path) as f:
                 return f.read()
         return file
     if isinstance(file, bytes):
         return file.decode()
-    return
+    return None
 
 
 def save_to_file(
         content: FileContentLike,
         filename: str,
         extension: str,
-        path: Optional[PathLike] = None
+        path: PathLike | None = None
 ) -> Path:
     if path is None:
         dir_path = Path.cwd()

@@ -4,11 +4,13 @@ Functions and routines for easier communication with PyMOL.
 
 
 # Standard library
-from typing import Sequence, Tuple
+from collections.abc import Sequence
 from pathlib import Path
+
+import numpy as np
+
 # 3rd party
 from pymol import cmd
-import numpy as np
 
 
 def get_target_atoms_within_radius(
@@ -50,7 +52,6 @@ def get_target_atoms_within_radius(
         Thus, the element at index (i, j) corresponds to the property at index 'j' in
         `properties`, for the 'i'th atom found by PyMol.
     """
-
     # TODO: This can most likely be done much faster if calculated internally using distance
     #  matrices between selected points and protein atoms.
     if reinitialize:

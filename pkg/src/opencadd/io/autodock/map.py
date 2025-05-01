@@ -1,13 +1,15 @@
 
 # Standard library
-from typing import Sequence, Union, Optional, Tuple, Literal
-import subprocess
+from collections.abc import Sequence
 from pathlib import Path
+
 # 3rd-party
 import numpy as np
-# Self
-from opencadd._typing import PathLike, ArrayLike
+
 from opencadd import spacetime
+
+# Self
+from opencadd._typing import ArrayLike, PathLike
 
 
 class AutoDockMAPParsingError(Exception):
@@ -15,9 +17,9 @@ class AutoDockMAPParsingError(Exception):
 
 
 def from_filepath(
-        filepath: Union[PathLike, Sequence[PathLike], Sequence[Sequence[PathLike]]],
+        filepath: PathLike | Sequence[PathLike] | Sequence[Sequence[PathLike]],
         data_type: np.dtype = np.single,
-        name: Optional[Union[str, Sequence[str]]] = None,
+        name: str | Sequence[str] | None = None,
 ):
     """
     Extract the AutoGrid parameters `gridcenter`, `npts` and `spacing` from a MAP file.
@@ -71,14 +73,13 @@ def from_filepath(
             if not np.all([isinstance(filepath_, PathLike) for filepath_ in filepath]):
                 raise TypeError("Heterogeneous sequence.")
             filepath = [filepath]
-        else:
-            if not np.all([isinstance(filepath_, ArrayLike) for filepath_ in filepath]):
-                raise TypeError("Heterogeneous sequence.")
+        elif not np.all([isinstance(filepath_, ArrayLike) for filepath_ in filepath]):
+            raise TypeError("Heterogeneous sequence.")
     lengths = [len(filepath_) for filepath_ in filepath]
     if np.unique(lengths).size != 1:
         raise TypeError("Ragged nested sequences.")
 
-    with open(filepath[0][0], "r") as f:
+    with open(filepath[0][0]) as f:
         lines = f.read().splitlines()
 
     for line in lines:
@@ -86,7 +87,7 @@ def from_filepath(
             npts = np.array(line.split()[1:4], dtype=np.short)
             break
     else:
-        raise AutoDockMAPParsingError()
+        raise AutoDockMAPParsingError
     grid_shape = npts + 1
     fields = np.empty(shape=(len(filepath), *grid_shape, lengths[0]), dtype=data_type)
     spacings = np.empty(shape=(len(filepath), lengths[0]))
@@ -118,7 +119,7 @@ def from_filepath(
 
 
 def _parse_single_file(filepath: PathLike, data_type: np.dtype):
-    with open(filepath, "r") as f:
+    with open(filepath) as f:
         lines = f.read().splitlines()
     tokens = dict()
     for line_idx, line in enumerate(lines):
@@ -148,7 +149,7 @@ def _parse_single_file(filepath: PathLike, data_type: np.dtype):
     keys = tokens.keys()
     for token in ("SPACING", "NELEMENTS", "CENTER"):
         if token not in keys:
-            raise AutoDockMAPParsingError()
+            raise AutoDockMAPParsingError
     return grid_point_values, tokens
 
 

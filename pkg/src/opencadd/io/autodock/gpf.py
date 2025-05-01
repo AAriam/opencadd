@@ -1,13 +1,15 @@
 # Standard library
-from typing import Sequence, Union, Optional, Tuple, Literal
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
-import jax.numpy as jnp
-# Self
-from opencadd._typing import PathLike, ArrayLike
-from opencadd.const.autodock import AtomType
+
 from opencadd import _exceptions
+
+# Self
+from opencadd._typing import ArrayLike, PathLike
+from opencadd.const.autodock import AtomType
 
 
 class GPFFileStructure:
@@ -21,14 +23,14 @@ class GPFFileStructure:
             ligand_types: Sequence[AtomType] = (
                     AtomType.A, AtomType.C, AtomType.HD, AtomType.N, AtomType.NA, AtomType.OA, AtomType.SA
             ),
-            gridcenter: Union[Tuple[float, float, float], Literal["auto"]] = "auto",
-            npts: Tuple[int, int, int] = (40, 40, 40),
+            gridcenter: tuple[float, float, float] | Literal["auto"] = "auto",
+            npts: tuple[int, int, int] = (40, 40, 40),
             spacing: float = 0.375,
             smooth: float = 0.5,
             dielectric: float = -0.1465,
-            parameter_file: Optional[PathLike] = None,
-            output_filename: Optional[str] = None,
-            output_path: Optional[PathLike] = None,
+            parameter_file: PathLike | None = None,
+            output_filename: str | None = None,
+            output_path: PathLike | None = None,
     ):
         """
         Parameters
@@ -90,11 +92,11 @@ class GPFFileStructure:
         return
 
     @property
-    def receptor_types(self) -> Tuple[AtomType, ...]:
+    def receptor_types(self) -> tuple[AtomType, ...]:
         return self._receptor_types
 
     @receptor_types.setter
-    def receptor_types(self, value: Union[AtomType, Sequence[AtomType]]):
+    def receptor_types(self, value: AtomType | Sequence[AtomType]):
         self._receptor_types = self._set_atom_types(value)
         return
 
@@ -115,7 +117,7 @@ class GPFFileStructure:
     def gridcenter(self, value):
         if isinstance(value, str):
             if value != "auto":
-                raise ValueError()
+                raise ValueError
             self._gridcenter = value
             return
         center = np.asarray(value)
@@ -146,7 +148,7 @@ class GPFFileStructure:
             dtype=np.integer
         )
         if np.any(npts % 2 != 0):
-            raise ValueError()
+            raise ValueError
         self._npts = npts
         return
 
@@ -214,7 +216,7 @@ class GPFFileStructure:
                 raise ValueError("Path contains non-ASCII characters.")
             self._output_filename = value
         else:
-            raise TypeError()
+            raise TypeError
         self._set_output_paths()
         return
 
@@ -225,15 +227,15 @@ class GPFFileStructure:
     @property
     def xyz(self):
         return self._xyz
-    
+
     @property
     def elecmap(self):
         return self._elecmap
-    
+
     @property
     def dsolvmap(self):
         return self._dsolvmap
-    
+
     @property
     def ligand_maps(self):
         return self._ligand_maps
@@ -250,15 +252,15 @@ class GPFFileStructure:
         return
 
     @staticmethod
-    def _set_atom_types(types: Union[AtomType, Sequence[AtomType]]) -> Tuple[AtomType, ...]:
+    def _set_atom_types(types: AtomType | Sequence[AtomType]) -> tuple[AtomType, ...]:
         if isinstance(types, AtomType):
             return tuple([types])
         if isinstance(types, ArrayLike):
             for atom_type in types:
                 if not isinstance(atom_type, AtomType):
-                    raise TypeError()
+                    raise TypeError
             return tuple(types)
-        raise TypeError()
+        raise TypeError
 
     def _set_filepath(self, filepath: PathLike):
         path = Path(filepath).resolve()
@@ -279,15 +281,15 @@ def write(
         output_path: PathLike = None,
         receptor_types: Sequence[AtomType] = None,
         ligand_types: Sequence[AtomType] = (AtomType.C, AtomType.A, AtomType.HD, AtomType.OA),
-        grid_center: Union[Tuple[float, float, float], Literal["auto"]] = "auto",
-        grid_npts: Tuple[int, int, int] = (40, 40, 40),
+        grid_center: tuple[float, float, float] | Literal["auto"] = "auto",
+        grid_npts: tuple[int, int, int] = (40, 40, 40),
         grid_spacing: float = 0.375,
         smooth: float = 0.5,
         dielectric: float = -0.1465,
-        parameter_filepath: Optional[PathLike] = None,
+        parameter_filepath: PathLike | None = None,
         return_paths: bool = True,
         return_content: bool = False,
-) -> Optional[Tuple[Optional[dict], Optional[str]]]:
+) -> tuple[dict | None, str | None] | None:
     """
     Create a Grid Parameter File (GPF), used as an input specification file in AutoGrid.
 
@@ -336,9 +338,9 @@ def write(
         if return_content:
             return paths, file_content
         return paths
-    elif return_content:
+    if return_content:
         return file_content
-    return
+    return None
 
 
 def write(gpf_file: GPFFileStructure):

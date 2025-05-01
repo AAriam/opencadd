@@ -1,5 +1,5 @@
-from typing import Literal
 from enum import Enum
+from typing import Literal
 
 
 class AtomType(Enum):
@@ -12,6 +12,7 @@ class AtomType(Enum):
     An official documentation could not be found; the list is taken from below link:
     https://mmb.irbbarcelona.org/gitlab/BioExcel/structureChecking/blob/5f07d82dc36d1f43733ae3b1ecd9f40aebe8b0a2/biobb_structure_checking/dat/autodock_atomtypes.dat
     """
+
     H = ("Hydrogen, non H-bonding", 0, 0)
     HD = ("Hydrogen, H-bond donor, 1 bond", -1, 1)
     HS = ("Hydrogen, H-bond donor, spherical", -1, -1)
@@ -46,6 +47,7 @@ class AtomType(Enum):
     def hbond_status(self) -> Literal[-1, 0, 1]:
         """
         Whether the atom type is an H-bond donor, H-bond acceptor, or non H-bonding.
+
         Returns
         -------
         Literal[-1, 0, 1]

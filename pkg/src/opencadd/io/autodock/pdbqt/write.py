@@ -1,17 +1,17 @@
-from typing import Sequence, Tuple, Union, Optional
+from collections.abc import Sequence
 from pathlib import Path
-import numpy as np
-import pandas as pd
+
 from openbabel import pybel
+
 import opencadd as oc
 from opencadd import _typing
 
 
 def from_ensemble(
         ensemble,
-        output_filename: Optional[str] = None,
+        output_filename: str | None = None,
         output_path: _typing.PathLike = None,
-        models: Optional[Union[int, Sequence[int]]] = None,
+        models: int | Sequence[int] | None = None,
 ):
     pdb_strings = oc.io.pdb.write.from_chemsys(
         system=ensemble,
@@ -21,7 +21,7 @@ def from_ensemble(
     return_vals = []
     temp_filepath = Path.cwd() / "_temp_opencadd.pdb"
     for pdb_string in pdb_strings:
-        with open(temp_filepath, "wt") as f:
+        with open(temp_filepath, "w") as f:
             f.write(pdb_string)
         return_vals.append(
             from_pdb_filepath(filepath=temp_filepath)
@@ -31,8 +31,8 @@ def from_ensemble(
 
 def from_pdb_filepath(
         filepath: _typing.PathLike,
-        output_filename: Optional[str] = None,
-        output_path: Optional[_typing.PathLike] = None,
+        output_filename: str | None = None,
+        output_path: _typing.PathLike | None = None,
 ):
     """
     Convert a PDB file to a PDBQT file, and save it in the given filepath.

@@ -1,18 +1,21 @@
-from .pocket import BindingPocket
-from typing import Optional, Tuple, Sequence, Union, List, Dict
+from collections.abc import Sequence
+from typing import Dict, List, Optional, Tuple, Union
+
 import opencadd as oc
 from opencadd._http_request import HTTPRequestRetryConfig
-from . import ligsite, dogsite
+
+from . import dogsite, ligsite
+from .pocket import BindingPocket
 
 
 def from_dogsite(
         receptor,
-        model: Optional[int] = 0,
-        chain_id: Optional[str] = None,
-        ligand_id_chain_num: Optional[Tuple[str, str, int]] = None,
+        model: int | None = 0,
+        chain_id: str | None = None,
+        ligand_id_chain_num: tuple[str, str, int] | None = None,
         include_subpockets: bool = True,
         calculate_druggability: bool = True,
-        retry_config: Optional[HTTPRequestRetryConfig] = HTTPRequestRetryConfig(),
+        retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig(),
 ):
     return dogsite._from_ensemble(
         ensemble=receptor,

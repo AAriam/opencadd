@@ -3,19 +3,21 @@ Handling HTTP requests and responses.
 """
 
 # Standard library
-from typing import Optional, Literal, Union, List, Tuple, NoReturn, Any, Callable, Sequence, NamedTuple
+from collections.abc import Callable, Sequence
+from typing import Any, Literal, NamedTuple, NoReturn
+
 # 3rd-party
 import requests
+
 # Self
 from opencadd._decorator import RetryConfig, retry_on_exception
-
 
 __author__ = "Armin Ariamajd"
 
 
 class WebAPIError(IOError):
     """Base Exception class for all web API exceptions."""
-    pass
+
 
 
 class WebAPIStatusCodeError(WebAPIError):
@@ -24,6 +26,7 @@ class WebAPIStatusCodeError(WebAPIError):
     Raised by `opencadd.webapi.http_request.raise_for_status_code`.
     By default, raised when status code is in range [400, 600).
     """
+
     def __init__(self, response: requests.Response):
         self.response: requests.Response = response
         # Decode error reason from server
@@ -50,7 +53,7 @@ class WebAPITemporaryStatusCodeError(WebAPIStatusCodeError):
     Raised by `opencadd.webapi.http_request.raise_for_status_code`.
     By default, raised when status code is in (408, 429, 500, 502, 503, 504).
     """
-    pass
+
 
 
 class WebAPIPersistentStatusCodeError(WebAPIStatusCodeError):
@@ -60,7 +63,7 @@ class WebAPIPersistentStatusCodeError(WebAPIStatusCodeError):
     By default, raised when status code is in range [400, 600),
     but not in (408, 429, 500, 502, 503, 504).
     """
-    pass
+
 
 
 class WebAPIValueError(WebAPIError):
@@ -69,6 +72,7 @@ class WebAPIValueError(WebAPIError):
     Raised by `opencadd.webapi.http_request.response_http_request`.
 
     """
+
     def __init__(self, response_value: Any, response_verifier: Callable[[Any], bool]):
         self.response_value = response_value
         self.response_verifier = response_verifier
@@ -81,9 +85,9 @@ class WebAPIValueError(WebAPIError):
 
 def raise_for_status_code(
         response: requests.Response,
-        error_status_code_range: Tuple[int, int] = (400, 599),
-        temporary_error_status_codes: Optional[Sequence[int]] = (408, 429, 500, 502, 503, 504),
-        ignored_status_codes: Optional[Sequence[int]] = None,
+        error_status_code_range: tuple[int, int] = (400, 599),
+        temporary_error_status_codes: Sequence[int] | None = (408, 429, 500, 502, 503, 504),
+        ignored_status_codes: Sequence[int] | None = None,
 ) -> NoReturn:
     """
     Raise an `opencadd.webapi.http_request.WebAPIStatusCodeError` for certain HTTP status codes.
@@ -139,21 +143,22 @@ class HTTPRequestRetryConfig(NamedTuple):
         If set to `None`, all response errors will immediately raise an
         `opencadd.webapi.http_request.WebAPIValueError`.
     """
-    status_codes_to_retry: Optional[Sequence[int]] = (408, 429, 500, 502, 503, 504)
+
+    status_codes_to_retry: Sequence[int] | None = (408, 429, 500, 502, 503, 504)
     config_status: RetryConfig = RetryConfig(5, 1, 2)
     config_response: RetryConfig = RetryConfig(5, 1, 2)
 
 
 def response_http_request(
         url: str,
-        verb: Union[str, Literal["GET", "POST", "PUT", "PATCH", "OPTIONS", "DELETE"]] = "GET",
-        params: Optional[Union[dict, List[tuple], bytes]] = None,
-        data: Optional[Union[dict, List[tuple], bytes]] = None,
+        verb: str | Literal["GET", "POST", "PUT", "PATCH", "OPTIONS", "DELETE"] = "GET",
+        params: dict | list[tuple] | bytes | None = None,
+        data: dict | list[tuple] | bytes | None = None,
         headers=None,
         cookies=None,
         files=None,
         auth=None,
-        timeout: Optional[Union[float, Tuple[float, float]]] = (10, 20),
+        timeout: float | tuple[float, float] | None = (10, 20),
         allow_redirects=True,
         proxies=None,
         hooks=None,
@@ -161,13 +166,13 @@ def response_http_request(
         verify=None,
         cert=None,
         json=None,
-        response_type: Optional[Literal["str", "json", "bytes"]] = None,
-        encoding: Optional[str] = None,
-        response_verifier: Optional[Callable[[Any], bool]] = None,
-        retry_config: Optional[HTTPRequestRetryConfig] = HTTPRequestRetryConfig(),
-        ignored_status_codes: Optional[Sequence[int]] = None,
+        response_type: Literal["str", "json", "bytes"] | None = None,
+        encoding: str | None = None,
+        response_verifier: Callable[[Any], bool] | None = None,
+        retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig(),
+        ignored_status_codes: Sequence[int] | None = None,
         **json_kwargs,
-) -> Union[requests.Response, str, dict, bytes]:
+) -> requests.Response | str | dict | bytes:
     """
     Send an HTTP request and get the response in specified type.
 

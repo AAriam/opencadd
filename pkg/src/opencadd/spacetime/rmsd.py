@@ -4,7 +4,6 @@ import jax
 import jax.numpy as jnp
 
 import opencadd as oc
-from opencadd import _typing
 
 
 @jax.jit
@@ -452,13 +451,12 @@ def rmsd(
     -------
 
     """
-
     p0 = jnp.asarray(p0)
     p1 = jnp.asarray(p1)
     p_dims = (p0.ndim, p1.ndim)
     for p_dim in p_dims:
         if not 2 <= p_dim <= 4:
-            raise ValueError()
+            raise ValueError
     if weights is not None:
         w = jnp.asarray(weights)
         w_shape = w.shape[-2:]
@@ -468,35 +466,35 @@ def rmsd(
             or w_shape[0] not in (1, p_shape[0])
             or w_shape[1] not in (1, p_shape[1])
         ):
-            raise ValueError()
+            raise ValueError
     else:
         w = None
 
     if p_dims == (2, 2):
         if p0.shape != p1.shape:
-            raise ValueError()
+            raise ValueError
         if w is None:
             return _rmsd_1_1_s(p0, p1)
         if w.ndim != 2:
-            raise ValueError()
+            raise ValueError
         return _wrmsd_1_1_s(p0, p1, w)
 
-    elif p_dims in ((2, 3), (3, 2)):
+    if p_dims in ((2, 3), (3, 2)):
         if p_dims == (3, 2):
             p0, p1 = p1, p0
         if p0.shape != p1.shape[1:]:
-            raise ValueError()
+            raise ValueError
         if w is None:
             return _rmsd_1_2_s(p0, p1)
         if w.ndim == 2:
             return _wrmsd_1_2_s_s(p0, p1, w)
-        elif w.ndim == 3:
+        if w.ndim == 3:
             if w.shape[0] != p1.shape[0]:
-                raise ValueError()
+                raise ValueError
             return _wrmsd_1_2_s_v(p0, p1, w)
         raise ValueError("Dimension Mismatch")
 
-    elif p_dims == (3, 3):
+    if p_dims == (3, 3):
         if p0.shape[1:] != p1.shape[1:]:
             raise ValueError
         if stacked:
@@ -506,9 +504,9 @@ def rmsd(
                 return _rmsd_1_1_v(p0, p1)
             if w.ndim == 2:
                 return _wrmsd_1_1_v_s(p0, p1, w)
-            elif w.ndim == 3:
+            if w.ndim == 3:
                 if w.shape[0] != p1.shape[0]:
-                    raise ValueError()
+                    raise ValueError
                 return _wrmsd_1_1_v_v(p0, p1, w)
             raise ValueError("Dimension Mismatch")
         if w is None:
@@ -521,9 +519,9 @@ def rmsd(
             fits_p1 = w_shape == p1.shape[0]
             if fits_p0 and not fits_p1:
                 return _wrmsd_2_2_s_vs(p0, p1, w)
-            elif fits_p1 and not fits_p0:
+            if fits_p1 and not fits_p0:
                 return _wrmsd_2_2_s_sv(p0, p1, w)
-            elif fits_p0 and fits_p1:
+            if fits_p0 and fits_p1:
                 if weights_axis == 0:
                     return _wrmsd_2_2_s_vs(p0, p1, w)
                 if weights_axis == 1:
@@ -536,11 +534,11 @@ def rmsd(
             return _wrmsd_2_2_s_vv(p0, p1, w)
         raise ValueError
 
-    elif p_dims in ((3, 4), (4, 3)):
+    if p_dims in ((3, 4), (4, 3)):
         if p_dims == (4, 3):
             p0, p1 = p1, p0
         if p0.shape != (p1.shape[0], *p1.shape[2:]):
-            raise ValueError()
+            raise ValueError
         if w is None:
             vals = _rmsd_1_2_v(p0, p1)
         elif w.ndim == 2:
@@ -570,13 +568,12 @@ def rmsd(
             raise ValueError("Dimension Mismatch")
         return vals if p_dims == (3, 4) else vals.T
 
-    elif p_dims == (4, 4):
+    if p_dims == (4, 4):
         if (p0.shape[0], *p0.shape[2:]) != (p1.shape[0], *p1.shape[2:]):
             raise ValueError
         if w is None:
             return _rmsd_2_2_v(p0, p1)
-        else:
-            raise NotImplementedError
+        raise NotImplementedError
 
     raise ValueError
 

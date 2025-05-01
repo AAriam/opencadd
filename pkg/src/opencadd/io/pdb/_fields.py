@@ -1,13 +1,11 @@
-from typing import Tuple
-from abc import ABC, abstractmethod
-from typing import Union, Tuple, Sequence, Optional, Callable, Any, Type
 import datetime
-import re
 import functools
+import re
+from abc import ABC, abstractmethod
+from collections.abc import Sequence
 
 import numpy as np
 import numpy.typing as npt
-import pandas as pd
 
 from opencadd.io import _parsing
 
@@ -15,7 +13,7 @@ from opencadd.io import _parsing
 class RecordFieldDataType(ABC):
     @staticmethod
     @abstractmethod
-    def from_pdb(fields: Union[str, Sequence[str]]):
+    def from_pdb(fields: str | Sequence[str]):
         ...
 
     @staticmethod
@@ -28,8 +26,9 @@ class AChar(RecordFieldDataType):
     """
     An alphabetic character (A-Z, a-z).
     """
+
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]]):
+    def from_pdb(fields: str | Sequence[str]):
         return np.char.strip(fields)
 
 
@@ -37,8 +36,9 @@ class Atom(RecordFieldDataType):
     """
     Atom name.
     """
+
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]]):
+    def from_pdb(fields: str | Sequence[str]):
         return np.char.strip(fields)
 
 
@@ -46,8 +46,9 @@ class Character(RecordFieldDataType):
     """
     Any non-control character in the ASCII character set or a space.
     """
+
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]]):
+    def from_pdb(fields: str | Sequence[str]):
         return np.char.strip(fields)
 
 
@@ -57,6 +58,7 @@ class Continuation(RecordFieldDataType):
     two-digit number right-justified and blank-filled which counts continuation records starting
     with 2. The continuation number must be followed by a blank.
     """
+
     @staticmethod
     def from_pdb(fields: np.ndarray):
         fields = np.char.strip(fields)
@@ -78,21 +80,22 @@ class Date(RecordFieldDataType):
     YY is the last two digits of the year. This must represent
     a valid date.
     """
+
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]]) -> Union[datetime.date, np.ndarray]:
-        def str_to_date(date_str) -> Optional[datetime.date]:
+    def from_pdb(fields: str | Sequence[str]) -> datetime.date | np.ndarray:
+        def str_to_date(date_str) -> datetime.date | None:
             try:
                 return datetime.datetime.strptime(date_str, "%d-%b-%y").date()
-            except ValueError as e:
+            except ValueError:
                 if date_str.isspace():
-                    return
+                    return None
                 raise
         if isinstance(fields, str):
             return str_to_date(fields)
         return np.array([str_to_date(field) for field in fields])
 
     @staticmethod
-    def to_pdb(dates: Union[datetime.date, Sequence[datetime.date]]) -> Union[str, Tuple[str]]:
+    def to_pdb(dates: datetime.date | Sequence[datetime.date]) -> str | tuple[str]:
         if isinstance(dates, datetime.date):
             return dates.strftime("%d-%b-%y").upper()
         return tuple(date.strftime("%d-%b-%y").upper() for date in dates)
@@ -123,7 +126,7 @@ class Date(RecordFieldDataType):
 
 class Element(RecordFieldDataType):
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]]):
+    def from_pdb(fields: str | Sequence[str]):
         return np.char.capitalize(np.char.strip(fields))
 
 
@@ -135,12 +138,13 @@ class IDcode(RecordFieldDataType):
     only. Entries with a 0 as the first character do not
     contain coordinate data.
     """
+
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]]):
+    def from_pdb(fields: str | Sequence[str]):
         return np.char.strip(fields)
 
     @staticmethod
-    def verify(fields: Union[str, Sequence[str]]):
+    def verify(fields: str | Sequence[str]):
 
         def verify_pdb_id(pdb_id: str):
             if len(pdb_id) != 4:
@@ -161,8 +165,9 @@ class Integer(RecordFieldDataType):
     """
     Right-justified blank-filled integer value.
     """
+
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]], dtype: npt.DTypeLike = np.int_):
+    def from_pdb(fields: str | Sequence[str], dtype: npt.DTypeLike = np.int_):
         dtype = np.dtype(dtype)
         if isinstance(fields, str):
             if fields.isspace():
@@ -182,8 +187,9 @@ class Token(RecordFieldDataType):
     """
     A sequence of non-space characters followed by a colon and a space.
     """
+
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]]):
+    def from_pdb(fields: str | Sequence[str]):
         return fields
 
 
@@ -191,8 +197,9 @@ class List(RecordFieldDataType):
     """
     A String that is composed of text separated with commas.
     """
+
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]]):
+    def from_pdb(fields: str | Sequence[str]):
         if not isinstance(fields, str):
             fields = String.from_pdb(fields)
         return np.char.strip(fields.split(","))
@@ -203,8 +210,9 @@ class LString(RecordFieldDataType):
     """
     A literal string of characters. All spacing is significant and must be preserved.
     """
+
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]]):
+    def from_pdb(fields: str | Sequence[str]):
         return fields
 
 
@@ -212,8 +220,9 @@ class Real(RecordFieldDataType):
     """
     Real (floating point) number.
     """
+
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]]):
+    def from_pdb(fields: str | Sequence[str]):
         if isinstance(fields, str):
             return float(fields)
         return np.asarray(fields).astype(np.double)
@@ -223,8 +232,9 @@ class RecordName(RecordFieldDataType):
     """
     The name of the record: 6 characters, left-justified and blank-filled.
     """
+
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]]):
+    def from_pdb(fields: str | Sequence[str]):
         return np.char.strip(fields)
 
 
@@ -234,8 +244,9 @@ class ResidueName(RecordFieldDataType):
     below, or the non-standard group designation as defined in
     the HET dictionary. Field is right-justified.
     """
+
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]]):
+    def from_pdb(fields: str | Sequence[str]):
         return np.char.strip(fields)
 
 
@@ -243,8 +254,9 @@ class SList(RecordFieldDataType):
     """
     A String that is composed of text separated with semicolons.
     """
+
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]]):
+    def from_pdb(fields: str | Sequence[str]):
         if not isinstance(fields, str):
             fields = String.from_pdb(fields)
         return np.char.strip(fields.split(";"))
@@ -254,8 +266,9 @@ class Specification(RecordFieldDataType):
     """
     A String composed of a token and its associated value separated by a colon.
     """
+
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]]):
+    def from_pdb(fields: str | Sequence[str]):
         return np.char.strip(fields)
 
 
@@ -263,8 +276,9 @@ class SpecificationList(RecordFieldDataType):
     """
     A sequence of Specifications, separated by semi-colons.
     """
+
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]]):
+    def from_pdb(fields: str | Sequence[str]):
         if not isinstance(fields, str):
             fields = String.from_pdb(fields)
         specification_list = fields.split(";")
@@ -284,6 +298,7 @@ class String(RecordFieldDataType):
     together, collapse all sequences of multiple blanks to a single blank, and remove any
     leading and trailing blanks.
     """
+
     @staticmethod
     def from_pdb(fields: Sequence):
         concatenated = " ".join("".join(fields).split())
@@ -297,8 +312,9 @@ class SymOP(RecordFieldDataType):
     the form nnnMMM where nnn is the symmetry operator number and
     MMM is the translation vector.
     """
+
     @staticmethod
-    def from_pdb(fields: Union[str, Sequence[str]]):
+    def from_pdb(fields: str | Sequence[str]):
         if isinstance(fields, str):
             return np.array(list(fields), dtype=np.ubyte)
         return list(np.asarray(fields).astype(np.ubyte))
@@ -313,8 +329,8 @@ class SymOP(RecordFieldDataType):
 class Column:
     def __init__(
             self,
-            intervals: Union[Tuple[int, int], Sequence[Tuple[int, int]]],
-            field_dtype: Type[RecordFieldDataType],
+            intervals: tuple[int, int] | Sequence[tuple[int, int]],
+            field_dtype: type[RecordFieldDataType],
             strip: bool = True,
             cast: bool = True,
             only_first: bool = False,

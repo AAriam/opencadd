@@ -1,19 +1,20 @@
-from typing import IO, Union, Sequence, Type, TypeAlias
+from collections.abc import Sequence
 from pathlib import Path
-import numpy as np
-import jax.numpy as jnp
+from typing import IO, TypeAlias
 
+import jax.numpy as jnp
+import numpy as np
 
 __author__ = "Armin Ariamajd"
 
 
-PathLike: TypeAlias = Union[str, Path]
-FileContentLike: TypeAlias = Union[str, bytes, IO]
-FileLike: TypeAlias = Union[PathLike, FileContentLike]
-ArrayLike: TypeAlias = Union[Sequence, np.ndarray, jnp.ndarray]
+PathLike: TypeAlias = str | Path
+FileContentLike: TypeAlias = str | bytes | IO
+FileLike: TypeAlias = PathLike | FileContentLike
+ArrayLike: TypeAlias = Sequence | np.ndarray | jnp.ndarray
 
 
-def smallest_integer_dtype_for_range(min_val, max_val) -> Type[np.integer]:
+def smallest_integer_dtype_for_range(min_val, max_val) -> type[np.integer]:
     unsigned_types = [np.ubyte, np.ushort, np.uintc, np.uint, np.ulonglong]
     unsigned_maxes = [np.iinfo(dtype).max for dtype in unsigned_types]
 
@@ -42,11 +43,10 @@ def smallest_integer_dtype_for_range(min_val, max_val) -> Type[np.integer]:
             f"Bit overflow. Bounds for largest type ({[unsigned_types[-1]]}) is "
             f"[0, {unsigned_maxes[-1]}]. Given interval was [{min_val}, {max_val}]."
         )
-    else:
-        for idx_dtype, dtype in enumerate(signed_types):
-            if min_val >= signed_mins[idx_dtype] and max_val <= signed_maxes[idx_dtype]:
-                return dtype
-        raise ValueError(
-            f"Bit overflow. Bounds for largest type ({[signed_types[-1]]}) is "
-            f"[{signed_mins[-1]}, {signed_maxes[-1]}]. Given interval was [{min_val}, {max_val}]."
-        )
+    for idx_dtype, dtype in enumerate(signed_types):
+        if min_val >= signed_mins[idx_dtype] and max_val <= signed_maxes[idx_dtype]:
+            return dtype
+    raise ValueError(
+        f"Bit overflow. Bounds for largest type ({[signed_types[-1]]}) is "
+        f"[{signed_mins[-1]}, {signed_maxes[-1]}]. Given interval was [{min_val}, {max_val}]."
+    )

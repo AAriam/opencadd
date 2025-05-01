@@ -1,14 +1,11 @@
 from __future__ import annotations
-from typing import Sequence, Union, Optional, Any, Tuple, NamedTuple, Literal, List, NoReturn
-from dataclasses import dataclass
 
-import numpy as np
-import scipy as sp
+from typing import Any, Literal, NamedTuple
+
 import jax.numpy as jnp
+import numpy as np
 import numpy.typing as npt
-
-import opencadd as oc
-from opencadd._typing import ArrayLike
+import scipy as sp
 
 
 class MinimumBoundingBox(NamedTuple):
@@ -19,6 +16,7 @@ class MinimumBoundingBox(NamedTuple):
     the boundaries of the set of coordinates.
     The origin point is the vertex with smallest (x, y, z) values.
     """
+
     lower_bounds: jnp.ndarray
     upper_bounds: jnp.ndarray
 
@@ -44,26 +42,26 @@ class TensorDataSet:
     __slots__ = (
         "_data",
         "_first_axes",
-        "_title_instance",
-        "_title_sample",
-        "_title_observation",
-        "_labels_instance",
-        "_labels_sample",
-        "_labels_observation",
         "_kdtrees",
+        "_labels_instance",
+        "_labels_observation",
+        "_labels_sample",
+        "_title_instance",
+        "_title_observation",
+        "_title_sample",
     )
 
     def __init__(
             self,
             data: npt.ArrayLike,
-            first_axes: Tuple[int, int] = (1, 2),
+            first_axes: tuple[int, int] = (1, 2),
             data_type: npt.DTypeLike = np.single,
-            title_instance: Optional[Any] = None,
-            labels_instance: Optional[npt.ArrayLike] = None,
-            title_sample: Optional[Any] = None,
-            labels_sample: Optional[npt.ArrayLike] = None,
-            title_observation: Optional[Any] = None,
-            labels_observation: Optional[npt.ArrayLike] = None
+            title_instance: Any | None = None,
+            labels_instance: npt.ArrayLike | None = None,
+            title_sample: Any | None = None,
+            labels_sample: npt.ArrayLike | None = None,
+            title_observation: Any | None = None,
+            labels_observation: npt.ArrayLike | None = None
     ):
         """
         Parameters
@@ -144,8 +142,7 @@ class TensorDataSet:
             if labels_instance_array.shape[0] != self._data.shape[0]:
                 raise ValueError("Shape of `labels_instance` along first dimension must match "
                                  "the number of instances in the dataset.")
-            else:
-                self._labels_instance = labels_instance_array
+            self._labels_instance = labels_instance_array
 
 
 
@@ -205,7 +202,7 @@ class TensorDataSet:
         return self._data.shape[1]
 
     @property
-    def shape_observation(self) -> Tuple[int]:
+    def shape_observation(self) -> tuple[int]:
         """Shape of the observation tensor."""
         return self._data.shape[2:]
 

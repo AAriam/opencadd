@@ -3,16 +3,17 @@ Base functionalities to parse an mmCIF datafile or dictionary.
 """
 
 
-from typing import Union, Iterator, List, Literal, NoReturn
 import enum
-import re
 import itertools
+import re
+from collections.abc import Iterator
+from typing import Literal, NoReturn
 
 import polars as pl
 
 import opencadd._exceptions as _exception
-from . import _filestruct
 
+from . import _filestruct
 
 __author__ = "Armin Ariamajd"
 
@@ -62,6 +63,7 @@ class Token(enum.Enum):
 
     The values correspond to the index of capturing groups in `TOKENIZER` above.
     """
+
     VALUE_FIELD = 1  # Will be changed to `VALUE` after processing by parser
     COMMENT = 2
     VALUE_QUOTED = 3  # Will be changed to `VALUE` after processing by parser
@@ -135,6 +137,7 @@ class State(enum.Enum):
         while being previously in state `IN_SAVE_LOOP_NAME`. It is now expecting either another data value,
         a save frame termination directive, another loop directive, or a data name.
     """
+
     IN_FILE = enum.auto()
     JUST_IN_DATA = enum.auto()
     JUST_IN_SAVE = enum.auto()
@@ -192,6 +195,7 @@ class CIFParsingErrorType(enum.Enum):
     """
     Types of errors that may occur during parsing.
     """
+
     DUPLICATE = 2
     TABLE_INCOMPLETE = 2
     BLOCK_CODE_EMPTY = 2
@@ -284,7 +288,7 @@ class CIFParser:
         self.curr_data_name_category: str = None
         self.curr_data_name_keyword: str = None
         self.curr_data_value: str = None
-        self.errors: List[CIFParsingError] = None
+        self.errors: list[CIFParsingError] = None
         return
 
     def _reset_state(self, content: str) -> NoReturn:
@@ -300,7 +304,7 @@ class CIFParser:
         self.curr_data_name_category: str = None
         self.curr_data_name_keyword: str = None
         self.curr_data_value: str = None
-        self.errors: List[CIFParsingError] = list()
+        self.errors: list[CIFParsingError] = list()
         return
 
     def parse(self, content: str):
@@ -339,8 +343,7 @@ class CIFParser:
             self.curr_frame_code_category = None
             self.curr_frame_code_keyword = None
             return
-        if self.curr_token_value.startswith("_"):
-            self.curr_token_value = self.curr_token_value[1:]
+        self.curr_token_value = self.curr_token_value.removeprefix("_")
         frame_code_components = self.curr_token_value.split(".", 1)
         self.curr_frame_code_category = frame_code_components[0]
         try:
@@ -408,7 +411,7 @@ class CIFParser:
             Minimum strictness level where the error should be raised as an exception.
 
         Raises
-        -------
+        ------
         CIFParsingError
         """
         self.errors.append(CIFParsingError(parser_instance=self, error_type=error_type))
@@ -502,19 +505,19 @@ class CIFToDictParser(CIFParser):
 
         self._cif_dict_horizontal: dict = dict()
 
-        self._block_codes: List[str] = list()
-        self._frame_code_categories: List[Union[str, None]] = list()
-        self._frame_code_keywords: List[Union[str, None]] = list()
-        self._data_name_categories: List[str] = list()
-        self._data_name_keywords: List[str] = list()
-        self._data_values: List[List[str]] = list()
-        self._loop_id: List[int] = list()
+        self._block_codes: list[str] = list()
+        self._frame_code_categories: list[str | None] = list()
+        self._frame_code_keywords: list[str | None] = list()
+        self._data_name_categories: list[str] = list()
+        self._data_name_keywords: list[str] = list()
+        self._data_values: list[list[str]] = list()
+        self._loop_id: list[int] = list()
 
         self._loop_value_lists: itertools.cycle = None
         self._loop_value_lists_idx: itertools.cycle = None
 
         self._curr_loop_id: int = 0
-        self._curr_loop_columns: List[List[str]] = list()
+        self._curr_loop_columns: list[list[str]] = list()
         return
 
     @property
@@ -607,7 +610,7 @@ class CIFToDictParser(CIFParser):
 
     def _add_data(
             self,
-            data_value: Union[str, list],
+            data_value: str | list,
             loop_id: int
     ):
         self._curr_data_category_dict[self.curr_data_name_keyword] = data_value
@@ -624,7 +627,7 @@ class CIFToDictParser(CIFParser):
 
 class CIFFileValidator:
 
-    def __init__(self, df: pl.DataFrame, errors: List[CIFParsingError]):
+    def __init__(self, df: pl.DataFrame, errors: list[CIFParsingError]):
         self._df = df
         self._df_ids = df.select(pl.exclude(["data_value", "loop_id"]))
         self._errors = errors
@@ -638,7 +641,7 @@ class CIFFileValidator:
         if validated:
             return True
         if raise_:
-            raise CIFParsingError()
+            raise CIFParsingError
         return False
 
     def validate_post(self, ddl_version: Literal[1, 2] = 2):
@@ -653,7 +656,7 @@ class CIFFileValidator:
 
     def has_empty_data_identifier(
             self, dim: Literal["elem", "col", "row", "df"] = "df"
-    ) -> Union[pl.DataFrame, pl.Series, bool]:
+    ) -> pl.DataFrame | pl.Series | bool:
         if dim == "df":
             return self._df_ids.select((pl.any(pl.all() == "")).any())[0, 0]
         if dim == "row":
@@ -662,7 +665,7 @@ class CIFFileValidator:
             return self._df_ids.select((pl.all() == "").any())
         if dim == "elem":
             return self._df_ids.select(pl.all() == "")
-        raise ValueError()
+        raise ValueError
 
     def has_duplicated_address(self, dim: Literal["row", "df"] = "df"):
         mask = self._df_ids.is_duplicated()
@@ -670,7 +673,7 @@ class CIFFileValidator:
             return mask
         if dim == "df":
             return mask.any()
-        raise ValueError()
+        raise ValueError
 
     def has_null(self, per_row: bool = False):
         series: pl.Series = self._df.select(

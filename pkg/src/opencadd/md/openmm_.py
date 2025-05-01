@@ -1,6 +1,7 @@
+import sys
+
 import openmm as mm
 from openmm import app as mmapp
-import sys
 
 # Input PDB must contain all the atoms needed by the force field.
 pdb = mmapp.PDBFile("/Users/home/Downloads/output.pdb")

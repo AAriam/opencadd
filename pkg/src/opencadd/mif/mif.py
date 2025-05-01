@@ -2,16 +2,14 @@
 Abstract base clases used in the package.
 """
 
-from typing import Tuple, Sequence
-import numpy as np
-from opencadd import spacetime
-from opencadd import chem
+from opencadd import chem, spacetime
 
 
 class MolecularInteractionField:
     """
     Intramolecular interaction field.
     """
+
     def __init__(
             self,
             ensemble: chem.ensemble.ChemicalEnsemble,

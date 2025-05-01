@@ -2,9 +2,8 @@
 
 """
 
-from typing import Tuple, Sequence, Union, List, NamedTuple, Dict, Callable
-import datetime
 import functools
+from collections.abc import Callable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -52,13 +51,12 @@ class Record:
             else:
                 self._frequency = "1tml"
                 self._extract = self._extract_record_one_time_multiple_lines
+        elif self._is_one_line:
+            self._frequency = "mt1l"
+            self._extract = self._extract_record_multiple_times_one_line
         else:
-            if self._is_one_line:
-                self._frequency = "mt1l"
-                self._extract = self._extract_record_multiple_times_one_line
-            else:
-                self._frequency = "mtml"
-                self._extract = self._extract_record_multiple_times_multiple_lines
+            self._frequency = "mtml"
+            self._extract = self._extract_record_multiple_times_multiple_lines
 
         self._fields_dict = field_data
         all_column_indices = np.array([])

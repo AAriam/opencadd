@@ -2,19 +2,17 @@
 Parser for PDB files.
 """
 
-from pathlib import Path
-import functools
 import datetime
 import re
-from typing import Literal, NoReturn, Optional, Any, Union, Tuple
 import warnings
+from typing import Any, Literal, NoReturn
 
 import numpy as np
 import pandas as pd
 
-from . import struct, _records, _fields
 from opencadd import _exceptions, _typing
 
+from . import _fields, _records, struct
 
 __author__ = "Armin Ariamajd"
 
@@ -88,7 +86,7 @@ class PDBParser:
                 faulty_lines = [
                     f"{line_num} ({line_width})" for line_num, line_width in zip(
                         np.argwhere(lines_not80).reshape(-1) + 1,
-                        line_widths[lines_not80]
+                        line_widths[lines_not80], strict=False
                     )
                 ]
                 self._raise_or_warn(
@@ -119,11 +117,11 @@ class PDBParser:
     def parse(self, records) -> struct.PDBStructure:
         return struct.PDBStructure(**{record: getattr(self, record)() for record in records})
 
-    def header(self) -> Optional[struct.RecordHeader]:
+    def header(self) -> struct.RecordHeader | None:
         """
         Parse the HEADER record of the PDB file.
         """
-        def parse_classification(classification: str) -> Tuple[Tuple[str, ...], ...]:
+        def parse_classification(classification: str) -> tuple[tuple[str, ...], ...]:
             """Parse the classification field of the HEADER record."""
             # The classification string is left-justified, and can describe dual functions of molecules
             # (when applicable) separated by a comma “,”. Entries with multiple molecules in a complex
@@ -137,49 +135,49 @@ class PDBParser:
             return class_per_entity_and_function
         # Extract record fields as a dict
         if not self.has_record(_records.HEADER):
-            return
+            return None
         data = _records.HEADER.extract(record_char_table=self.record_lines(_records.HEADER))
         # Parse the classification string
         data["classification"] = parse_classification(data["classification"])
         return struct.RecordHeader(**data)
 
-    def obslte(self) -> Optional[struct.RecordObslte]:
+    def obslte(self) -> struct.RecordObslte | None:
         """
         Parse the OBSLTE records of the PDB file.
         """
         data = self._extract_record(_records.OBSLTE)
         if data is None:
-            return
+            return None
         return struct.RecordObslte(**data)
 
-    def title(self) -> Optional[str]:
+    def title(self) -> str | None:
         """
         Parse the TITLE records of the PDB file.
         """
         return self._extract_record(_records.TITLE)
 
-    def split(self) -> Optional[np.ndarray]:
+    def split(self) -> np.ndarray | None:
         """
         Parse the SPLIT records of the PDB file.
         """
         return self._extract_record(_records.SPLIT)
 
-    def caveat(self) -> Optional[struct.RecordCaveat]:
+    def caveat(self) -> struct.RecordCaveat | None:
         """
         Parse the CAVEAT records of the PDB file.
         """
         data = self._extract_record(_records.CAVEAT)
         if data is None:
-            return
+            return None
         return data["description"]
 
-    def compnd(self) -> Optional[pd.DataFrame]:
+    def compnd(self) -> pd.DataFrame | None:
         """
         Parse the COMPND records of the PDB file.
         """
         df = self._parse_records_compnd_source(_records.COMPND)
         if df is None:
-            return
+            return None
         engineered_mutation_values = df[["engineered", "mutation"]].dropna()
         value_is_standard = engineered_mutation_values.isin(["YES", "NO"])
         if not value_is_standard.all(axis=None):
@@ -193,19 +191,19 @@ class PDBParser:
         df[["engineered", "mutation"]] = df[["engineered", "mutation"]] == "YES"
         return df
 
-    def source(self) -> Optional[pd.DataFrame]:
+    def source(self) -> pd.DataFrame | None:
         """
         Parse the SOURCE records of the PDB file.
         """
         return self._parse_records_compnd_source(_records.SOURCE)
 
-    def keywds(self) -> Optional[np.ndarray]:
+    def keywds(self) -> np.ndarray | None:
         """
         Parse the KEYWDS records of the PDB file.
         """
         return self._extract_record(_records.KEYWDS)
 
-    def expdta(self) -> Optional[np.ndarray]:
+    def expdta(self) -> np.ndarray | None:
         """
         Parse the EXPDTA records of the PDB file.
 
@@ -219,7 +217,7 @@ class PDBParser:
         """
         techniques = self._extract_record(_records.EXPDTA)
         if techniques is None:
-            return
+            return None
         if self.strictness:
             allowed_values = [
                 'X-RAY DIFFRACTION',
@@ -240,7 +238,7 @@ class PDBParser:
                 )
         return techniques
 
-    def nummdl(self) -> Optional[int]:
+    def nummdl(self) -> int | None:
         """
         Parse the NUMMDL record of the PDB file.
 
@@ -252,7 +250,7 @@ class PDBParser:
         """
         return self._extract_record(_records.NUMMDL)
 
-    def mdltyp(self) -> Optional[np.ndarray]:
+    def mdltyp(self) -> np.ndarray | None:
         """
         Parse the MDLTYP records of the PDB file.
 
@@ -264,7 +262,7 @@ class PDBParser:
         """
         return self._extract_record(_records.MDLTYP)
 
-    def author(self) -> Optional[np.ndarray]:
+    def author(self) -> np.ndarray | None:
         """
         Parse the AUTHOR records of the PDB file.
 
@@ -276,7 +274,7 @@ class PDBParser:
         """
         return self._extract_record(_records.AUTHOR)
 
-    def revdat(self) -> Optional[pd.DataFrame]:
+    def revdat(self) -> pd.DataFrame | None:
         """
         Parse the REVDAT records of the PDB file.
 
@@ -287,7 +285,7 @@ class PDBParser:
         """
         df = self._extract_record(_records.REVDAT)
         if df is None:
-            return
+            return None
         if not df["is_init"].isin([1, 0]).all():
             self._raise_or_warn(
                 f"Non standard values found for 'modType' field of the REVDAT record, values are: {df.is_init}",
@@ -297,13 +295,13 @@ class PDBParser:
         df["is_init"] = df["is_init"] == 0
         return df
 
-    def sprsde(self) -> Optional[struct.RecordSPRSDE]:
+    def sprsde(self) -> struct.RecordSPRSDE | None:
         """
         Parse the SPRSDE records of the PDB file.
         """
         data = self._extract_record(_records.SPRSDE)
         if data is None:
-            return
+            return None
         return struct.RecordSPRSDE(**data)
 
     def jrnl(self):
@@ -320,7 +318,7 @@ class PDBParser:
         then there is no JRNL reference.
         """
         if not self.has_record(_records.JRNL):
-            return
+            return None
         record_lines = self.record_lines(_records.JRNL)
         return self.records_publication(record_lines)
 
@@ -358,7 +356,7 @@ class PDBParser:
                 ref = ref | refn_dict
         return struct.RecordJRNL(**ref)
 
-    def remark(self) -> Optional[struct.RecordREMARK]:
+    def remark(self) -> struct.RecordREMARK | None:
         """
 
         Returns
@@ -366,7 +364,7 @@ class PDBParser:
 
         """
         if not self.has_record(_records.REMARK):
-            return
+            return None
         if self._remark_args is not None:
             return struct.RecordREMARK(**self._remark_args)
         remark_lines = self.record_lines(_records.REMARK)
@@ -412,7 +410,7 @@ class PDBParser:
     #     idx_lines = self._remarks_records["idx_line"][hits]
     #     return idx_lines
 
-    def record_remark2(self, lines: np.ndarray) -> Optional[float]:
+    def record_remark2(self, lines: np.ndarray) -> float | None:
         """
         REMARK 2 record of the PDB file, stating the highest resolution that was used in building the model.
 
@@ -438,7 +436,7 @@ class PDBParser:
             self._raise_or_warn(f"REMARK 2 record has non-standard format: {lines}", raise_level=2)
         return None
 
-    def remark4(self, idx_lines: np.ndarray) -> Optional[dict[str, Union[str, str, datetime.date]]]:
+    def remark4(self, idx_lines: np.ndarray) -> dict[str, str | datetime.date] | None:
         """
         REMARK 4 record of the PDB file, indicating the version of the PDB file format
         used to generate the file.
@@ -463,13 +461,13 @@ class PDBParser:
         data = {
             field_name: lines[0][start:stop] for field_name, (start, stop) in zip(
                 ("pdb_id", "ver_num", "ver_date"),
-                ((11, 15), (40, 44), (46, 55))
+                ((11, 15), (40, 44), (46, 55)), strict=False
             )
         }
         data["ver_date"] = _fields.Date.from_pdb(data["ver_date"])
         return data
 
-    def dbref(self) -> Optional[pd.DataFrame]:
+    def dbref(self) -> pd.DataFrame | None:
         """
         Parse the DBREF and DBREF1/DBREF2 records of the PDB file.
 
@@ -480,7 +478,7 @@ class PDBParser:
             otherwise a dataframe with columns:
         """
         if not (self.has_record(_records.DBREF) or self.has_record(_records.DBREF1)):
-            return
+            return None
         # Information may be in both DBREF and DBREF1/DBREF2 records.
         #  These are extracted separately, and merged:
         df_main = pd.DataFrame(columns=_records.DBREF.fields_dict.keys())
@@ -500,7 +498,7 @@ class PDBParser:
             df_main = pd.concat((df_main, df))
         return df_main.set_index("chain_id", drop=False)
 
-    def seqadv(self) -> Optional[pd.DataFrame]:
+    def seqadv(self) -> pd.DataFrame | None:
         """
         Parse the SEQADV records of the PDB file.
 
@@ -511,7 +509,7 @@ class PDBParser:
         """
         return self._extract_record(_records.SEQADV)
 
-    def seqres(self) -> Optional[pd.DataFrame]:
+    def seqres(self) -> pd.DataFrame | None:
         if self.strictness:
             if not self.has_record(_records.SEQRES):
                 if self.has_record(_records.ATOM):
@@ -523,10 +521,10 @@ class PDBParser:
             #self._check_routine(_records.SEQRES)
         return self._extract_record(_records.SEQRES)
 
-    def modres(self) -> Optional[pd.DataFrame]:
+    def modres(self) -> pd.DataFrame | None:
         return self._extract_record(_records.MODRES)
 
-    def het(self) -> Optional[pd.DataFrame]:
+    def het(self) -> pd.DataFrame | None:
         data = self._extract_record(_records.HET)
         return data.set_index("het_id", drop=False) if data is not None else None
 
@@ -554,7 +552,7 @@ class PDBParser:
         df_tot.loc[df_tot.is_water, "name"] = "WATER"
         return pd.concat([het_data, df_tot]).sort_values("comp_num")
 
-    def record_formul(self) -> Optional[pd.DataFrame]:
+    def record_formul(self) -> pd.DataFrame | None:
 
         def parse_formula_field(text: str):
             """
@@ -575,20 +573,19 @@ class PDBParser:
             num_split = len(formula_split)
             if num_split == 1:
                 return formula_split[0], 1, 0
-            elif num_split == 3:
+            if num_split == 3:
                 return formula_split[-2], formula_split[0], 0
-            elif num_split == 4:
+            if num_split == 4:
                 return formula_split[-2], formula_split[1], formula_split[0]
-            else:
-                self._raise_or_warn(
-                    f"Could not parse the 'text' field of the FORMUL record; got: {text}.",
-                    raise_level=2
-                )
-                return text, 0, 0
+            self._raise_or_warn(
+                f"Could not parse the 'text' field of the FORMUL record; got: {text}.",
+                raise_level=2
+            )
+            return text, 0, 0
 
-        data: Optional[pd.DataFrame] = self._extract_record(_records.FORMUL)
+        data: pd.DataFrame | None = self._extract_record(_records.FORMUL)
         if data is None:
-            return
+            return None
         formulas, counts_in_chain, counts_rest = [], [], []
         for raw_formula in data["formula"]:
             formula, count_in_chain, count_rest = parse_formula_field(raw_formula)
@@ -601,7 +598,7 @@ class PDBParser:
         data["is_water"] = data["is_water"] == "*"
         return data
 
-    def helix(self) -> Optional[pd.DataFrame]:
+    def helix(self) -> pd.DataFrame | None:
         data = self._extract_record(_records.HELIX)
         return data.set_index("helix_id") if data is not None else None
 
@@ -630,22 +627,22 @@ class PDBParser:
         angles = np.array([data["alpha"], data["beta"], data["gamma"]])
         return struct.RecordCRYST1(lengths=lengths, angles=angles, z=data["z"], space_group=data["space_group"])
 
-    def origx(self) -> Optional[struct.RecordXForm]:
+    def origx(self) -> struct.RecordXForm | None:
         o1 = self._extract_record(_records.ORIGX1)
         o2 = self._extract_record(_records.ORIGX2)
         o3 = self._extract_record(_records.ORIGX3)
         if (o1 is None) or (o2 is None) or (o3 is None):
-            return
+            return None
         transformation_matrix = np.vstack([o["m"] for o in (o1, o2, o3)])
         translation_vector = np.array([o["v"] for o in (o1, o2, o3)])
         return struct.RecordXForm(matrix=transformation_matrix, vector=translation_vector)
 
-    def scale(self) -> Optional[struct.RecordXForm]:
+    def scale(self) -> struct.RecordXForm | None:
         s1 = self._extract_record(_records.SCALE1)
         s2 = self._extract_record(_records.SCALE2)
         s3 = self._extract_record(_records.SCALE3)
         if (s1 is None) or (s2 is None) or (s3 is None):
-            return
+            return None
         transformation_matrix = np.vstack([o["m"] for o in (s1, s2, s3)])
         translation_vector = np.array([s1["v"], s2["v"], s3["v"]])
         return struct.RecordXForm(matrix=transformation_matrix, vector=translation_vector)
@@ -653,7 +650,7 @@ class PDBParser:
     def mtrix(self):
         ms = [self._extract_record(rec) for rec in (_records.MTRIX1, _records.MTRIX2, _records.MTRIX3)]
         if any(m is None for m in ms):
-            return
+            return None
         shared_serials = ms[0]["serial"]
         for n, m in enumerate(ms[1:]):
             if m["serial"].size != shared_serials.size:
@@ -686,7 +683,7 @@ class PDBParser:
     #         on=("atom_name", "alt_loc", "res_name", "chain_id", "res_num", "res_icode", "element", "charge", "model_num")
     #     )
 
-    def atom(self) -> Optional[pd.DataFrame]:
+    def atom(self) -> pd.DataFrame | None:
         """
         ATOM and HETATM records of the PDB file, containing atomistic data (coordinates, occupancy, and
         temperature factor) of all atoms present in the entry.
@@ -718,7 +715,7 @@ class PDBParser:
 
         """
         if not (self.has_record(_records.ATOM) or self.has_record(_records.HETATM)):
-            return
+            return None
         mask_lines = np.logical_or(
             self.mask_record(_records.ATOM), self.mask_record(_records.HETATM)
         )
@@ -735,7 +732,7 @@ class PDBParser:
                 is_polymer = np.ones(shape=idx_lines.size, dtype=np.bool_)
                 indices_model_start = self.indices_record_lines(_records.MODEL)
                 indices_model_end = self.indices_record_lines(_records.ENDMDL)
-                for idx_start, idx_end in zip(indices_model_start, indices_model_end):
+                for idx_start, idx_end in zip(indices_model_start, indices_model_end, strict=False):
                     mask_ter = np.logical_and(idx_ter_lines > idx_start, idx_ter_lines < idx_end)
                     if mask_ter.size > 0:
                         mask_not_polymer = np.logical_and(
@@ -746,12 +743,11 @@ class PDBParser:
                 data["res_poly"] = is_polymer
             else:
                 data["res_poly"] = idx_lines < idx_ter_lines[-1]
+        elif self.has_record(_records.ATOM):
+            self._raise_or_warn("ATOM without TER", raise_level=2)
+            data["res_poly"] = data["res_std"]
         else:
-            if self.has_record(_records.ATOM):
-                self._raise_or_warn("ATOM without TER", raise_level=2)
-                data["res_poly"] = data["res_std"]
-            else:
-                data["res_poly"] = False
+            data["res_poly"] = False
 
         df = pd.DataFrame(data).set_index("serial", drop=False)[
             [
@@ -776,7 +772,7 @@ class PDBParser:
         ]
         return df
 
-    def anisou(self) -> Optional[pd.DataFrame]:
+    def anisou(self) -> pd.DataFrame | None:
         """
         ANISOU records of the PDB file, containing the anisotropic temperature factors for atoms in the entry.
 
@@ -811,7 +807,7 @@ class PDBParser:
         """
         data = self._extract_record(_records.ANISOU)
         if data is None:
-            return
+            return None
         data["charge"] = self._parse_field_charge(data["charge"])
         data["model_num"] = self._model_num_of_lines(self.indices_record_lines(_records.ANISOU))
         df = pd.DataFrame(data).set_index("serial", drop=False)[
@@ -836,7 +832,7 @@ class PDBParser:
         ]
         return df
 
-    def ter(self) -> Optional[pd.DataFrame]:
+    def ter(self) -> pd.DataFrame | None:
         """
         TER records of the PDB file, indicating the last residue of each chain in the entry.
 
@@ -872,7 +868,7 @@ class PDBParser:
         """
         df = self._extract_record(_records.TER)
         if df is None:
-            return
+            return None
         df["model_num"] = self._model_num_of_lines(self.indices_record_lines(_records.TER))
         return df.set_index("serial", drop=False)[["model_num", "chain_id", "res_name", "res_num", "res_icode", "serial"]]
 
@@ -905,7 +901,7 @@ class PDBParser:
         # serial_ref = _records.CONECT.fields_dict["serial"].extract(record_lines)
         data = self._extract_record(_records.CONECT)
         if data is None:
-            return
+            return None
         unique_serials = np.unique(data["serial"])
         bonds = dict()
         for unique_serial in unique_serials:
@@ -978,7 +974,7 @@ class PDBParser:
         """
         return self._extract_record(_records.MASTER)
 
-    def _parse_records_compnd_source(self, record: _records.Record) -> Optional[pd.DataFrame]:
+    def _parse_records_compnd_source(self, record: _records.Record) -> pd.DataFrame | None:
         """
         Parse either the COMPND or the SOURCE records of the PDB file.
         This method is the backend call of both `self.record_compnd` and `self.record_source`,
@@ -1023,7 +1019,7 @@ class PDBParser:
         #  that molecule only one fragment has been entered).
         spec_list = self._extract_record(record)
         if spec_list is None:
-            return
+            return None
         ind_mols = np.argwhere(spec_list[:, 0] == "MOL_ID").reshape(-1)
         df = pd.DataFrame(columns=record.inner_structure_names)
         idx_row = 0
@@ -1098,7 +1094,7 @@ class PDBParser:
     ):
         if not self.has_record(record):
             self._raise_or_warn_if_mandatory(record)
-            return
+            return None
         record_lines = self.record_lines(record)
         return record.extract(record_char_table=record_lines)
 
@@ -1151,15 +1147,14 @@ class PDBParser:
             Minimum strictness level where the error should be raised as an exception.
 
         Raises
-        -------
+        ------
         PDBParsingError
         """
         if self.strictness == 0:
             return
         if self.strictness >= raise_level:
             raise PDBParsingError(msg)
-        else:
-            warnings.warn(msg)
+        warnings.warn(msg)
         return
 
     def _raise_or_warn_if_mandatory(self, record: _records.Record):

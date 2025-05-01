@@ -2,14 +2,14 @@
 Data structures representing a PDB file.
 """
 
-from typing import Sequence, Optional, Union
 import datetime
-from pathlib import Path
+from collections.abc import Sequence
+
 import numpy as np
 import pandas as pd
 
+from opencadd import _typing
 from opencadd.io.pdb import _fields
-from opencadd import _exceptions, _typing
 
 
 class RecordHeader:
@@ -82,13 +82,13 @@ class RecordHeader:
     @classification.setter
     def classification(self, value):
         if not isinstance(value, _typing.ArrayLike):
-            raise TypeError()
+            raise TypeError
         for sub_seq in value:
             if not isinstance(sub_seq, _typing.ArrayLike):
-                raise TypeError()
+                raise TypeError
             for elem in sub_seq:
                 if not isinstance(elem, str):
-                    raise TypeError()
+                    raise TypeError
         self._classification = value
         return
 
@@ -113,6 +113,7 @@ class RecordObslte:
     due to major revisions to coordinates that change the structure's geometry or chemical composition,
     such as changes in polymer sequences, or identity of ligands.
     """
+
     def __init__(
             self,
             pdb_id: str,
@@ -238,7 +239,7 @@ class RecordCaveat:
     @description.setter
     def description(self, value):
         if not isinstance(value, str):
-            raise TypeError()
+            raise TypeError
         self._description = value
         return
 
@@ -280,7 +281,7 @@ class RecordSPRSDE:
         return self._pdb_id
 
     @property
-    def sprsde_pdb_id(self) -> Optional[np.ndarray]:
+    def sprsde_pdb_id(self) -> np.ndarray | None:
         """
         PDB IDs of entries that were made obsolete by this entry. The date of this event is given
         in the `superseded_date` property of this object (i.e. `Title.superseded_date`).
@@ -297,7 +298,7 @@ class RecordSPRSDE:
         return self._sprsde_pdb_id
 
     @property
-    def sprsde_date(self) -> Optional[datetime.date]:
+    def sprsde_date(self) -> datetime.date | None:
         """
         The date this entry superseded (i.e. replaced) other entries. The list of superseded PDB IDs is given
         in the `superseded_pdb_ids` property of this object (i.e. `Title.superseded_pdb_ids`).
@@ -349,18 +350,18 @@ class RecordSite:
 class RecordJRNL:
     def __init__(
             self,
-            author: Optional[np.ndarray] = None,
-            title: Optional[str] = None,
-            editor: Optional[np.ndarray] = None,
-            pub_name: Optional[str] = None,
-            vol: Optional[str] = None,
-            page: Optional[str] = None,
-            year: Optional[int] = None,
-            pub: Optional[str] = None,
-            issn: Optional[str] = None,
-            essn: Optional[str] = None,
-            pm_id: Optional[str] = None,
-            doi: Optional[str] = None
+            author: np.ndarray | None = None,
+            title: str | None = None,
+            editor: np.ndarray | None = None,
+            pub_name: str | None = None,
+            vol: str | None = None,
+            page: str | None = None,
+            year: int | None = None,
+            pub: str | None = None,
+            issn: str | None = None,
+            essn: str | None = None,
+            pm_id: str | None = None,
+            doi: str | None = None
     ):
         self._author = author
         self._title = title
@@ -456,8 +457,8 @@ class RecordREMARK:
     def __init__(
             self,
             full_text: dict,
-            resolution: Optional[float] = None,
-            version: Optional[dict] = None,
+            resolution: float | None = None,
+            version: dict | None = None,
     ):
         self._full_text = full_text
         self._resolution = resolution
@@ -466,7 +467,7 @@ class RecordREMARK:
 
     def __call__(self, remark_num: int, printout: bool = True):
         if remark_num not in self._full_text:
-            return
+            return None
         remark_lines = self._full_text[remark_num]
         if printout:
             print("\n".join(remark_lines))
@@ -509,6 +510,7 @@ class RecordCRYST1:
         * space group = P 1
         * Z = 1
     """
+
     def __init__(
             self,
             lengths: np.ndarray,
@@ -632,49 +634,49 @@ class RecordMTRIX:
         self._vectors = vectors
         self._is_given = is_given
         self._df = pd.DataFrame({"serial": serial, "is_given": is_given}).set_index("serial", drop=False)
-        self._xforms = [RecordXForm(matrix=matrix, vector=vector) for matrix, vector in zip(matrices, vectors)]
+        self._xforms = [RecordXForm(matrix=matrix, vector=vector) for matrix, vector in zip(matrices, vectors, strict=False)]
         return
-    
+
 
 class PDBStructure:
     def __init__(
             self,
-            header: Optional[RecordHeader] = None,
-            obslte: Optional[RecordObslte] = None,
-            title: Optional[str] = None,
-            split: Optional[np.ndarray] = None,
-            caveat: Optional[str] = None,
-            compnd: Optional[pd.DataFrame] = None,
-            source: Optional[pd.DataFrame] = None,
-            keywds: Optional[np.ndarray] = None,
-            expdta: Optional[np.ndarray] = None,
-            nummdl: Optional[int] = None,
-            mdltyp: Optional[np.ndarray] = None,
-            author: Optional[np.ndarray] = None,
-            revdat: Optional[np.ndarray] = None,
-            sprsde: Optional[RecordSPRSDE] = None,
-            jrnl: Optional[RecordJRNL] = None,
-            remark: Optional[RecordREMARK] = None,
-            dbref: Optional[pd.DataFrame] = None,
-            seqadv: Optional[pd.DataFrame] = None,
-            seqres: Optional[pd.DataFrame] = None,
-            modres: Optional[pd.DataFrame] = None,
-            het: Optional[pd.DataFrame] = None,
-            hetnam: Optional[pd.DataFrame] = None,
-            helix: Optional[pd.DataFrame] = None,
-            sheet: Optional[pd.DataFrame] = None,
-            ssbond: Optional[pd.DataFrame] = None,
-            link: Optional[pd.DataFrame] = None,
-            cispep: Optional[pd.DataFrame] = None,
-            site: Optional[pd.DataFrame] = None,
-            cryst1: Optional[RecordCRYST1] = None,
-            origx: Optional[None] = None,
-            scale: Optional[None] = None,
-            mtrix: Optional[pd.DataFrame] = None,
-            atom: Optional[pd.DataFrame] = None,
-            anisou: Optional[pd.DataFrame] = None,
-            ter: Optional[pd.DataFrame] = None,
-            conect: Optional[pd.DataFrame] = None,
+            header: RecordHeader | None = None,
+            obslte: RecordObslte | None = None,
+            title: str | None = None,
+            split: np.ndarray | None = None,
+            caveat: str | None = None,
+            compnd: pd.DataFrame | None = None,
+            source: pd.DataFrame | None = None,
+            keywds: np.ndarray | None = None,
+            expdta: np.ndarray | None = None,
+            nummdl: int | None = None,
+            mdltyp: np.ndarray | None = None,
+            author: np.ndarray | None = None,
+            revdat: np.ndarray | None = None,
+            sprsde: RecordSPRSDE | None = None,
+            jrnl: RecordJRNL | None = None,
+            remark: RecordREMARK | None = None,
+            dbref: pd.DataFrame | None = None,
+            seqadv: pd.DataFrame | None = None,
+            seqres: pd.DataFrame | None = None,
+            modres: pd.DataFrame | None = None,
+            het: pd.DataFrame | None = None,
+            hetnam: pd.DataFrame | None = None,
+            helix: pd.DataFrame | None = None,
+            sheet: pd.DataFrame | None = None,
+            ssbond: pd.DataFrame | None = None,
+            link: pd.DataFrame | None = None,
+            cispep: pd.DataFrame | None = None,
+            site: pd.DataFrame | None = None,
+            cryst1: RecordCRYST1 | None = None,
+            origx: None = None,
+            scale: None = None,
+            mtrix: pd.DataFrame | None = None,
+            atom: pd.DataFrame | None = None,
+            anisou: pd.DataFrame | None = None,
+            ter: pd.DataFrame | None = None,
+            conect: pd.DataFrame | None = None,
     ):
         self._header = header
         self._obslte = obslte
@@ -717,7 +719,7 @@ class PDBStructure:
         return
 
     @property
-    def header(self) -> Optional[RecordHeader]:
+    def header(self) -> RecordHeader | None:
         """
         HEADER record of the PDB file, containing the entry's PDB ID, classification, and deposition date.
 
@@ -737,7 +739,7 @@ class PDBStructure:
         return self._header
 
     @property
-    def obslte(self) -> Optional[RecordObslte]:
+    def obslte(self) -> RecordObslte | None:
         """
         OBSLTE records of the PDB file, indicating the date the entry was removed (“obsoleted”) from the
         PDB's full release, and the PDB IDs of the new entries, if any, that have replaced this entry.
@@ -755,7 +757,7 @@ class PDBStructure:
         return self._obslte
 
     @property
-    def title(self) -> Optional[str]:
+    def title(self) -> str | None:
         """
         TITLE records of the PDB file, containing a title for the experiment or analysis that is represented
         in the entry.
@@ -774,7 +776,7 @@ class PDBStructure:
         return self._title
 
     @property
-    def split(self) -> Optional[np.ndarray]:
+    def split(self) -> np.ndarray | None:
         """
         SPLIT records of the PDB file, containing the PDB IDs of entries that are required
         to reconstitute a complete complex.
@@ -790,7 +792,7 @@ class PDBStructure:
         return self._split
 
     @property
-    def caveat(self) -> Optional[RecordCaveat]:
+    def caveat(self) -> RecordCaveat | None:
         """
         CAVEAT records of the PDB file, containing a free text description of
         errors and unresolved issues in the entry, if any.
@@ -808,7 +810,7 @@ class PDBStructure:
         return self._caveat
 
     @property
-    def compnd(self) -> Optional[pd.DataFrame]:
+    def compnd(self) -> pd.DataFrame | None:
         """
         COMPND records of the PDB file, describing the macromolecular contents of the PDB file,
         or a standalone drug or inhibitor in cases where the entry does not contain a polymer.
@@ -863,7 +865,7 @@ class PDBStructure:
         return self._compnd
 
     @property
-    def source(self) -> Optional[pd.DataFrame]:
+    def source(self) -> pd.DataFrame | None:
         """
         SOURCE records of the PDB file, containing information on the biological/chemical source of
         each biological molecule in the PDB file, or a standalone drug or inhibitor in cases
@@ -1006,7 +1008,7 @@ class PDBStructure:
         return self._source
 
     @property
-    def keywds(self) -> Optional[np.ndarray]:
+    def keywds(self) -> np.ndarray | None:
         """
         KEYWDS records of the PDB file, containing keywords/terms relevant to the PDB file,
         similar to that found in journal articles.
@@ -1029,7 +1031,7 @@ class PDBStructure:
         return self._keywds
 
     @property
-    def expdta(self) -> Optional[np.ndarray]:
+    def expdta(self) -> np.ndarray | None:
         """
         EXPDTA records of the PDB file, identifying the experimental technique used for determining the
         structure. This may refer to the type of radiation and sample, or include the spectroscopic or modeling
@@ -1052,7 +1054,7 @@ class PDBStructure:
         return self._expdta
 
     @property
-    def nummdl(self) -> Optional[int]:
+    def nummdl(self) -> int | None:
         """
         NUMMDL record of the PDB file, indicating the total number of models in the entry.
 
@@ -1068,7 +1070,7 @@ class PDBStructure:
         return self._nummdl
 
     @property
-    def mdltyp(self) -> Optional[np.ndarray]:
+    def mdltyp(self) -> np.ndarray | None:
         """
         MDLTYP records of the PDB file, containing additional structural annotations on the coordinates
         in the PDB file, used to highlight certain features.
@@ -1095,7 +1097,7 @@ class PDBStructure:
         return self._mdltyp
 
     @property
-    def author(self) -> Optional[np.ndarray]:
+    def author(self) -> np.ndarray | None:
         """
         AUTHOR records of the PDB file, containing the names of the persons responsible for the contents
         of the entry.
@@ -1127,7 +1129,7 @@ class PDBStructure:
         return self._author
 
     @property
-    def revdat(self) -> Optional[pd.DataFrame]:
+    def revdat(self) -> pd.DataFrame | None:
         """
         REVDAT records of the PDB file, containing a history of modifications made to the entry since its
         release.
@@ -1183,7 +1185,7 @@ class PDBStructure:
         return self._remark
 
     @property
-    def dbref(self) -> Optional[pd.DataFrame]:
+    def dbref(self) -> pd.DataFrame | None:
         """
         DBREF and DBREF1/DBREF2 records of the PDB file, providing cross-references between each
         sequence (chain) of the polymers in the PDB file (as it appears in the SEQRES records),
@@ -1243,7 +1245,7 @@ class PDBStructure:
         return self._dbref
 
     @property
-    def seqadv(self) -> Optional[pd.DataFrame]:
+    def seqadv(self) -> pd.DataFrame | None:
         """
         SEQADV records of the PDB file, identifying the differences between sequence information
         in the SEQRES records of the PDB entry and the sequence database entry given in DBREF.
@@ -1296,7 +1298,7 @@ class PDBStructure:
         return self._seqadv
 
     @property
-    def seqres(self) -> Optional[pd.DataFrame]:
+    def seqres(self) -> pd.DataFrame | None:
         """
         SEQRES records of the PDB file, containing information on the sequence of each
         polymer (i.e. chain) in the file, that is, a listing of the consecutive chemical components
@@ -1327,7 +1329,7 @@ class PDBStructure:
         return self._seqres
 
     @property
-    def modres(self) -> Optional[pd.DataFrame]:
+    def modres(self) -> pd.DataFrame | None:
         """
         MODRES records of the PDB file, providing descriptions of modifications
         (e.g. chemical or post-translational) to protein and nucleic acid residues.
@@ -1567,8 +1569,8 @@ class PDBStructure:
 
     def remove_heterogen(
             self,
-            include: Optional[Union[str, Sequence[str]]] = None,
-            exclude: Optional[Union[str, Sequence[str]]] = None,
+            include: str | Sequence[str] | None = None,
+            exclude: str | Sequence[str] | None = None,
     ):
         if self._edit_state is None:
             self._edit_state = self.atom.copy()

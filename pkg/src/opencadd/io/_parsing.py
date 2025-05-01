@@ -2,11 +2,9 @@
 General functions and routines for data parsing.
 """
 
-from typing import Tuple, Dict, Callable, Sequence, NamedTuple, Union, Any, List, Optional
-import numpy as np
-import numpy.typing as npt
-import pandas as pd
+from collections.abc import Sequence
 
+import numpy as np
 
 
 def string_array_to_char_table(array: Sequence[str], view: bool = True) -> np.ndarray:
@@ -14,7 +12,7 @@ def string_array_to_char_table(array: Sequence[str], view: bool = True) -> np.nd
     return arr.view(dtype=(str, 1)).reshape(arr.size, -1)
 
 
-def extract_column_from_string_array(array: np.ndarray, char_range: Tuple[int, int]) -> np.ndarray:
+def extract_column_from_string_array(array: np.ndarray, char_range: tuple[int, int]) -> np.ndarray:
     """
     From an array of strings representing the rows of a table, extract the sub-string between
     the given start and end column (i.e. character) numbers, in a fast vectorized fashion.
@@ -41,7 +39,7 @@ def extract_column_from_string_array(array: np.ndarray, char_range: Tuple[int, i
 
 def extract_columns_by_interval(
         char_table: np.ndarray,
-        interval: Tuple[int, int],
+        interval: tuple[int, int],
         strip: bool = True
 ) -> np.ndarray:
     column = char_table[:, interval[0]:interval[1]].view(dtype=(str, interval[1] - interval[0])).reshape(-1)

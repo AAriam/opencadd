@@ -1,10 +1,8 @@
-from typing import Dict
-import polars as pl
 import numpy as np
+import polars as pl
 
-from .._filestruct import DDL2CIFFile
 from .._df_tools import CIFItemCategoryDataFrame
-
+from .._filestruct import DDL2CIFFile
 
 mapping = {
     "data": {
@@ -84,9 +82,9 @@ def process_def_key(df: pl.DataFrame):
 
 def start(dic: DDL2CIFFile):
     if dic.df.select(pl.col("data_name_keyword").is_in(["category", "keyword"]).any())[0, 0]:
-        raise ValueError()
+        raise ValueError
     if dic.count_data_blocks != 1:
-        raise ValueError()
+        raise ValueError
     dfs_dict = dic.df_per_category(part="all", reduce=True)
     for data_type, dfs_dict_type in dfs_dict.keys():
         if not isinstance(dfs_dict_type, dict):

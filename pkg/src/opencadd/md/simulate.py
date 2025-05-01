@@ -21,16 +21,14 @@ Script is adapted from:
 http://openmm.org/tutorials/hkmt_tip4pew/
 
 """
-from __future__ import print_function
 
 import os
-import sys
+from sys import stdout
 
 import openmm as mm
 from openmm import app
 from simtk import unit
 
-from sys import stdout
 
 def simulate(
     input_pdb_path,
@@ -69,7 +67,6 @@ def simulate(
         GPU is used on cluster, CPU otherwise.
 
     """
-
     # load in input PDB file and force field XML files
     pdb = app.PDBFile(input_pdb_path)
     force_field = app.ForceField("amber14-all.xml", "amber14/tip3pfb.xml")

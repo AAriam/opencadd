@@ -1,9 +1,9 @@
 import warnings
-import polars as pl
+
 import numpy as np
+import polars as pl
 
 from .. import _df_tools as tools
-
 
 CAT_KEY = ["frame_code_category", "frame_code_keyword"]
 COL_CAT = pl.col("frame_code_category")
@@ -25,7 +25,7 @@ def item_default(df: tools.CIFItemCategoryDataFrame) -> pl.DataFrame:
         raise ValueError("DataFrame doesn't contain necessary columns.")
     if "name" in df.keywords:
         if not df.match_names(col_name="name", reduce=True):
-            raise ValueError()
+            raise ValueError
     duplicated = df.is_duplicated()
     if duplicated.any():
         warnings.warn(
@@ -73,9 +73,9 @@ def process_df_item(df: pl.DataFrame):
             df=df_1, col_name="name", cat_col_name="category", key_col_name="keyword"
         )
         if not match_cat_key(df_2, col_name_category="category", col_name_keyword="keyword"):
-            raise ValueError()
+            raise ValueError
     if not column_is_subset(df=df_2, main_col_name="category", sub_col_name="category_id", reduce=True):
-        raise ValueError()
+        raise ValueError
     df_3 = df_2.select(["category", "keyword", "mandatory_code"])
     duplicated = df_3.is_duplicated()
     if duplicated.any():
@@ -95,7 +95,7 @@ def process_df_item(df: pl.DataFrame):
 def process_df_item_type(df: pl.DataFrame) -> pl.DataFrame:
     if "name" in df.columns:
         if not match_names(df, col_name="name", reduce=True):
-            raise ValueError()
+            raise ValueError
     return
 
 

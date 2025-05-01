@@ -48,7 +48,7 @@ HEADER_DTYPE = np.dtype(
 
 
 class MRCFile:
-    
+
     @property
     def shape(self) -> np.ndarray:
         """
@@ -70,7 +70,7 @@ MODE = {
     6: np.uint16,
     12: np.float16,
 }
-HEADER_LEN = int(1024)  # Bytes.
+HEADER_LEN = 1024  # Bytes.
 
 
 def from_file_content(content: bytes):

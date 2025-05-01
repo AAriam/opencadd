@@ -3,24 +3,26 @@ Download various data files from the Protein Data Bank (PDB) webservers.
 """
 
 # Standard library
-from typing import Literal, Union, Optional
 import gzip
 from pathlib import Path
+from typing import Literal
+
+from opencadd import _sysio
+
 # Self
 from opencadd._http_request import response_http_request
 from opencadd._typing import PathLike
-from opencadd import _sysio
 
 # General API endpoints
-_ROOT_FILE: str = f"https://files.rcsb.org"
+_ROOT_FILE: str = "https://files.rcsb.org"
 
 
 def entry(
         pdb_id: str,
         file_format: Literal["cif", "pdb", "xml", "bcif"] = "cif",
-        biological_assembly_id: Optional[Union[int, str]] = None,
-        output_path: Optional[PathLike] = None,
-) -> Union[bytes, Path]:
+        biological_assembly_id: int | str | None = None,
+        output_path: PathLike | None = None,
+) -> bytes | Path:
     """
     Download a PDB entry file in one of available formats.
 
@@ -90,8 +92,8 @@ def small_molecule(
         ligand_id: str,
         file_type: Literal["model_coords", "ideal_coords", "def"] = "model_coords",
         file_format: Literal["sdf", "mol2", "cif"] = "sdf",
-        output_path: Optional[PathLike] = None,
-) -> Union[bytes, Path]:
+        output_path: PathLike | None = None,
+) -> bytes | Path:
     """
     Download a small molecule file in one of available formats.
 
@@ -134,11 +136,10 @@ def small_molecule(
             url = f"{_URL_PREFIX_MOL}{ligand_id}_model.{file_format}"
         else:
             raise ValueError(f"File format {file_format} is not accepted for type `model_coords`")
+    elif file_format in ("mol2", "sdf"):
+        url = f"{_URL_PREFIX_MOL}{ligand_id}_ideal.{file_format}"
     else:
-        if file_format in ("mol2", "sdf"):
-            url = f"{_URL_PREFIX_MOL}{ligand_id}_ideal.{file_format}"
-        else:
-            raise ValueError(f"File format {file_format} is not accepted for type `model_coords`")
+        raise ValueError(f"File format {file_format} is not accepted for type `model_coords`")
 
     byte_content = response_http_request(url=url, response_type="bytes")
     if output_path is None:
@@ -169,8 +170,8 @@ def dictionary(
         'nef',
         'ndb_ntc'
     ] = "pdbx_v50",
-    output_path: Optional[PathLike] = None,
-) -> Union[bytes, Path]:
+    output_path: PathLike | None = None,
+) -> bytes | Path:
     """
     Download one of the mmCIF dictionary file.
 
@@ -262,8 +263,8 @@ def dictionary(
 
 def chemical_component_dictionary(
         variant: Literal['main', 'protonation', 'model'] = "main",
-        output_path: Optional[PathLike] = None,
-) -> Union[bytes, Path]:
+        output_path: PathLike | None = None,
+) -> bytes | Path:
     """
     Download the Chemical Component Dictionary, or one of its variants.
 

@@ -1,17 +1,15 @@
-from typing import Union, Sequence, Optional
-from pathlib import Path
-import pandas as pd
-from opencadd import _typing, _sysio
-import numpy as np
-import opencadd as oc
-from . import struct, _writer
+from collections.abc import Sequence
+
+from opencadd import _typing
+
+from . import _writer, struct
 
 
 def from_chemsys(
         system,
-        output_filename: Optional[str] = None,
+        output_filename: str | None = None,
         output_path: _typing.PathLike = None,
-        models: Optional[Union[int, Sequence[int]]] = None,
+        models: int | Sequence[int] | None = None,
         separate_models: bool = False,
 ):
     pdb_struct = struct.PDBStructure(
@@ -28,9 +26,9 @@ def from_chemsys(
 
 def from_structure(
         pdb_structure: struct.PDBStructure,
-        output_filename: Optional[str] = None,
+        output_filename: str | None = None,
         output_path: _typing.PathLike = None,
-        models: Optional[Union[int, Sequence[int]]] = None,
+        models: int | Sequence[int] | None = None,
         separate_models: bool = False,
 ):
     writer = _writer.PDBWriter(pdb_structure=pdb_structure)

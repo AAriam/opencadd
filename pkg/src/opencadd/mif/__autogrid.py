@@ -13,15 +13,18 @@ https://www.csb.yale.edu/userguides/datamanip/autodock/html/Using_AutoDock_305.2
 
 
 # Standard library
-from typing import Sequence, Union, Optional, Tuple, Literal
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
+
 # 3rd-party
 import numpy as np
 import numpy.typing as npt
+
 # Self
-from opencadd._typing import PathLike, ArrayLike
+from opencadd._typing import ArrayLike, PathLike
 from opencadd.const import autodock
+
 # from opencadd.mif.abc import IntraMolecularInteractionField
 #
 #
@@ -33,20 +36,20 @@ class AutoGridField(IntraMolecularInteractionField):
     def __init__(
             self,
             receptor_filepaths: Sequence[PathLike],
-            grid_center: Union[Tuple[float, float, float]],
-            grid_size: Tuple[float, float, float] = (25, 25, 25),
-            grid_npts: Optional[Tuple[int, int, int]] = None,
+            grid_center: tuple[float, float, float],
+            grid_size: tuple[float, float, float] = (25, 25, 25),
+            grid_npts: tuple[int, int, int] | None = None,
             grid_spacing: float = 0.375,
             ligand_type_hydrogen_bond_donor: autodock.AtomType = autodock.AtomType.HD,
             ligand_type_hydrogen_bond_acceptor: autodock.AtomType = autodock.AtomType.OA,
             ligand_type_hydrophobic: autodock.AtomType = autodock.AtomType.C,
             ligand_type_aromatic: autodock.AtomType = autodock.AtomType.A,
-            ligand_types_other: Optional[Sequence[autodock.AtomType]] = (),
+            ligand_types_other: Sequence[autodock.AtomType] | None = (),
             smooth: float = 0.5,
             dielectric: float = -0.1465,
-            receptor_types: Optional[Sequence[Sequence[autodock.AtomType]]] = None,
-            param_filepath: Optional[Path] = None,
-            output_path: Optional[Path] = None,
+            receptor_types: Sequence[Sequence[autodock.AtomType]] | None = None,
+            param_filepath: Path | None = None,
+            output_path: Path | None = None,
             field_datatype: npt.DTypeLike = np.single,
     ):
         """
@@ -213,17 +216,17 @@ class AutoGridField(IntraMolecularInteractionField):
 def routine_run(
         receptor_filepath: PathLike,
         ligand_types: Sequence[autodock.AtomType],
-        grid_center: Union[Tuple[float, float, float]],
-        grid_size: Tuple[float, float, float] = (25, 25, 25),
-        grid_npts: Optional[Tuple[int, int, int]] = None,
+        grid_center: tuple[float, float, float],
+        grid_size: tuple[float, float, float] = (25, 25, 25),
+        grid_npts: tuple[int, int, int] | None = None,
         grid_spacing: float = 0.375,
         smooth: float = 0.5,
         dielectric: float = -0.1465,
-        receptor_types: Optional[Sequence[autodock.AtomType]] = None,
-        param_filepath: Optional[PathLike] = None,
-        output_path: Optional[PathLike] = None,
+        receptor_types: Sequence[autodock.AtomType] | None = None,
+        param_filepath: PathLike | None = None,
+        output_path: PathLike | None = None,
         field_datatype: npt.DTypeLike = np.single,
-) -> Tuple[Tuple[np.ndarray], Tuple[Path], Path, Path, Path]:
+) -> tuple[tuple[np.ndarray], tuple[Path], Path, Path, Path]:
     """
     Run AutoGrid energy calculations and get the results.
 
@@ -273,7 +276,6 @@ def routine_run(
         added to the end of the tuple, respectively. The second tuple contains the paths to each
         of the energy map files in the same order.
     """
-
     if grid_npts is None:
         grid_npts = calculate_npts(grid_size=grid_size, grid_spacing=grid_spacing)
     # 1. Create GPF config file for AutoGrid.
@@ -304,8 +306,8 @@ def routine_run(
 
 
 def from_filepath_gpf(
-        filepath: Union[PathLike, Sequence[PathLike]],
-        output_path: Optional[PathLike] = None,
+        filepath: PathLike | Sequence[PathLike],
+        output_path: PathLike | None = None,
 ) -> subprocess.CompletedProcess:
     """
     Run grid energy calculations with AutoGrid4, using the input grid parameter file (GPF).
@@ -353,9 +355,9 @@ def from_filepath_gpf(
 
 
 def calculate_npts(
-        grid_size: Tuple[float, float, float],
+        grid_size: tuple[float, float, float],
         grid_spacing: float
-) -> Tuple[int, int, int]:
+) -> tuple[int, int, int]:
     """
     Calculate the AutoGrid input argument `npts`.
 

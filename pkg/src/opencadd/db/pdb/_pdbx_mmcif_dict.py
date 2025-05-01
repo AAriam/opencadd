@@ -1,5 +1,4 @@
 
-from typing import Dict
 
 import polars as pl
 
@@ -7,7 +6,7 @@ import polars as pl
 class Item:
 
     def __init__(self, dfs, col_name_cat: str = "category", col_name_key: str = "keyword"):
-        self._dfs: Dict[str, pl.DataFrame] = dfs
+        self._dfs: dict[str, pl.DataFrame] = dfs
         self._col_cat = pl.col(col_name_cat)
         self._col_key = pl.col(col_name_key)
         self._col_names_id = (col_name_cat, col_name_key)

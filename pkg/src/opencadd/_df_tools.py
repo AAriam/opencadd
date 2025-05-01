@@ -1,9 +1,9 @@
-from typing import Union, Sequence
 import functools
 import operator
+from collections.abc import Sequence
 
-import polars as pl
 import numpy as np
+import polars as pl
 
 
 class PolarsDataFrame:
@@ -20,7 +20,7 @@ class PolarsDataFrame:
     def keywords(self) -> list:
         return self.df.columns
 
-    def has_keyword(self, keywords: Union[str, Sequence[str]], reduce: bool = True):
+    def has_keyword(self, keywords: str | Sequence[str], reduce: bool = True):
         is_in = np.isin(keywords, self.keywords)
         return is_in.all() if reduce else is_in
 

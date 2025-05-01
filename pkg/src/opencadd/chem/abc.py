@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Sequence, Optional, Literal
+from collections.abc import Sequence
 
 from opencadd._typing import ArrayLike
 
@@ -10,8 +10,8 @@ class Composition(ABC):
     def __init__(
             self,
             atomic_numbers: Sequence[int],
-            mass_numbers: Optional[Sequence[int]] = None,
-            charges: Optional[Sequence[float]] = None,
+            mass_numbers: Sequence[int] | None = None,
+            charges: Sequence[float] | None = None,
     ):
         ...
 

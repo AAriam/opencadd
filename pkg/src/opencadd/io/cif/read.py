@@ -2,22 +2,21 @@
 Read an mmCIF file from various sources.
 """
 
-from typing import Literal, Optional, Union, Sequence
 from pathlib import Path
 
 import polars as pl
 
 from opencadd import _typing
 from opencadd.db.pdb import file
-from . import _parser, _filestruct
 
+from . import _filestruct, _parser
 
 __author__ = "Armin Ariamajd"
 
 
 def from_pdb_id(
     pdb_id: str,
-    biological_assembly_id: Optional[int] = None,
+    biological_assembly_id: int | None = None,
 ):
     mmcif_file = file.entry(
         pdb_id=pdb_id, file_format="cif", biological_assembly_id=biological_assembly_id
@@ -35,7 +34,7 @@ def from_filepath(
 
 
 def from_file_content(
-        content: Union[str, bytes],
+        content: str | bytes,
 ) :
     if isinstance(content, bytes):
         content = content.decode()

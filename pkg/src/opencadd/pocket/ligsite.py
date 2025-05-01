@@ -1,9 +1,12 @@
 from __future__ import annotations
-from typing import Optional, Union, Sequence, Literal
-import opencadd as oc
 
-import numpy as np
+from collections.abc import Sequence
+from typing import Literal
+
 import jax.numpy as jnp
+import numpy as np
+
+import opencadd as oc
 
 
 class LigSiteDetector:
@@ -11,9 +14,9 @@ class LigSiteDetector:
     def __init__(
             self,
             receptor,#: oc.chem.system.ChemicalSystem,
-            resolution_or_grid: Union[float, Sequence[float], oc.spacetime.grid.Grid],
+            resolution_or_grid: float | Sequence[float] | oc.spacetime.grid.Grid,
             num_directions: Literal[3, 7, 13] = 13,
-            max_radius: Optional[float] = None,
+            max_radius: float | None = None,
     ):
         self._receptor = receptor
         self._toxel_vol = self._receptor.conformation.toxelate(
@@ -90,7 +93,7 @@ class LigSiteDetector:
     def psp_events(
             self,
             num_directions: Literal[3, 7, 13] = 13,
-            max_radius: Optional[float] = None,
+            max_radius: float | None = None,
     ) -> np.ndarray:
         """
         Calculate the length of protein–solvent–protein (PSP) events for vacant grid points,
@@ -120,5 +123,4 @@ class LigSiteDetector:
             A 4-dimensional array matching the first four dimensions of `T2FPharm.grid`,
             indicating for each grid point its psp distances in each given direction.
         """
-
         return

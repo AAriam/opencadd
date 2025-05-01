@@ -13,19 +13,20 @@ References
     J. Chem. Inf. Model. 2012, 52 (2), 360-72. DOI: https://doi.org/10.1021/ci200454v.
 """
 
-from pathlib import Path
-from typing import Optional, Tuple, Sequence, Union, List, Dict
-import io
 import gzip
+import io
+from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
-from opencadd._http_request import response_http_request, HTTPRequestRetryConfig
+
+import opencadd as oc
+import opencadd._common_webapi
+import opencadd._regex
+
 #from opencadd.io.io import filelike_to_filepath
 from opencadd._decorator import RetryConfig
-import opencadd as oc
-import opencadd._regex
-import opencadd._common_webapi
+from opencadd._http_request import HTTPRequestRetryConfig, response_http_request
 
 
 class DoGSiteScorerDetector:
@@ -179,12 +180,12 @@ class DoGSiteScorerDetector:
 
 def _from_ensemble(
         ensemble: oc.chem.ensemble.ChemicalEnsemble,
-        model: Optional[int] = 0,
-        chain_id: Optional[str] = None,
-        ligand_id_chain_num: Optional[Tuple[str, str, int]] = None,
+        model: int | None = 0,
+        chain_id: str | None = None,
+        ligand_id_chain_num: tuple[str, str, int] | None = None,
         include_subpockets: bool = True,
         calculate_druggability: bool = True,
-        retry_config: Optional[HTTPRequestRetryConfig] = HTTPRequestRetryConfig(),
+        retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig(),
 ) -> DoGSiteScorerDetector:
 
     dummy_pdb_id = oc._common_webapi.proteinsplus_upload_pdb(pdb_content=ensemble.to_pdb(model=model))
@@ -201,19 +202,19 @@ def _from_ensemble(
             ensemble=ensemble,
             volume=volume,
             atoms=atoms_df.loc[pocket_name, "atom_serial"].to_numpy()
-        ) for volume, pocket_name in zip(pocket_volumes, pocket_data_df.index)
+        ) for volume, pocket_name in zip(pocket_volumes, pocket_data_df.index, strict=False)
     }
     return DoGSiteScorerDetector(ensemble=ensemble, pockets=pockets, pocket_data=pocket_data_df, pocket_atoms=atoms_df)
 
 
 def _run(
         pdb_id: str,
-        chain_id: Optional[str] = None,
-        ligand_id_chain_num: Optional[Tuple[str, str, int]] = None,
+        chain_id: str | None = None,
+        ligand_id_chain_num: tuple[str, str, int] | None = None,
         include_subpockets: bool = True,
         calculate_druggability: bool = True,
-        retry_config: Optional[HTTPRequestRetryConfig] = HTTPRequestRetryConfig(),
-) -> Tuple[pd.DataFrame, pd.DataFrame, List, str]:
+        retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig(),
+) -> tuple[pd.DataFrame, pd.DataFrame, list, str]:
     """
     Detect binding pockets for a protein structure from the Protein Data Bank.
 
@@ -263,12 +264,12 @@ def _run(
 
 def _submit_job(
         pdb_id: str,
-        chain_id: Optional[str] = None,
-        ligand_id_chain_num: Optional[Tuple[str, str, int]] = None,
+        chain_id: str | None = None,
+        ligand_id_chain_num: tuple[str, str, int] | None = None,
         include_subpockets: bool = True,
         calculate_druggability: bool = True,
-        retry_config: Optional[HTTPRequestRetryConfig] = HTTPRequestRetryConfig(),
-) -> Dict[str, Union[str, List[str]]]:
+        retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig(),
+) -> dict[str, str | list[str]]:
     # Submit the job and get submission URL
     url_of_job = response_http_request(
         url="https://proteins.plus/api/dogsite_rest",
@@ -304,8 +305,8 @@ def _submit_job(
 
 def _get_results(
         job_result_urls: dict,
-        retry_config: Optional[HTTPRequestRetryConfig] = HTTPRequestRetryConfig()
-) -> Tuple[str, str, List[bytes], List[bytes]]:
+        retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig()
+) -> tuple[str, str, list[bytes], list[bytes]]:
     pockets_table, description = [
         response_http_request(
             url=job_result_urls[data],
@@ -353,7 +354,7 @@ def _parse_results(
     #  corresponding to a specific pocket's residues.
     #  They also contain the geometric center and the max. radius of the pockets.
     pocket_names_repeated, atom_serials, pocket_centers, pocket_radii = [], [], [], []
-    for name, content in zip(pocket_data_df.index, pdb_files):
+    for name, content in zip(pocket_data_df.index, pdb_files, strict=False):
         lines = content.decode().splitlines()
         info_line = lines[5]
         center_and_radius = [float(elem) for elem in info_line.split() if oc._regex.ANY_NUM.match(elem)]

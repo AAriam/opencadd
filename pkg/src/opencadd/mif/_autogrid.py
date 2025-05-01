@@ -13,18 +13,20 @@ https://www.csb.yale.edu/userguides/datamanip/autodock/html/Using_AutoDock_305.2
 
 
 # Standard library
-from typing import Sequence, Union, Optional, Tuple, Literal
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
+
 # 3rd-party
 import numpy as np
 import numpy.typing as npt
-# Self
-from opencadd._typing import PathLike, ArrayLike
-from opencadd.const.autodock import AtomType
-from opencadd import spacetime
-from opencadd import pocket
+
 import opencadd as oc
+from opencadd import spacetime
+
+# Self
+from opencadd._typing import PathLike
+from opencadd.const.autodock import AtomType
 
 _PATH_EXECUTABLE = Path(oc.__file__).parent.resolve()/'_exec'/'autogrid4'
 
@@ -36,7 +38,7 @@ def _from_pdbqt_content(
         grid: spacetime.grid.Grid,
         smooth: float = 0.5,
         dielectric: float = -0.1465,
-        param_filepath: Optional[Path] = None,
+        param_filepath: Path | None = None,
         field_datatype: npt.DTypeLike = np.single,
 ):
     """
@@ -88,7 +90,6 @@ def _from_pdbqt_content(
         added to the end of the tuple, respectively. The second tuple contains the paths to each
         of the energy map files in the same order.
     """
-
     num_receptors = len(content)
 
     center, npts, spacing, slices = _extract_grid_values(grid=grid)
@@ -108,10 +109,10 @@ def _from_pdbqt_content(
         dielectric=dielectric,
         parameter_file=param_filepath,
     )
-    with open(temp_path_gpf, "wt") as f:
+    with open(temp_path_gpf, 'w') as f:
         f.write(oc.io.autodock.gpf.write(gpf_file))
     for receptor_idx, receptor_filepath in enumerate(content):
-        with open(temp_path_pdbqt, "wt") as f:
+        with open(temp_path_pdbqt, 'w') as f:
             f.write(receptor_filepath)
         _submit_job(filepath_gpf=temp_path_gpf)
 
@@ -145,8 +146,8 @@ def _extract_grid_values(grid: spacetime.grid.Grid):
 
 
 def _submit_job(
-        filepath_gpf: Union[PathLike, Sequence[PathLike]],
-        output_path: Optional[PathLike] = None,
+        filepath_gpf: PathLike | Sequence[PathLike],
+        output_path: PathLike | None = None,
 ) -> subprocess.CompletedProcess:
     """
     Run grid energy calculations with AutoGrid4, using the input grid parameter file (GPF).
@@ -194,9 +195,9 @@ def _submit_job(
 
 
 def calculate_npts(
-        grid_size: Tuple[float, float, float],
+        grid_size: tuple[float, float, float],
         grid_spacing: float
-) -> Tuple[int, int, int]:
+) -> tuple[int, int, int]:
     """
     Calculate the AutoGrid input argument `npts`.
 

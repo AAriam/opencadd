@@ -4,14 +4,15 @@ An n-dimensional grid of points in euclidean space.
 
 
 # Standard library
-from typing import Any, Literal, Sequence, Union, Optional, Tuple
 import itertools
+from collections.abc import Sequence
+from typing import Any, Literal
+
+import jax.numpy as jnp
+
 # 3rd-party
 import numpy as np
-import jax.numpy as jnp
-import scipy as sp
-import numpy.typing as npt
-from opencadd._typing import ArrayLike
+
 import opencadd as oc
 
 
@@ -169,7 +170,7 @@ class Grid:
     def points(self):
         return self._pointcloud
 
-    def direction_vectors(self, dimensions: Optional[Sequence[int]] = None) -> np.ndarray:
+    def direction_vectors(self, dimensions: Sequence[int] | None = None) -> np.ndarray:
         if dimensions is None:
             dimensions = np.arange(1, self._dimension + 1)
         return self._direction_vectors[np.isin(self._direction_vectors_dimension, dimensions)]
@@ -205,13 +206,13 @@ def from_bounds_shape(
     lower_bounds = np.asarray(lower_bounds)
     upper_bounds = np.asarray(upper_bounds)
     shape = np.asarray(shape)
-    for bound, arg_name in zip((lower_bounds, upper_bounds, shape), ("lower_bounds", "upper_bounds", "shape")):
+    for bound, arg_name in zip((lower_bounds, upper_bounds, shape), ("lower_bounds", "upper_bounds", "shape"), strict=False):
         if bound.ndim != 1:
             raise ValueError(
                 f"Parameter `{arg_name}` expects a 1D array, "
                 f"but input argument had {bound.ndim} dimensions. Input was: {bound}"
             )
-    for bound, arg_name in zip((lower_bounds, upper_bounds), ("lower_bounds", "upper_bounds")):
+    for bound, arg_name in zip((lower_bounds, upper_bounds), ("lower_bounds", "upper_bounds"), strict=False):
         if not (np.issubdtype(bound.dtype, np.floating) or np.issubdtype(bound.dtype, np.integer)):
             raise ValueError(
                 f"Parameter `{arg_name}` expects an array of real numbers, "
@@ -222,7 +223,7 @@ def from_bounds_shape(
             f"Parameter `shape` expects an array of integers, "
             f"but input argument had elements of type {shape.dtype}. Input was: {shape}"
         )
-    for arg, arg_name in zip((upper_bounds, shape), ("upper_bounds", "shape")):
+    for arg, arg_name in zip((upper_bounds, shape), ("upper_bounds", "shape"), strict=False):
         if lower_bounds.size != arg.size:
             raise ValueError(
                 f"Parameters `lower_bound` and `{arg_name}` expect 1D arrays of same size, "
@@ -248,7 +249,7 @@ def from_bounds_shape(
         )
     slices = tuple(
         slice(start, end, complex(num_points))
-        for start, end, num_points in zip(lower_bounds, upper_bounds, shape)
+        for start, end, num_points in zip(lower_bounds, upper_bounds, shape, strict=False)
     )
     return Grid(
         shape=shape,
@@ -265,7 +266,7 @@ def from_shape_spacing_anchor(
         shape: Sequence[float],
         spacings: Sequence[float],
         anchor_coord: Sequence[float] = None,
-        anchor: Union[Literal["lower", "center", "upper"], Sequence[int]] = "center",
+        anchor: Literal["lower", "center", "upper"] | Sequence[int] = "center",
 ):
     shape = np.asarray(shape)
     spacings = np.asarray(spacings)
@@ -292,7 +293,7 @@ def from_shape_size_anchor(
         shape: Sequence[float],
         size: Sequence[float],
         anchor_coord: Sequence[float] = None,
-        anchor: Union[Literal["lower", "center", "upper"], Sequence[int]] = "center",
+        anchor: Literal["lower", "center", "upper"] | Sequence[int] = "center",
 ):
     shape = np.asarray(shape)
     size = np.asarray(size)
@@ -305,7 +306,7 @@ def from_size_spacing_anchor(
         size: Sequence[float],
         spacings: Sequence[float],
         anchor_coord: Sequence[float] = None,
-        anchor: Union[Literal["lower", "center", "upper"], Sequence[int]] = "center",
+        anchor: Literal["lower", "center", "upper"] | Sequence[int] = "center",
         shrink_to_fit: bool = False,
 ):
     size = np.asarray(size)

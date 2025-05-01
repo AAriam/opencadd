@@ -1,5 +1,6 @@
-from typing import Dict, Union, Optional, Sequence, Literal
-import numpy as np
+from collections.abc import Sequence
+from typing import Literal
+
 import polars as pl
 
 import opencadd._exceptions as _exception
@@ -16,7 +17,7 @@ class DDL2CIFFile:
         )
         column_names = df.columns
         if len(column_names) != 6:
-            raise ValueError()
+            raise ValueError
         for column_name in (
                 'block_code',
                 'frame_code_category',
@@ -26,7 +27,7 @@ class DDL2CIFFile:
                 'data_value',
         ):
             if column_name not in column_names:
-                raise ValueError()
+                raise ValueError
         self._df = df
         return
 
@@ -42,7 +43,7 @@ class DDL2CIFFile:
     def count_data_blocks(self) -> int:
         return self.block_codes.shape[0]
 
-    def has_save_frame(self, per_data_block: bool = False) -> Union[pl.DataFrame, bool]:
+    def has_save_frame(self, per_data_block: bool = False) -> pl.DataFrame | bool:
         df = self._df.groupby(
             "block_code"
         ).agg(
@@ -52,7 +53,7 @@ class DDL2CIFFile:
             return df
         return df["has_save_frame"].any()
 
-    def data_block(self, block_code_or_idx: Optional[Union[str, int]] = 0):
+    def data_block(self, block_code_or_idx: str | int | None = 0):
         if isinstance(block_code_or_idx, int):
             block_code = self.block_codes[block_code_or_idx]
         else:
@@ -80,12 +81,12 @@ class DDL2CIFFile:
             return {
                 part: datastruct(df=sub_df) if sub_df.shape[0] != 0 else None
                 for part, datastruct, sub_df in zip(
-                    parts, (DDL2CIFDataFile, DDL2CIFCatDefFile, DDL2CIFDefFile), sub_dfs
+                    parts, (DDL2CIFDataFile, DDL2CIFCatDefFile, DDL2CIFDefFile), sub_dfs, strict=False
                 )
             }
         sub_df = _extract(df=self._df, part=part)
         if sub_df.shape[0] == 0:
-            return
+            return None
         if part == "data":
             return DDL2CIFDataFile(df=sub_df)
         if part in ("def", "def_key"):
@@ -94,7 +95,7 @@ class DDL2CIFFile:
 
     def df_per_category(
             self,
-            part: Optional[Literal["data", "def", "def_cat", "def_key", "all"]] = None,
+            part: Literal["data", "def", "def_cat", "def_key", "all"] | None = None,
             reduce: bool = True
     ):
         if reduce and self.count_data_blocks == 1:
@@ -115,7 +116,7 @@ class DDL2CIFDataFile:
 
         column_names = df.columns
         if len(column_names) != 4:
-            raise ValueError()
+            raise ValueError
         for column_name in (
                 'block_code',
                 'data_name_category',
@@ -123,7 +124,7 @@ class DDL2CIFDataFile:
                 'data_value',
         ):
             if column_name not in column_names:
-                raise ValueError()
+                raise ValueError
 
         self._df = df
         return
@@ -145,7 +146,7 @@ class DDL2CIFDataFile:
             return self.data_block(block_code_or_idx=0).df_per_category()
         return _dataframe_per_table(self._df, col_name__other_ids=("block_code", ))
 
-    def data_block(self, block_code_or_idx: Optional[Union[str, int]] = 0):
+    def data_block(self, block_code_or_idx: str | int | None = 0):
         if isinstance(block_code_or_idx, int):
             block_code = self.block_codes[block_code_or_idx]
         else:
@@ -161,7 +162,7 @@ class DDL2CIFDefFile:
     def __init__(self, df: pl.DataFrame):
         column_names = df.columns
         if len(column_names) != 6:
-            raise ValueError()
+            raise ValueError
         for column_name in (
                 'block_code',
                 'frame_code_category',
@@ -171,7 +172,7 @@ class DDL2CIFDefFile:
                 'data_value',
         ):
             if column_name not in column_names:
-                raise ValueError()
+                raise ValueError
         self._df = df
         return
 
@@ -187,7 +188,7 @@ class DDL2CIFDefFile:
     def count_data_blocks(self) -> int:
         return self.block_codes.shape[0]
 
-    def data_block(self, block_code_or_idx: Optional[Union[str, int]] = 0):
+    def data_block(self, block_code_or_idx: str | int | None = 0):
         if isinstance(block_code_or_idx, int):
             block_code = self.block_codes[block_code_or_idx]
         else:
@@ -210,12 +211,12 @@ class DDL2CIFDefFile:
             return {
                 part: datastruct(df=sub_df) if sub_df.shape[0] != 0 else None
                 for part, datastruct, sub_df in zip(
-                    parts, (DDL2CIFCatDefFile, DDL2CIFDefFile), sub_dfs
+                    parts, (DDL2CIFCatDefFile, DDL2CIFDefFile), sub_dfs, strict=False
                 )
             }
         sub_df = _extract(df=self._df, part=part)
         if sub_df.shape[0] == 0:
-            return
+            return None
         if part == "def_cat":
             return DDL2CIFCatDefFile(df=sub_df)
         return DDL2CIFDefFile(df=sub_df)
@@ -223,7 +224,7 @@ class DDL2CIFDefFile:
     def df_per_category(
             self,
             reduce: bool = True,
-            part: Optional[Literal["def_cat", "def_key", "all"]] = None,
+            part: Literal["def_cat", "def_key", "all"] | None = None,
     ):
         if reduce and self.count_data_blocks == 1:
             return self.data_block(block_code_or_idx=0).df_per_category()
@@ -242,7 +243,7 @@ class DDL2CIFCatDefFile:
     def __init__(self, df: pl.DataFrame):
         column_names = df.columns
         if len(column_names) != 5:
-            raise ValueError()
+            raise ValueError
         for column_name in (
                 'block_code',
                 'frame_code_category',
@@ -251,7 +252,7 @@ class DDL2CIFCatDefFile:
                 'data_value',
         ):
             if column_name not in column_names:
-                raise ValueError()
+                raise ValueError
         self._df = df
         return
 
@@ -267,7 +268,7 @@ class DDL2CIFCatDefFile:
     def count_data_blocks(self) -> int:
         return self.block_codes.shape[0]
 
-    def data_block(self, block_code_or_idx: Optional[Union[str, int]] = 0):
+    def data_block(self, block_code_or_idx: str | int | None = 0):
         if isinstance(block_code_or_idx, int):
             block_code = self.block_codes[block_code_or_idx]
         else:
@@ -294,7 +295,7 @@ class DDL2CIFBlock:
     def df(self) -> pl.DataFrame:
         return self._df
 
-    def df_per_category(self, part: Optional[Literal["data", "def", "def_cat", "def_key", "all"]] = "all"):
+    def df_per_category(self, part: Literal["data", "def", "def_cat", "def_key", "all"] | None = "all"):
         if part is None:
             return _dataframe_per_table(
                 self.df, col_name__other_ids=("frame_code_category", "frame_code_keyword")
@@ -320,12 +321,12 @@ class DDL2CIFBlock:
             return {
                 part: datastruct(block_code=self.block_code, df=sub_df) if sub_df.shape[0] != 0 else None
                 for part, datastruct, sub_df in zip(
-                    parts, (DDL2CIFDataBlock, DDL2CIFCatDefBlock, DDL2CIFDefBlock), sub_dfs
+                    parts, (DDL2CIFDataBlock, DDL2CIFCatDefBlock, DDL2CIFDefBlock), sub_dfs, strict=False
                 )
             }
         sub_df = _extract(df=self._df, part=part)
         if sub_df.shape[0] == 0:
-            return
+            return None
         if part == "data":
             return DDL2CIFDataBlock(block_code=self.block_code, df=sub_df)
         if part in ("def", "def_key"):
@@ -381,12 +382,12 @@ class DDL2CIFDefBlock:
             return {
                 part: datastruct(df=sub_df) if sub_df.shape[0] != 0 else None
                 for part, datastruct, sub_df in zip(
-                    parts, (DDL2CIFCatDefFile, DDL2CIFDefFile), sub_dfs
+                    parts, (DDL2CIFCatDefFile, DDL2CIFDefFile), sub_dfs, strict=False
                 )
             }
         sub_df = _extract(df=self._df, part=part)
         if sub_df.shape[0] == 0:
-            return
+            return None
         if part == "def_cat":
             return DDL2CIFCatDefBlock(block_code=self.block_code, df=sub_df)
         return DDL2CIFDefBlock(block_code=self.block_code, df=sub_df)
@@ -420,7 +421,7 @@ def _dataframe_per_table(
         col_name__col_id: str = "data_name_keyword",
         col_name__values: str = "data_value",
         col_name__other_ids: Sequence[str] = ("block_code", "frame_code_category", "frame_code_keyword")
-) -> Dict[str, pl.DataFrame]:
+) -> dict[str, pl.DataFrame]:
     table_dfs = {
         table_id: df.filter(
             pl.col(col_name__table_id) == table_id

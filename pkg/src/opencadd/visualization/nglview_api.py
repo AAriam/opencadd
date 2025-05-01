@@ -1,8 +1,8 @@
-from typing import List, Union, NoReturn, Optional,Sequence, Literal, NamedTuple
+from collections.abc import Sequence
+from typing import Literal, NoReturn
+
 import nglview as nv
 import numpy as np
-from opencadd._typing import ArrayLike
-
 
 # class RepresentationParameters(NamedTuple):
 #     opacity: float = 1,
@@ -66,8 +66,8 @@ class NGLViewer:
 
     def add_points(
             self,
-            coords: List[float],
-            colors: List[float],
+            coords: list[float],
+            colors: list[float],
             opacity: float = 0.7,
     ):
         self._widget._js(
@@ -101,9 +101,9 @@ class NGLViewer:
             self,
             coords: Sequence[float],
             colors: Sequence[float] = (0.5, 0.5, 0.5),
-            radii: Union[Sequence[float], float] = 0.2,
+            radii: Sequence[float] | float = 0.2,
             opacity: float = 0.7,
-            name: Optional[str] = "spheres"
+            name: str | None = "spheres"
     ):
         if not isinstance(coords, np.ndarray):
             coords = np.array(coords, dtype=np.single)
@@ -121,7 +121,7 @@ class NGLViewer:
         num_rgbs = colors.size
         if num_rgbs < 3:
             raise ValueError("`colors` must at least be a single RGB value.")
-        elif num_rgbs == 3:
+        if num_rgbs == 3:
             colors = np.tile(colors, reps=num_points)
         elif num_rgbs != num_coords:
             raise ValueError("Size of `colors` and `coords` do not match.")
@@ -135,8 +135,8 @@ class NGLViewer:
             f"""
             var params = {
                 dict(
-                    position=coords.flatten().tolist(), 
-                    color=colors.flatten().tolist(), 
+                    position=coords.flatten().tolist(),
+                    color=colors.flatten().tolist(),
                     radius=radii.flatten().tolist()
                 )
             };

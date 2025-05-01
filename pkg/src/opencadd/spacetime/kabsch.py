@@ -1,16 +1,15 @@
 """
 Kabsch algorithm for alignment of two point clouds via rigid transformations (i.e. rotation and translation).
 """
-from typing import Tuple
+
 import jax
 import jax.numpy as jnp
-
 
 __author__ = "Armin Ariamajd"
 
 
 @jax.jit
-def kabsch_unweighted(p0: jax.Array, p1: jax.Array) -> Tuple[jax.Array, jax.Array, jax.Array]:
+def kabsch_unweighted(p0: jax.Array, p1: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
     """
     Align two point clouds by a rigid transformation (i.e. only rotation and translation),
     using singular value decomposition (SVD) according to the Kabsch algorithm.
@@ -67,7 +66,7 @@ def kabsch_unweighted(p0: jax.Array, p1: jax.Array) -> Tuple[jax.Array, jax.Arra
 @jax.jit
 def kabsch_unweighted_transform(
         p0: jax.Array, p1: jax.Array
-) -> Tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     rot, trans, rmsd = kabsch_unweighted(p0, p1)
     return rot, trans, rmsd, p1 @ rot + trans
 

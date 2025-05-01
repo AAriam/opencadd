@@ -1,9 +1,5 @@
-from typing import Optional, Union, Sequence
 
-import collections
-import warnings
 
-import numpy as np
 import polars as pl
 
 from opencadd._df_tools import PolarsDataFrame
@@ -14,8 +10,8 @@ class CIFDictItemDataFrame(PolarsDataFrame):
     def __init__(
             self,
             df: pl.DataFrame,
-            col_name_cat: Optional[str] = "frame_code_category",
-            col_name_key: Optional[str] = "frame_code_keyword",
+            col_name_cat: str | None = "frame_code_category",
+            col_name_key: str | None = "frame_code_keyword",
     ):
         super().__init__(df)
         self._col_name_cat = col_name_cat
@@ -41,7 +37,7 @@ class CIFDictItemDataFrame(PolarsDataFrame):
 
     def rename_id_cols(self, cat_name, key_name):
         if self.has_keyword((cat_name, key_name)):
-            raise ValueError()
+            raise ValueError
         self._df = self._df.rename({self._col_name_cat: cat_name, self._col_name_key: key_name})
         self._col_name_cat = cat_name
         self._col_name_key = key_name
@@ -62,7 +58,7 @@ class CIFDictItemDataFrame(PolarsDataFrame):
         if not (
             "_" + df_new[col_name_key_new] + "." + df_new[col_name_key_new] == df_new[col_name_data_name]
         ).all():
-            raise ValueError()
+            raise ValueError
         self._df = df_new.select(pl.exclude(col_name_data_name))
         return
 
@@ -96,7 +92,7 @@ class CIFDictCatDataFrame(PolarsDataFrame):
     def __init__(
             self,
             df: pl.DataFrame,
-            col_name_cat: Optional[str] = "frame_code_category",
+            col_name_cat: str | None = "frame_code_category",
     ):
         super().__init__(df)
         self._col_name_cat = col_name_cat
@@ -109,7 +105,7 @@ class CIFDataDataFrame(PolarsDataFrame):
     def __init__(
             self,
             df: pl.DataFrame,
-            col_name_block: Optional[str] = "block_code",
+            col_name_block: str | None = "block_code",
     ):
         super().__init__(df)
         self._col_name_block = col_name_block

@@ -128,7 +128,7 @@ def validate_section_coordinate(self):
         return CoordinateSection(models=(model,))
 
     models = []
-    for start_idx, end_idx in zip(models_start_ind, models_end_ind):
+    for start_idx, end_idx in zip(models_start_ind, models_end_ind, strict=False):
         models.append(
             read_model(
                 record_types=rec_names[start_idx + 1:end_idx],
@@ -213,7 +213,7 @@ def validate_end(self) -> NoReturn:
 
 def _parse_record_in_model(self, record: records.Record) -> Optional[pd.DataFrame]:
     if not self.has_record(record):
-        return
+        return None
     fields = self.extract_record_fields(record)
     if not self.has_record(records.MODEL):
         model_nr = np.full(shape=self.count_record(record), fill_value=1, dtype=np.ubyte)
@@ -225,7 +225,7 @@ def _parse_record_in_model(self, record: records.Record) -> Optional[pd.DataFram
                     self.indices_record_lines(record) < model_end_idx,
                 )
             ) for model_start_idx, model_end_idx in zip(
-                self.indices_record_lines(records.MODEL), self.indices_record_lines(records.ENDMDL)
+                self.indices_record_lines(records.MODEL), self.indices_record_lines(records.ENDMDL), strict=False
             )
         ]
         model_nr = np.repeat(

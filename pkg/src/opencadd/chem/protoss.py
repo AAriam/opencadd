@@ -1,18 +1,17 @@
 
-from typing import Optional, Tuple, Sequence, Union, List, Dict
 
-from opencadd._http_request import response_http_request, HTTPRequestRetryConfig
 from opencadd._decorator import RetryConfig
+from opencadd._http_request import HTTPRequestRetryConfig, response_http_request
 
 
 def _run(
         pdb_id: str,
-        chain_id: Optional[str] = None,
-        ligand_id_chain_num: Optional[Tuple[str, str, int]] = None,
+        chain_id: str | None = None,
+        ligand_id_chain_num: tuple[str, str, int] | None = None,
         include_subpockets: bool = True,
         calculate_druggability: bool = True,
-        retry_config: Optional[HTTPRequestRetryConfig] = HTTPRequestRetryConfig(),
-) -> Tuple[pd.DataFrame, pd.DataFrame, List, str]:
+        retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig(),
+) -> tuple[pd.DataFrame, pd.DataFrame, list, str]:
     """
     Detect binding pockets for a protein structure from the Protein Data Bank.
 
@@ -45,8 +44,8 @@ def _run(
 
 def _submit_job(
         pdb_id: str,
-        retry_config: Optional[HTTPRequestRetryConfig] = HTTPRequestRetryConfig(),
-) -> Dict[str, Union[str, List[str]]]:
+        retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig(),
+) -> dict[str, str | list[str]]:
     # Submit the job and get submission URL
     url_of_job = response_http_request(
         url="https://proteins.plus/api/protoss_rest",
@@ -77,8 +76,8 @@ def _submit_job(
 
 def _get_results(
         job_result_urls: dict,
-        retry_config: Optional[HTTPRequestRetryConfig] = HTTPRequestRetryConfig()
-) -> Tuple[bytes, bytes, str]:
+        retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig()
+) -> tuple[bytes, bytes, str]:
     log = response_http_request(
             url=job_result_urls["log"],
             response_type="str",

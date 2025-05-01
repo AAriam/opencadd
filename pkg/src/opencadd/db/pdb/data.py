@@ -3,18 +3,19 @@ Query the RESTful Data API and related endpoints of the RCSB Protein Data Bank (
 """
 
 # Standard library
-from typing import Literal, Union, Optional, Sequence
-import gzip
+from collections.abc import Sequence
+from typing import Literal
+
 # 3rd party
 import numpy as np
+
 # Self
 from opencadd._http_request import response_http_request
 
-
 # General API endpoints
-_ROOT_DATA: str = f"https://data.rcsb.org/rest/v1"
-_ROOT_FILE: str = f"https://files.rcsb.org"
-_ROOT_SEARCH: str = f"https://search.rcsb.org/rcsbsearch/v2/query"
+_ROOT_DATA: str = "https://data.rcsb.org/rest/v1"
+_ROOT_FILE: str = "https://files.rcsb.org"
+_ROOT_SEARCH: str = "https://search.rcsb.org/rcsbsearch/v2/query"
 _END_DATA: str = f"{_ROOT_DATA}/core"
 _END_SCHEMA: str = f"{_ROOT_DATA}/schema"
 _END_HOLDINGS = f"{_ROOT_DATA}/holdings"
@@ -88,7 +89,7 @@ def entry_pubmed(pdb_id: str) -> dict:
     return _data_query(url=f"{_END_DATA}/pubmed/{pdb_id}")
 
 
-def assembly(pdb_id: str, assembly_id: Union[int, str]) -> dict:
+def assembly(pdb_id: str, assembly_id: int | str) -> dict:
     """
     Description of a structural assembly (quaternary structure) in a PDB entry.
 
@@ -106,7 +107,7 @@ def assembly(pdb_id: str, assembly_id: Union[int, str]) -> dict:
     return _data_query(url=f"{_END_DATA}/assembly/{pdb_id}/{assembly_id}")
 
 
-def entity_branched(pdb_id: str, entity_id: Union[int, str]) -> dict:
+def entity_branched(pdb_id: str, entity_id: int | str) -> dict:
     """
     Description of a branched entity (molecule) in a PDB entry.
 
@@ -124,7 +125,7 @@ def entity_branched(pdb_id: str, entity_id: Union[int, str]) -> dict:
     return _data_query(url=f"{_END_DATA}/branched_entity/{pdb_id}/{entity_id}")
 
 
-def entity_nonpolymer(pdb_id: str, entity_id: Union[int, str]) -> dict:
+def entity_nonpolymer(pdb_id: str, entity_id: int | str) -> dict:
     """
     Description of a non-polymer entity (molecule) in a PDB entry.
 
@@ -142,7 +143,7 @@ def entity_nonpolymer(pdb_id: str, entity_id: Union[int, str]) -> dict:
     return _data_query(url=f"{_END_DATA}/nonpolymer_entity/{pdb_id}/{entity_id}")
 
 
-def entity_polymer(pdb_id: str, entity_id: Union[int, str]) -> dict:
+def entity_polymer(pdb_id: str, entity_id: int | str) -> dict:
     """
     Description of a polymer entity (molecule) in a PDB entry.
 
@@ -160,7 +161,7 @@ def entity_polymer(pdb_id: str, entity_id: Union[int, str]) -> dict:
     return _data_query(url=f"{_END_DATA}/polymer_entity/{pdb_id}/{entity_id}")
 
 
-def entity_polymer_uniprot(pdb_id: str, entity_id: Union[int, str]) -> dict:
+def entity_polymer_uniprot(pdb_id: str, entity_id: int | str) -> dict:
     """
     UniProt annotations for a macromolecular polymer entity (molecule) in a PDB entry.
 
@@ -178,7 +179,7 @@ def entity_polymer_uniprot(pdb_id: str, entity_id: Union[int, str]) -> dict:
     return _data_query(url=f"{_END_DATA}/uniprot/{pdb_id}/{entity_id}")
 
 
-def instance_branched(pdb_id: str, asym_id: Union[int, str]) -> dict:
+def instance_branched(pdb_id: str, asym_id: int | str) -> dict:
     """
     Description of an instance (chain) of a branched entity in a PDB entry.
 
@@ -196,7 +197,7 @@ def instance_branched(pdb_id: str, asym_id: Union[int, str]) -> dict:
     return _data_query(url=f"{_END_DATA}/branched_entity_instance/{pdb_id}/{asym_id}")
 
 
-def instance_nonpolymer(pdb_id: str, asym_id: Union[int, str]) -> dict:
+def instance_nonpolymer(pdb_id: str, asym_id: int | str) -> dict:
     """
     Description of an instance (chain) of a non-polymer entity in a PDB entry.
 
@@ -214,7 +215,7 @@ def instance_nonpolymer(pdb_id: str, asym_id: Union[int, str]) -> dict:
     return _data_query(url=f"{_END_DATA}/nonpolymer_entity_instance/{pdb_id}/{asym_id}")
 
 
-def instance_polymer(pdb_id: str, asym_id: Union[int, str]) -> dict:
+def instance_polymer(pdb_id: str, asym_id: int | str) -> dict:
     """
     Description of an instance (chain) of a polymer entity in a PDB entry.
 
@@ -319,8 +320,8 @@ def group_entity(group_id: str) -> dict:
 
 def interface(
         pdb_id: str,
-        assembly_id: Union[int, str] = 1,
-        interface_id: Union[int, str] = 1,
+        assembly_id: int | str = 1,
+        interface_id: int | str = 1,
 ) -> dict:
     """
     Description of a pairwise polymeric interface in an assembly of a PDB entry.
@@ -393,7 +394,7 @@ def holdings_without_pdb_file() -> np.ndarray:
     return np.array(pdb_ids.upper().splitlines())
 
 
-def holdings_status(pdb_id: Union[str, Sequence[str]]) -> dict:
+def holdings_status(pdb_id: str | Sequence[str]) -> dict:
     """
     Status and status code of a PDB entry.
 

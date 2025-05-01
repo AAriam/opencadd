@@ -1,14 +1,12 @@
-from typing import Sequence, Tuple, Union, Optional
+from collections.abc import Sequence
 from pathlib import Path
+
+import nglview
 import numpy as np
 import pandas as pd
 import scipy as sp
-import nglview
-from openbabel import pybel
 
 from opencadd._typing import PathLike
-from opencadd.io._helpers_parsing import extract_column_from_string_array
-from opencadd.const import autodock
 
 
 class Protein:
@@ -28,12 +26,12 @@ class Protein:
         self._atom_data = atom_data
         self._trajectory = trajectory
         self._trajectory_2d_view: np.ndarray = self._trajectory.reshape(-1, 3)
-        self._kdtrees: Tuple[sp.spatial.KDTree] = None
+        self._kdtrees: tuple[sp.spatial.KDTree] = None
         self._kdtree: sp.spatial.KDTree = sp.spatial.KDTree(data=self._trajectory_2d_view)
         return
 
     @classmethod
-    def from_file(cls, paths: Union[PathLike, Sequence[PathLike]]):
+    def from_file(cls, paths: PathLike | Sequence[PathLike]):
         """
         Instantiate a Protein from file.
 
@@ -171,7 +169,7 @@ def from_filepath(path: PathLike) -> Protein:
     pass
 
 
-def from_file_content(content: Union[str, bytes]) -> Protein:
+def from_file_content(content: str | bytes) -> Protein:
     pass
 
 

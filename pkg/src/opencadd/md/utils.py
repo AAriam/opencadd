@@ -1,19 +1,16 @@
 import os
-import parmed
-
-import simtk.openmm as mm
-from simtk.openmm import app
-
-from simtk import unit
 from pathlib import Path
-import pytraj as pt
-from pytraj.cluster import kmeans
 
+import parmed
+import pytraj as pt
+import simtk.openmm as mm
 from pdbfixer import PDBFixer
+from pytraj.cluster import kmeans
+from simtk import unit
+from simtk.openmm import app
 from simtk.openmm.app import PDBFile
 
 from opencadd._typing import PathLike
-
 
 
 def create_topology(filepath_pdf):
@@ -72,7 +69,7 @@ def cluster_trajectory(
         n_clusters: int = 5,
 ):
     """
-    uses pytraj to cluster the given trajectory into a given number of clusters.
+    Uses pytraj to cluster the given trajectory into a given number of clusters.
 
     writes summary, info, and pdb files.
 

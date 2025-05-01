@@ -3,17 +3,15 @@ Common web API calls used by different subpackages/modules within the openCADD l
 """
 
 
-from typing import Union
 import io
 
-from opencadd._http_request import response_http_request, HTTPRequestRetryConfig
-
+from opencadd._http_request import HTTPRequestRetryConfig, response_http_request
 
 __author__ = "Armin Ariamajd"
 
 
 def proteinsplus_upload_pdb(
-        pdb_content: Union[bytes, str],
+        pdb_content: bytes | str,
         retry_config: HTTPRequestRetryConfig = HTTPRequestRetryConfig(),
 ) -> str:
     """

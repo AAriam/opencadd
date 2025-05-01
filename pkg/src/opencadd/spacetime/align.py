@@ -26,7 +26,7 @@ def scipy(p0, p1, weights=None):
 
 def optAlign(p0, p1):
     """
-    optAlign performs the Kabsch alignment algorithm upon the alpha-carbons of two selections.
+    OptAlign performs the Kabsch alignment algorithm upon the alpha-carbons of two selections.
     Example:   optAlign MOL1 and i. 20-40, MOL2 and i. 102-122
     Example 2: optAlign 1GGZ and i. 4-146 and n. CA, 1CLL and i. 4-146 and n. CA
 
@@ -39,7 +39,6 @@ def optAlign(p0, p1):
     @param p0: First PyMol selection with N-atoms
     @param p1: Second PyMol selection with N-atoms
     """
-
     # must alway center the two proteins to avoid
     # affine transformations.  Center the two proteins to their selections.
 

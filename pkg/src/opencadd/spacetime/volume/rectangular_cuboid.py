@@ -1,9 +1,6 @@
-import opencadd as oc
-from opencadd.spacetime.volume import abc
 
-import numpy as np
-import numpy.typing as npt
 import jax.numpy as jnp
+import numpy.typing as npt
 
 
 class RectangularCuboid:

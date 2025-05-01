@@ -7,23 +7,28 @@ from protein apo structures.
 
 
 # Standard library
-from typing import Literal, Optional, Sequence, Tuple, List, Union, Any, Callable
-import operator
 import asyncio
+import operator
+from collections.abc import Callable, Sequence
 from time import time
-# 3rd-party
-import numpy as np
+from typing import Any, Literal
+
+import ipywidgets as widgets
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+
+# 3rd-party
+import numpy as np
+from IPython.display import display
 from ipywidgets import interact
+
+from opencadd import mif
+
 # Self
 from opencadd.chem import protein
-from opencadd import mif
 from opencadd.const import autodock
 from opencadd.spacetime import field, vectorized
 from opencadd.visualization import nglview_api
-import ipywidgets as widgets
-from IPython.display import display
 
 
 class T2FPharm:
@@ -175,7 +180,7 @@ class T2FPharm:
 
     def filter_by_dist_nearest_atom(
             self,
-            dist_range: Tuple[float, float],
+            dist_range: tuple[float, float],
             invert: bool = False
     ) -> np.ndarray:
         """
@@ -208,8 +213,8 @@ class T2FPharm:
             buriedness_psp_max_len: float = 10.0,
             buriedness_psp_min_count: int = 4,
             hbond_max_len: float = 3.0,
-            probes_max_energy: Tuple[float, float, float, float] = (-0.6, -0.35, -0.4, -0.4),
-            electrostat_pot_exclusion_range: Tuple[float, float] = (-1.0, 1.0),
+            probes_max_energy: tuple[float, float, float, float] = (-0.6, -0.35, -0.4, -0.4),
+            electrostat_pot_exclusion_range: tuple[float, float] = (-1.0, 1.0),
             min_neighbor_dist_clustering: float = 1.21,
             min_common_neighbor_count_clustering: int = 6,
             min_points_per_cluster_count: int = 15,
@@ -253,7 +258,7 @@ class T2FPharm:
         is_hba, is_hbd, is_aliph, is_arom = (
             np.logical_and(high_affinity_n_buried[..., probes.index(probe)], condition)
             for probe, condition in
-        zip(probes, [has_hbd_env, has_hba_env, has_hydrophobic_env, has_hydrophobic_env])
+        zip(probes, [has_hbd_env, has_hba_env, has_hydrophobic_env, has_hydrophobic_env], strict=False)
         )
 
         is_buried_in_hydrophilic_env = np.logical_and(buried, has_hydrophilic_env)
@@ -269,10 +274,10 @@ class T2FPharm:
 
     def calculate_vacancy(
             self,
-            source: Union[str, Sequence[str]] = "mindist",
-            vacancy_range: Tuple[float, float] = (2, ),
+            source: str | Sequence[str] = "mindist",
+            vacancy_range: tuple[float, float] = (2, ),
             energy_cutoff: float = +0.6,
-            mode: Optional[Literal["max", "min", "avg", "sum"]] = "min",
+            mode: Literal["max", "min", "avg", "sum"] | None = "min",
     ) -> np.ndarray:
         """
         Calculate whether each grid point is vacant, or occupied by a target atom.
@@ -342,7 +347,7 @@ class T2FPharm:
         def visualizer(
                 vacancy_energy_cutoff: float,
                 vacancy_calc_mode: [Literal["max", "min", "avg", "sum"]],
-                range_psp_len: Tuple[float, float],
+                range_psp_len: tuple[float, float],
                 psp_len_min: float,
                 psp_len_max: float,
                 psp_count_min: int,
@@ -438,8 +443,9 @@ class Timer:
         self._task.cancel()
 
 def throttle(wait):
-    """ Decorator that prevents a function from being called
-        more than once every wait period. """
+    """Decorator that prevents a function from being called
+    more than once every wait period.
+    """
     def decorator(fn):
         time_of_last_call = 0
         scheduled, timer = False, None
@@ -463,9 +469,10 @@ def throttle(wait):
 
 
 def debounce(wait):
-    """ Decorator that will postpone a function's
-        execution until after `wait` seconds
-        have elapsed since the last time it was invoked. """
+    """Decorator that will postpone a function's
+    execution until after `wait` seconds
+    have elapsed since the last time it was invoked.
+    """
     def decorator(fn):
         timer = None
         def debounced(*args, **kwargs):
@@ -489,13 +496,13 @@ class T2FPharmWidget:
         # DECLARE ATTRIBUTES
         self._t2fpharm: T2FPharm
         # Widgets for: BINDING SITE REFINEMENT -> VACANCY
-        self._widget_refine_vacancy_source_buttons: List[widgets.ToggleButton]
+        self._widget_refine_vacancy_source_buttons: list[widgets.ToggleButton]
         self._widget_refine_vacancy_mode_buttons: widgets.ToggleButtons
         self._widget_refine_vacancy_filter_buttons: widgets.ToggleButtons
         self._widget_refine_vacancy_range_slider: widgets.FloatRangeSlider
         self._widget_refine_vacancy_range_unit:  widgets.Label
         # Widgets for: BINDING SITE REFINEMENT -> BURIEDNESS
-        self._widget_refine_buriedness_source_buttons: List[widgets.ToggleButton]
+        self._widget_refine_buriedness_source_buttons: list[widgets.ToggleButton]
         self._widget_refine_buriedness_mode_buttons: widgets.ToggleButtons
         self._widget_refine_buriedness_filter_buttons: widgets.ToggleButtons
         self._widget_refine_buriedness_range_slider: widgets.FloatRangeSlider
@@ -656,7 +663,7 @@ class T2FPharmWidget:
             dtype=np.bool_,
         )
         self._curr_selection_vacancy_mode: str = "min"
-        self._curr_selection_vacancy_range: Tuple[float, float] = (0, 0)
+        self._curr_selection_vacancy_range: tuple[float, float] = (0, 0)
         self._curr_selection_vacancy_filter: bool = True
 
         self._curr_values_vacancy: np.ndarray = None
@@ -776,17 +783,17 @@ class T2FPharmWidget:
     @staticmethod
     def _create_toggle_buttons_source(
             labels: Sequence[str],
-            tooltips: Union[str, Sequence[str]] = "",
-            initial_values: Union[bool, Sequence[bool]] = False,
+            tooltips: str | Sequence[str] = "",
+            initial_values: bool | Sequence[bool] = False,
             button_style: Literal['success', 'info', 'warning', 'danger', ''] = "danger",
-            observer: Optional[Callable] = None,
+            observer: Callable | None = None,
     ):
         if isinstance(tooltips, str):
             tooltips = [tooltips] * len(labels)
         if isinstance(initial_values, bool):
             initial_values = [initial_values] * len(labels)
         toggle_buttons = []
-        for label, initial_value, tooltip in zip(labels, initial_values, tooltips):
+        for label, initial_value, tooltip in zip(labels, initial_values, tooltips, strict=False):
             toggle_button = widgets.ToggleButton(
                 value=initial_value,
                 description=label,
@@ -802,7 +809,7 @@ class T2FPharmWidget:
 
     @staticmethod
     def _create_toggle_buttons_mode(
-            labels: Union[Sequence[str], Sequence[Tuple[str, Any]]] = (
+            labels: Sequence[str] | Sequence[tuple[str, Any]] = (
                     ("Min", "min"),
                     ("Avg", "avg"),
                     ("Max", "max"),
@@ -823,7 +830,7 @@ class T2FPharmWidget:
             ),
             button_style: Literal['success', 'info', 'warning', 'danger', ''] = "warning",
             disabled: bool = True,
-            observer: Optional[Callable] = None,
+            observer: Callable | None = None,
     ) -> widgets.ToggleButtons:
         toggle_buttons = widgets.ToggleButtons(
             options=labels,
@@ -839,7 +846,7 @@ class T2FPharmWidget:
 
     @staticmethod
     def _create_toggle_buttons_filter(
-        observer: Optional[Callable] = None,
+        observer: Callable | None = None,
     ):
         toggle_buttons = widgets.ToggleButtons(
             options=["Include", "Exclude"],
@@ -856,7 +863,7 @@ class T2FPharmWidget:
 
     @staticmethod
     def _create_range_slider(
-            observer: Optional[Callable] = None,
+            observer: Callable | None = None,
     ):
         range_slider = widgets.FloatRangeSlider(
             value=[0, 0],

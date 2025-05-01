@@ -1,12 +1,11 @@
-from typing import Optional, Union, Sequence
+from collections.abc import Sequence
 
-import pandas as pd
 import numpy as np
 
 import opencadd as oc
-from opencadd import _typing, _sysio
-from . import struct
+from opencadd import _typing
 
+from . import struct
 
 __author__ = "Armin Ariamajd"
 
@@ -135,7 +134,7 @@ class PDBWriter:
         title = [self.title[i:i + 70] for i in range(0, len(self._title), 70)]
         lines = [
             f"TITLE{'':3}{continuation}{title:<70}"
-            for continuation, title in zip(continuation, title)
+            for continuation, title in zip(continuation, title, strict=False)
         ]
         return "\n".join(lines)
 
@@ -160,7 +159,7 @@ class PDBWriter:
         return "\n".join(
             [
                 f"COMPND{'':1}{continuation}{title:<70}"
-                for continuation, title in zip(continuations, specs)
+                for continuation, title in zip(continuations, specs, strict=False)
             ]
         )
 

@@ -1,10 +1,8 @@
-from typing import Optional, Union, Sequence
+from collections.abc import Sequence
 
-import numpy as np
 import jax.numpy as jnp
+import numpy as np
 
-
-from opencadd.spacetime.volume import abc
 import opencadd as oc
 import opencadd._typing
 from opencadd import _exceptions
@@ -51,8 +49,8 @@ class ToxelVolume:
 
     def xeno_neighbor_distance(
             self,
-            dir_vectors: Optional[np.ndarray] = None,
-            dir_multipliers: Optional[Union[Sequence[int], int]] = None,
+            dir_vectors: np.ndarray | None = None,
+            dir_multipliers: Sequence[int] | int | None = None,
     ):
         """
         Given an n-dimensional boolean array, for each boolean element calculate its distances

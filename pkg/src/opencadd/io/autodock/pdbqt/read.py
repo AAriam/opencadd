@@ -1,4 +1,3 @@
-from typing import Sequence
 import numpy as np
 import pandas as pd
 
@@ -73,7 +72,7 @@ def read_file(filepath: PathLike):
         "ATOM": parse_atom_records
     }
 
-    with open(filepath[0], "r") as f:
+    with open(filepath[0]) as f:
         lines = np.array(f.readlines())
 
     records = dict()

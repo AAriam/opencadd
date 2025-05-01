@@ -1,14 +1,16 @@
 from __future__ import annotations
-from typing import Sequence, Union, Optional, Any, Tuple, NamedTuple, Literal, List, NoReturn
 
-import numpy as np
-import scipy as sp
+from collections.abc import Sequence
+from typing import Literal
+
 import jax.numpy as jnp
+import numpy as np
 import numpy.typing as npt
+import scipy as sp
 
 import opencadd as oc
-import opencadd._typing
 import opencadd._exceptions
+import opencadd._typing
 import opencadd.spacetime.vectorized
 
 
@@ -33,7 +35,7 @@ class PointCloud:
     @property
     def array(self) -> jnp.ndarray:
         return self._points
-    
+
     @property
     def count_points(self) -> int:
         return self._points.shape[0]
@@ -53,7 +55,7 @@ class PointCloud:
             weights_arr = jnp.asarray(weights)
             if weights_arr.ndim == 1:
                 if weights_arr.size != self.count_points:
-                    raise ValueError()
+                    raise ValueError
                 weights_arr = jnp.expand_dims(weights_arr, axis=-1)
             elif (
                 weights_arr.ndim == 2 and (
@@ -62,9 +64,9 @@ class PointCloud:
                     weights_arr.shape == (1, 1)
                 )
             ):
-                raise ValueError()
+                raise ValueError
             else:
-                raise ValueError()
+                raise ValueError
         points_arr = jnp.asarray(points)
         if points_arr.ndim == 2 and points_arr.shape == self._points.shape:
             return oc.spacetime.vectorized
@@ -94,7 +96,7 @@ class DynamicPointCloud:
         self._data: jnp.ndarray = data_tensor
         self._data_view_2d: jnp.ndarray = self._data.reshape(-1, self._data.shape[-1])
         self._kdtree_combined: sp.spatial.KDTree = None
-        self._kdtrees_per_instance: List[sp.spatial.KDTree] = None
+        self._kdtrees_per_instance: list[sp.spatial.KDTree] = None
         return
 
     @property
@@ -124,7 +126,7 @@ class DynamicPointCloud:
         return self._kdtree_combined
 
     @property
-    def _kdtrees_list(self) -> List[sp.spatial.KDTree]:
+    def _kdtrees_list(self) -> list[sp.spatial.KDTree]:
         if self._kdtrees_per_instance is None:
             self._kdtrees_per_instance = [sp.spatial.KDTree(data=points) for points in self._data]
         return self._kdtrees_per_instance
@@ -162,8 +164,8 @@ class DynamicPointCloud:
 
     def toxelate(
             self,
-            resolution_or_grid: Union[float, Sequence[float], oc.spacetime.grid.Grid],
-            radius_points: Union[float, npt.ArrayLike],
+            resolution_or_grid: float | Sequence[float] | oc.spacetime.grid.Grid,
+            radius_points: float | npt.ArrayLike,
             padding: float = 0,
     ) -> oc.spacetime.volume.ToxelVolume:
         if isinstance(resolution_or_grid, oc.spacetime.grid.Grid):
@@ -211,40 +213,39 @@ class DynamicPointCloud:
         # first nearest neighbors, since it is possible that the first k nearest neighbors have
         # small radii and do not overlap with the toxel, while the (k+1)-th neighbor has a large
         # enough radius to overlap.
-        else:
-            radii_array = np.asarray(radius_points)
-            max_radius = radii_array.max()
-            min_radius = radii_array.min()
-            toxel_tensor = np.zeros(
-                shape=(self.count_instances, grid.shape, 1),
-                dtype=np.bool_
-            )
-            ind_self, ind_gird, dists = self.distance_matrix_sparse(
-                points=grid, max_distance=max_radius
-            )
-            filter_definitely_occupied = dists <= min_radius
-            grid_inds_occupied = np.unravel_index(
-                ind_gird[1][filter_definitely_occupied],
-                shape=grid.shape
-            )
-            toxel_tensor[(ind_self[0][filter_definitely_occupied], *grid_inds_occupied)] = True
-            filter_maybe_occupied = jnp.logical_not(filter_definitely_occupied)
-            dists_from_surface = dists[filter_maybe_occupied] - radii_array[ind_self[1][
-                filter_maybe_occupied]]
-            occupied = dists_from_surface <= 0
-            grid_inds_occupied2 = np.unravel_index(
-                ind_gird[1][filter_maybe_occupied][occupied],
-                shape=grid.shape
-            )
-            toxel_tensor[
-                (ind_self[0][filter_maybe_occupied][occupied], *grid_inds_occupied2)
-            ] = True
-            toxel_field = oc.spacetime.field.ToxelField(
-                tensor=toxel_tensor,
-                grid=grid,
-            )
-            # Create Toxel volume from field and return
-            return oc.spacetime.volume.Toxel(field=toxel_field)
+        radii_array = np.asarray(radius_points)
+        max_radius = radii_array.max()
+        min_radius = radii_array.min()
+        toxel_tensor = np.zeros(
+            shape=(self.count_instances, grid.shape, 1),
+            dtype=np.bool_
+        )
+        ind_self, ind_gird, dists = self.distance_matrix_sparse(
+            points=grid, max_distance=max_radius
+        )
+        filter_definitely_occupied = dists <= min_radius
+        grid_inds_occupied = np.unravel_index(
+            ind_gird[1][filter_definitely_occupied],
+            shape=grid.shape
+        )
+        toxel_tensor[(ind_self[0][filter_definitely_occupied], *grid_inds_occupied)] = True
+        filter_maybe_occupied = jnp.logical_not(filter_definitely_occupied)
+        dists_from_surface = dists[filter_maybe_occupied] - radii_array[ind_self[1][
+            filter_maybe_occupied]]
+        occupied = dists_from_surface <= 0
+        grid_inds_occupied2 = np.unravel_index(
+            ind_gird[1][filter_maybe_occupied][occupied],
+            shape=grid.shape
+        )
+        toxel_tensor[
+            (ind_self[0][filter_maybe_occupied][occupied], *grid_inds_occupied2)
+        ] = True
+        toxel_field = oc.spacetime.field.ToxelField(
+            tensor=toxel_tensor,
+            grid=grid,
+        )
+        # Create Toxel volume from field and return
+        return oc.spacetime.volume.Toxel(field=toxel_field)
 
     def distance_matrix_sparse(
             self,
@@ -263,16 +264,15 @@ class DynamicPointCloud:
         )
         if output_type != 'nd_unraveled':
             return dist_matrix
-        else:
-            indices_self = np.unravel_index(
-                dist_matrix["i"],
-                shape=(self.count_instances, self.count_points_per_instance)
-            )
-            indices_other = np.unravel_index(
-                dist_matrix["j"],
-                shape=(points.count_instances, points.count_points_per_instance)
-            )
-            return indices_self, indices_other, dist_matrix["v"]
+        indices_self = np.unravel_index(
+            dist_matrix["i"],
+            shape=(self.count_instances, self.count_points_per_instance)
+        )
+        indices_other = np.unravel_index(
+            dist_matrix["j"],
+            shape=(points.count_instances, points.count_points_per_instance)
+        )
+        return indices_self, indices_other, dist_matrix["v"]
 
 
     def find_point_pairs_within_radius(
@@ -305,7 +305,7 @@ class DynamicPointCloud:
     def nearest_neighbors(
             self,
             points: npt.ArrayLike,
-            num_neaerst_neighbors: Union[int, Sequence[int]] = 1,
+            num_neaerst_neighbors: int | Sequence[int] = 1,
             per_instance: bool = True,
             error_tolerance: float = 0,
             p_norm: float = 2,
@@ -383,8 +383,7 @@ class DynamicPointCloud:
                     workers=-1
                 )
             return distances, indices
-        else:
-            raise NotImplementedError
+        raise NotImplementedError
 
 
     def count_neighbors(self):
