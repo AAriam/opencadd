@@ -1,15 +1,17 @@
-# Standard library
-from collections.abc import Sequence
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from pathlib import Path
-from typing import Literal
 
 import numpy as np
 
 from opencadd import _exceptions
-
-# Self
 from opencadd._typing import ArrayLike, PathLike
 from opencadd.const.autodock import AtomType
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from typing import Literal
 
 
 class GPFFileStructure:

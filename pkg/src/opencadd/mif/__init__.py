@@ -1,22 +1,20 @@
-# Standard library
-import subprocess
-from collections.abc import Sequence
-from pathlib import Path
-from typing import Literal, Optional, Tuple, Union
+from __future__ import annotations
 
-# 3rd-party
+from typing import TYPE_CHECKING
+
 import numpy as np
-import numpy.typing as npt
 
 import opencadd as oc
 from opencadd import pocket, spacetime
-
-# Self
-from opencadd._typing import ArrayLike, PathLike
 from opencadd.const.autodock import AtomType
 
 from . import _autogrid
 from .mif import MolecularInteractionField
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
+    import numpy.typing as npt
 
 
 def autogrid(

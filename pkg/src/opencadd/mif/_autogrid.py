@@ -11,10 +11,11 @@ https://autodock.scripps.edu/wp-content/uploads/sites/56/2021/10/AutoDock4.2.6_U
 https://www.csb.yale.edu/userguides/datamanip/autodock/html/Using_AutoDock_305.21.html
 """
 
-# Standard library
-import subprocess
-from collections.abc import Sequence
+from __future__ import annotations
+
 from pathlib import Path
+import subprocess
+from typing import TYPE_CHECKING
 
 # 3rd-party
 import numpy as np
@@ -23,9 +24,11 @@ import numpy.typing as npt
 import opencadd as oc
 from opencadd import spacetime
 
-# Self
-from opencadd._typing import PathLike
-from opencadd.const.autodock import AtomType
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from opencadd._typing import PathLike
+    from opencadd.const.autodock import AtomType
+
 
 _PATH_EXECUTABLE = Path(oc.__file__).parent.resolve() / "_exec" / "autogrid4"
 
