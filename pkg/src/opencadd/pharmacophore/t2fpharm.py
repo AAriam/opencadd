@@ -1,11 +1,9 @@
-"""
-T2F (Truly Target-Focused) Pharmacophore modeler.
+"""T2F (Truly Target-Focused) Pharmacophore modeler.
 
 This module contains the `T2Fpharm` class, used for pharmacophore modeling
 from protein apo structures.
 """
 
-# Standard library
 import asyncio
 import operator
 from collections.abc import Callable, Sequence
@@ -15,15 +13,11 @@ from typing import Any, Literal
 import ipywidgets as widgets
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-
-# 3rd-party
 import numpy as np
 from IPython.display import display
 from ipywidgets import interact
 
 from opencadd import mif
-
-# Self
 from opencadd.chem import protein
 from opencadd.const import autodock
 from opencadd.spacetime import field, vectorized
@@ -31,8 +25,7 @@ from opencadd.visualization import nglview_api
 
 
 class T2FPharm:
-    """
-    Truly Target Focused (T2F) pharmacophore modeler.
+    """Truly Target Focused (T2F) pharmacophore modeler.
 
     Design a pharmacophore from one or several protein apo structures.
 
@@ -44,8 +37,6 @@ class T2FPharm:
     array, allowing for easy and fast data manipulation and visualization. With the methods
     available to the class, a variety of information on the binding pocket can be extracted and
     used to develop a pharmacophore model.
-
-
 
     calculate the interaction energies
     between each protein structure and each atomic probe (representing a pharmacophore feature),
@@ -133,16 +124,12 @@ class T2FPharm:
 
     @property
     def receptor(self) -> protein.Protein:
-        """
-        Receptor of the model.
-        """
+        """Receptor of the model."""
         return self._receptor
 
     @property
     def fields(self):
-        """
-        Fields of the model.0
-        """
+        """Fields of the model."""
         return self._fields
 
     @property
@@ -188,8 +175,7 @@ class T2FPharm:
     def filter_by_dist_nearest_atom(
         self, dist_range: tuple[float, float], invert: bool = False
     ) -> np.ndarray:
-        """
-        Filter points by their distances to their nearest atoms.
+        """Filter points by their distances to their nearest atoms.
 
         Parameters
         ----------
@@ -287,8 +273,7 @@ class T2FPharm:
         energy_cutoff: float = +0.6,
         mode: Literal["max", "min", "avg", "sum"] | None = "min",
     ) -> np.ndarray:
-        """
-        Calculate whether each grid point is vacant, or occupied by a target atom.
+        """Calculate whether each grid point is vacant, or occupied by a target atom.
 
         Parameters
         ----------
@@ -474,8 +459,9 @@ def throttle(wait):
 
 
 def debounce(wait):
-    """Decorator that will postpone a function's
-    execution until after `wait` seconds
+    """Decorator that will postpone a function's execution.
+
+    This postpones the execution until after `wait` seconds
     have elapsed since the last time it was invoked.
     """
 
