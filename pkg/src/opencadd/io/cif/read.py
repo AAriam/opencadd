@@ -25,7 +25,7 @@ def from_pdb_id(
 
 
 def from_filepath(
-        filepath: _typing.PathLike,
+    filepath: _typing.PathLike,
 ):
     path = Path(filepath)
     with open(path, "rb") as f:
@@ -34,8 +34,8 @@ def from_filepath(
 
 
 def from_file_content(
-        content: str | bytes,
-) :
+    content: str | bytes,
+):
     if isinstance(content, bytes):
         content = content.decode()
     elif not isinstance(content, str):

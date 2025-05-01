@@ -2,7 +2,6 @@
 Functions and routines for easier communication with PyMOL.
 """
 
-
 # Standard library
 from collections.abc import Sequence
 from pathlib import Path
@@ -14,11 +13,11 @@ from pymol import cmd
 
 
 def get_target_atoms_within_radius(
-        filepath_target: Path,
-        coords_center: Sequence[float, float, float],
-        radius: float,
-        properties: Sequence[str] = ("name", "resn"),
-        reinitialize: bool = False,
+    filepath_target: Path,
+    coords_center: Sequence[float, float, float],
+    radius: float,
+    properties: Sequence[str] = ("name", "resn"),
+    reinitialize: bool = False,
 ):
     """
     Get the properties for all atoms in a target structure that are within a certain radius of a
@@ -70,9 +69,9 @@ def get_target_atoms_within_radius(
     #  optimally stored and accessed by numpy.
     selected_atoms_data = []
     cmd.iterate_state(
-        state=1, # TODO: why 1? is it always 1?
+        state=1,  # TODO: why 1? is it always 1?
         selection="target_atoms_within_radius",
         expression=f"selected_atoms_data.append([{', '.join(properties)}])",
-        space={"selected_atoms_data": selected_atoms_data}
+        space={"selected_atoms_data": selected_atoms_data},
     )
     return np.array(selected_atoms_data)

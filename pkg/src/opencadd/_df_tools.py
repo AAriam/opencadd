@@ -7,7 +7,6 @@ import polars as pl
 
 
 class PolarsDataFrame:
-
     def __init__(self, df: pl.DataFrame):
         self._df = df
         return
@@ -30,14 +29,8 @@ class PolarsDataFrame:
 
     def column_is_subset(self, col_1: str, col_2: str):
         per_row = self.df.select(
-            (
-                    (pl.col(col_2).is_null()) |
-                    (pl.col(col_2) == pl.col(col_1))
-            ).alias("2_is_sub_1"),
-            (
-                    (pl.col(col_1).is_null()) |
-                    (pl.col(col_2) == pl.col(col_1))
-            ).alias("1_is_sub_2")
+            ((pl.col(col_2).is_null()) | (pl.col(col_2) == pl.col(col_1))).alias("2_is_sub_1"),
+            ((pl.col(col_1).is_null()) | (pl.col(col_2) == pl.col(col_1))).alias("1_is_sub_2"),
         )
         reduced = per_row.select(pl.all().all())
         if reduced.select(pl.all(pl.all()).alias("both"))[0, "both"]:

@@ -13,13 +13,11 @@ from opencadd.io import _parsing
 class RecordFieldDataType(ABC):
     @staticmethod
     @abstractmethod
-    def from_pdb(fields: str | Sequence[str]):
-        ...
+    def from_pdb(fields: str | Sequence[str]): ...
 
     @staticmethod
     @abstractmethod
-    def to_pdb(fields):
-        ...
+    def to_pdb(fields): ...
 
 
 class AChar(RecordFieldDataType):
@@ -69,7 +67,7 @@ class Continuation(RecordFieldDataType):
 
     @staticmethod
     def to_pdb(num_lines: int):
-        return ["  "] + [f"{line_num:>2}" for line_num in range(2, num_lines+1)]
+        return ["  "] + [f"{line_num:>2}" for line_num in range(2, num_lines + 1)]
 
 
 class Date(RecordFieldDataType):
@@ -90,6 +88,7 @@ class Date(RecordFieldDataType):
                 if date_str.isspace():
                     return None
                 raise
+
         if isinstance(fields, str):
             return str_to_date(fields)
         return np.array([str_to_date(field) for field in fields])
@@ -102,7 +101,6 @@ class Date(RecordFieldDataType):
 
     @staticmethod
     def verify(values):
-
         def verify_single(value):
             if not isinstance(value, datetime.date):
                 raise TypeError(
@@ -145,10 +143,11 @@ class IDcode(RecordFieldDataType):
 
     @staticmethod
     def verify(fields: str | Sequence[str]):
-
         def verify_pdb_id(pdb_id: str):
             if len(pdb_id) != 4:
-                raise ValueError(f"PDB ID must have 4 characters, but input {pdb_id} had {len(pdb_id)}.")
+                raise ValueError(
+                    f"PDB ID must have 4 characters, but input {pdb_id} had {len(pdb_id)}."
+                )
             if not pdb_id[0].isnumeric() or pdb_id[0] == "0":
                 raise ValueError("First character of `pdb_id` must be a non-zero digit.")
             return
@@ -203,7 +202,6 @@ class List(RecordFieldDataType):
         if not isinstance(fields, str):
             fields = String.from_pdb(fields)
         return np.char.strip(fields.split(","))
-
 
 
 class LString(RecordFieldDataType):
@@ -287,7 +285,9 @@ class SpecificationList(RecordFieldDataType):
         #  'COMPND   4 SYNONYM: SUBTILISIN NOVO; SUBTILISIN DFE; ALKALINE PROTEASE;         '
         #  This causes extra splits that should not be there. We should find a way to not split these extra
         #  non-escaped delimeters.
-        token_value_pairs = np.char.strip([spec.split(":", maxsplit=1) for spec in specification_list])
+        token_value_pairs = np.char.strip(
+            [spec.split(":", maxsplit=1) for spec in specification_list]
+        )
         return token_value_pairs
 
 
@@ -328,13 +328,13 @@ class SymOP(RecordFieldDataType):
 
 class Column:
     def __init__(
-            self,
-            intervals: tuple[int, int] | Sequence[tuple[int, int]],
-            field_dtype: type[RecordFieldDataType],
-            strip: bool = True,
-            cast: bool = True,
-            only_first: bool = False,
-            only_non_empty: bool = False,
+        self,
+        intervals: tuple[int, int] | Sequence[tuple[int, int]],
+        field_dtype: type[RecordFieldDataType],
+        strip: bool = True,
+        cast: bool = True,
+        only_first: bool = False,
+        only_non_empty: bool = False,
     ):
         self._intervals = np.asarray(intervals)
         if not np.issubdtype(self._intervals.dtype, np.integer):
@@ -349,9 +349,7 @@ class Column:
                     f"but input argument had size {self._intervals.size}. Input was:\n{intervals}."
                 )
             extract = functools.partial(
-                _parsing.extract_columns_by_interval,
-                interval=self._intervals,
-                strip=strip
+                _parsing.extract_columns_by_interval, interval=self._intervals, strip=strip
             )
             self._indices = np.arange(self._intervals[0], self._intervals[1])
         elif self._intervals.ndim == 2:
@@ -373,14 +371,18 @@ class Column:
                 _parsing.extract_columns_by_index,
                 indices=self._indices,
                 column_len=col_lengths[0],
-                strip=strip
+                strip=strip,
             )
         else:
             raise ValueError(
                 f"Parameter `intervals` expects either a 1D or 2D array, "
                 f"but input argument had {self._intervals.ndim} dimensions. Input was:\n{intervals}."
             )
-        extract1 = extract if not cast else (lambda char_table: self.cast_to_dtype(extract(char_table=char_table)))
+        extract1 = (
+            extract
+            if not cast
+            else (lambda char_table: self.cast_to_dtype(extract(char_table=char_table)))
+        )
         if only_first:
             self.extract = lambda char_table: extract1(char_table)[0]
         elif only_non_empty:

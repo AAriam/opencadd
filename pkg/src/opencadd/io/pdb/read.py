@@ -15,10 +15,10 @@ __author__ = "Armin Ariamajd"
 
 
 def from_pdb_id(
-        pdb_id: str,
-        biological_assembly_id: int | None = None,
-        parse_only: Sequence[parts.Records | parts.Sections] | None = None,
-        strictness: Literal[0, 1, 2, 3] = 0,
+    pdb_id: str,
+    biological_assembly_id: int | None = None,
+    parse_only: Sequence[parts.Records | parts.Sections] | None = None,
+    strictness: Literal[0, 1, 2, 3] = 0,
 ) -> struct.PDBStructure:
     """
     Parse a PDB file from a given PDB ID.
@@ -50,9 +50,9 @@ def from_pdb_id(
 
 
 def from_filepath(
-        filepath: _typing.PathLike,
-        parse_only: Sequence[parts.Records | parts.Sections] | None = None,
-        strictness: Literal[0, 1, 2, 3] = 0,
+    filepath: _typing.PathLike,
+    parse_only: Sequence[parts.Records | parts.Sections] | None = None,
+    strictness: Literal[0, 1, 2, 3] = 0,
 ):
     """
     Parse a PDB file from a local filepath.
@@ -74,9 +74,9 @@ def from_filepath(
 
 
 def from_url(
-        url: str,
-        strictness: Literal[0, 1, 2, 3] = 0,
-        parse: bool = True,
+    url: str,
+    strictness: Literal[0, 1, 2, 3] = 0,
+    parse: bool = True,
 ) -> _parser.PDBParser | struct.PDBStructure:
     """
     Parse a PDB file from a URL.
@@ -94,9 +94,9 @@ def from_url(
 
 
 def from_file_content(
-        content: str | bytes,
-        parse_only: Sequence[parts.Records | parts.Sections] | None = None,
-        strictness: Literal[0, 1, 2, 3] = 0,
+    content: str | bytes,
+    parse_only: Sequence[parts.Records | parts.Sections] | None = None,
+    strictness: Literal[0, 1, 2, 3] = 0,
 ) -> _parser.PDBParser | struct.PDBStructure:
     """
     Parse a PDB file from string or byte contents.

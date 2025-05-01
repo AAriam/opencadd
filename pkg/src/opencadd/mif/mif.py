@@ -11,9 +11,9 @@ class MolecularInteractionField:
     """
 
     def __init__(
-            self,
-            ensemble: chem.ensemble.ChemicalEnsemble,
-            field: spacetime.field.ToxelField,
+        self,
+        ensemble: chem.ensemble.ChemicalEnsemble,
+        field: spacetime.field.ToxelField,
     ):
         self._ensemble = ensemble
         self._field = field

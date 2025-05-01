@@ -1,6 +1,4 @@
-"""
-
-"""
+""" """
 
 import functools
 from collections.abc import Callable, Sequence
@@ -12,19 +10,18 @@ from . import _fields as fields
 
 
 class Record:
-
     def __init__(
-            self,
-            field_data: dict,
-            index: int = None,
-            name: str = None,
-            is_mandatory: bool = False,
-            is_one_time: bool = False,
-            is_one_line: bool = False,
-            key_unique: str = None,
-            key_continuation: str = "continuation",
-            keys_repeat: Sequence[str] = None,
-            inner_structure: dict = None,
+        self,
+        field_data: dict,
+        index: int = None,
+        name: str = None,
+        is_mandatory: bool = False,
+        is_one_time: bool = False,
+        is_one_line: bool = False,
+        key_unique: str = None,
+        key_continuation: str = "continuation",
+        keys_repeat: Sequence[str] = None,
+        inner_structure: dict = None,
     ):
         self._idx: int = index
         self._name = name
@@ -64,7 +61,14 @@ class Record:
             all_column_indices = np.concatenate((all_column_indices, field.indices))
         self._empty_columns: np.ndarray = np.setdiff1d(np.arange(80), all_column_indices)
         self._to_dataframe = self._name not in (
-            "REMARK", "ATOM", "HETATM", "ANISOU", "MTRIX1", "MTRIX2", "MTRIX3", "CONECT"
+            "REMARK",
+            "ATOM",
+            "HETATM",
+            "ANISOU",
+            "MTRIX1",
+            "MTRIX2",
+            "MTRIX3",
+            "CONECT",
         )
         return
 
@@ -127,7 +131,9 @@ class Record:
 
     def _extract_record_one_time_one_line(self, record_lines: np.ndarray):
         data = {
-            field_name: field.extract(char_table=record_lines[:1])[0]  # Take only the first occurrence
+            field_name: field.extract(char_table=record_lines[:1])[
+                0
+            ]  # Take only the first occurrence
             for field_name, field in self.fields_dict.items()
         }
         keys = list(data.keys())
@@ -141,7 +147,8 @@ class Record:
         record_lines_ordered = record_lines[line_idx_in_order]
         data = {
             field_name: field.extract(char_table=record_lines_ordered)
-            for field_name, field in self.fields_dict.items() if field_name != "continuation"
+            for field_name, field in self.fields_dict.items()
+            if field_name != "continuation"
         }
         keys = list(data.keys())
         if len(keys) == 1:
@@ -182,7 +189,9 @@ class Record:
                     row[field_name] = ""
                 else:
                     field_val_casted = self.fields_dict[field_name].cast_to_dtype(non_empty_fields)
-                    row[field_name] = field_val_casted[0 if field_name in keys_repeat else slice(None)]
+                    row[field_name] = field_val_casted[
+                        0 if field_name in keys_repeat else slice(None)
+                    ]
             rows.append(row)
         return pd.DataFrame(rows).set_index(self.key_unique, drop=False)
 
@@ -211,7 +220,9 @@ OBSLTE = Record(
         "continuation": fields.Column((8, 10), fields.Continuation),
         "rep_date": fields.Column((11, 20), fields.Date, only_first=True),
         "pdb_id": fields.Column((21, 25), fields.IDcode, only_first=True),
-        "rep_pdb_id": fields.Column([(i, i+4) for i in range(31, 72, 5)], fields.IDcode, only_non_empty=True)
+        "rep_pdb_id": fields.Column(
+            [(i, i + 4) for i in range(31, 72, 5)], fields.IDcode, only_non_empty=True
+        ),
     },
 )
 
@@ -224,7 +235,7 @@ TITLE = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((8, 10), fields.Continuation),
-        "title": fields.Column((10, 80), fields.String, strip=False)
+        "title": fields.Column((10, 80), fields.String, strip=False),
     },
 )
 
@@ -237,7 +248,9 @@ SPLIT = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((8, 10), fields.Continuation),
-        "split_pdb_id": fields.Column([(i, i+4) for i in range(11, 77, 5)], fields.IDcode, only_non_empty=True)
+        "split_pdb_id": fields.Column(
+            [(i, i + 4) for i in range(11, 77, 5)], fields.IDcode, only_non_empty=True
+        ),
     },
 )
 
@@ -264,7 +277,7 @@ COMPND = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((7, 10), fields.Continuation),
-        "compound": fields.Column((10, 80), fields.SpecificationList, strip=False)
+        "compound": fields.Column((10, 80), fields.SpecificationList, strip=False),
     },
     inner_structure={
         "mol_id": ("MOL_ID", fields.Integer),
@@ -275,7 +288,7 @@ COMPND = Record(
         "ec": ("EC", fields.List),
         "engineered": ("ENGINEERED", fields.LString),
         "mutation": ("MUTATION", fields.LString),
-        "description": ("OTHER_DETAILS", fields.LString)
+        "description": ("OTHER_DETAILS", fields.LString),
     },
 )
 
@@ -338,7 +351,7 @@ KEYWDS = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((8, 10), fields.Continuation),
-        "keywds": fields.Column((10, 79), fields.List, strip=False)
+        "keywds": fields.Column((10, 79), fields.List, strip=False),
     },
 )
 
@@ -351,7 +364,7 @@ EXPDTA = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((8, 10), fields.Continuation),
-        "technique": fields.Column((10, 79), fields.SList)
+        "technique": fields.Column((10, 79), fields.SList),
     },
 )
 
@@ -364,7 +377,7 @@ NUMMDL = Record(
     is_one_line=True,
     field_data={
         "num_model": fields.Column((10, 14), fields.Integer),
-    }
+    },
 )
 
 
@@ -376,7 +389,7 @@ MDLTYP = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((8, 10), fields.Continuation),
-        "description": fields.Column((10, 80), fields.SList)
+        "description": fields.Column((10, 80), fields.SList),
     },
 )
 
@@ -389,7 +402,7 @@ AUTHOR = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((8, 10), fields.Continuation),
-        "author_list": fields.Column((10, 79), fields.List, strip=False)
+        "author_list": fields.Column((10, 79), fields.List, strip=False),
     },
 )
 
@@ -406,7 +419,7 @@ REVDAT = Record(
         "mod_date": fields.Column((13, 22), fields.Date, cast=False),
         "mod_pdb_id": fields.Column((23, 27), fields.IDcode, cast=False),
         "is_init": fields.Column((31, 32), fields.Integer, cast=False),
-        "record": fields.Column([(i, i + 6) for i in range(39, 61, 7)], fields.LString, cast=False)
+        "record": fields.Column([(i, i + 6) for i in range(39, 61, 7)], fields.LString, cast=False),
     },
     key_unique="mod_num",
     keys_repeat=("mod_date", "mod_pdb_id", "is_init"),
@@ -423,7 +436,9 @@ SPRSDE = Record(
         "continuation": fields.Column((8, 10), fields.Continuation),
         "sprsde_date": fields.Column((11, 20), fields.Date, only_first=True),
         "pdb_id": fields.Column((21, 25), fields.IDcode, only_first=True),
-        "sprsde_pdb_id": fields.Column([(i, i + 4) for i in range(31, 72, 5)], fields.IDcode, only_non_empty=True)
+        "sprsde_pdb_id": fields.Column(
+            [(i, i + 4) for i in range(31, 72, 5)], fields.IDcode, only_non_empty=True
+        ),
     },
 )
 
@@ -447,8 +462,8 @@ JRNL_AUTH = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((16, 18), fields.Continuation),
-        "author": fields.Column((19, 79), fields.List, strip=False)
-    }
+        "author": fields.Column((19, 79), fields.List, strip=False),
+    },
 )
 
 JRNL_TITL = Record(
@@ -457,8 +472,8 @@ JRNL_TITL = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((16, 18), fields.Continuation),
-        "title": fields.Column((19, 80), fields.String, strip=False)
-    }
+        "title": fields.Column((19, 80), fields.String, strip=False),
+    },
 )
 
 JRNL_EDIT = Record(
@@ -467,8 +482,8 @@ JRNL_EDIT = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((16, 18), fields.Continuation),
-        "editor": fields.Column((19, 79), fields.List, strip=False)
-    }
+        "editor": fields.Column((19, 79), fields.List, strip=False),
+    },
 )
 
 JRNL_REF = Record(
@@ -491,8 +506,8 @@ JRNL_PUBL = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((16, 18), fields.Continuation),
-        "pub": fields.Column((19, 70), fields.String, strip=False)
-    }
+        "pub": fields.Column((19, 70), fields.String, strip=False),
+    },
 )
 
 JRNL_REFN = Record(
@@ -501,8 +516,8 @@ JRNL_REFN = Record(
     is_one_line=True,
     field_data={
         "issn_essn": fields.Column((35, 39), fields.LString),
-        "issn": fields.Column((40, 65), fields.LString)
-    }
+        "issn": fields.Column((40, 65), fields.LString),
+    },
 )
 
 JRNL_PMID = Record(
@@ -511,8 +526,8 @@ JRNL_PMID = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((16, 18), fields.Continuation),
-        "pm_id": fields.Column((19, 79), fields.String)
-    }
+        "pm_id": fields.Column((19, 79), fields.String),
+    },
 )
 
 JRNL_DOI = Record(
@@ -521,8 +536,8 @@ JRNL_DOI = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((16, 18), fields.Continuation),
-        "doi": fields.Column((19, 79), fields.String)
-    }
+        "doi": fields.Column((19, 79), fields.String),
+    },
 )
 
 
@@ -535,7 +550,7 @@ REMARK = Record(
     field_data={
         "remark_num": fields.Column((7, 10), fields.Integer),
         "content": fields.Column((11, 80), fields.LString, cast=False, strip=False),
-    }
+    },
 )
 
 
@@ -594,7 +609,7 @@ DBREF2 = Record(
         "db_chain_accession": fields.Column((18, 40), fields.LString),
         "db_res_num_begin": fields.Column((45, 55), fields.Integer),
         "db_res_num_end": fields.Column((57, 67), fields.Integer),
-    }
+    },
 )
 
 
@@ -614,7 +629,7 @@ SEQADV = Record(
         "db_chain_accession": fields.Column((29, 38), fields.LString),
         "db_res_name": fields.Column((39, 42), fields.ResidueName),
         "db_res_num": fields.Column((43, 48), fields.LString),
-        "description": fields.Column((49, 70), fields.LString)
+        "description": fields.Column((49, 70), fields.LString),
     },
 )
 
@@ -629,11 +644,13 @@ SEQRES = Record(
         "serial": fields.Column((7, 10), fields.Integer),
         "chain_id": fields.Column((11, 12), fields.Character),
         "num_res": fields.Column((13, 17), fields.Integer, cast=False),
-        "res_name": fields.Column([(c, c + 3) for c in range(19, 68, 4)], fields.ResidueName, cast=False)
+        "res_name": fields.Column(
+            [(c, c + 3) for c in range(19, 68, 4)], fields.ResidueName, cast=False
+        ),
     },
     key_unique="chain_id",
     key_continuation="serial",
-    keys_repeat=("num_res",)
+    keys_repeat=("num_res",),
 )
 
 
@@ -650,7 +667,7 @@ MODRES = Record(
         "res_num": fields.Column((18, 22), fields.Integer),
         "res_icode": fields.Column((22, 23), fields.AChar),
         "std_res_name": fields.Column((24, 27), fields.ResidueName),
-        "description": fields.Column((29, 70), fields.LString)
+        "description": fields.Column((29, 70), fields.LString),
     },
 )
 
@@ -667,8 +684,8 @@ HET = Record(
         "res_num": fields.Column((13, 17), fields.Integer),
         "res_icode": fields.Column((17, 18), fields.AChar),
         "num_hetatm": fields.Column((20, 25), fields.Integer),
-        "description": fields.Column((30, 70), fields.LString)
-    }
+        "description": fields.Column((30, 70), fields.LString),
+    },
 )
 
 
@@ -681,9 +698,9 @@ HETNAM = Record(
     field_data={
         "continuation": fields.Column((8, 10), fields.Continuation),
         "het_id": fields.Column((11, 14), fields.LString),
-        "name": fields.Column((15, 70), fields.String, strip=False, cast=False)
+        "name": fields.Column((15, 70), fields.String, strip=False, cast=False),
     },
-    key_unique="het_id"
+    key_unique="het_id",
 )
 
 
@@ -696,9 +713,9 @@ HETSYN = Record(
     field_data={
         "continuation": fields.Column((8, 10), fields.Continuation),
         "het_id": fields.Column((11, 14), fields.LString),
-        "synonym": fields.Column((15, 70), fields.SList, cast=False)
+        "synonym": fields.Column((15, 70), fields.SList, cast=False),
     },
-    key_unique="het_id"
+    key_unique="het_id",
 )
 
 
@@ -713,10 +730,10 @@ FORMUL = Record(
         "het_id": fields.Column((12, 15), fields.LString),
         "continuation": fields.Column((16, 18), fields.Continuation),
         "is_water": fields.Column((18, 19), fields.Character, cast=False),
-        "formula": fields.Column((19, 70), fields.String, strip=False, cast=False)
+        "formula": fields.Column((19, 70), fields.String, strip=False, cast=False),
     },
     key_unique="het_id",
-    keys_repeat=("comp_num", "is_water")
+    keys_repeat=("comp_num", "is_water"),
 )
 
 
@@ -740,7 +757,7 @@ HELIX = Record(
         "helix_class": fields.Column((38, 40), fields.Integer),
         "description": fields.Column((40, 70), fields.LString),
         "length": fields.Column((71, 76), fields.Integer),
-    }
+    },
 )
 
 
@@ -772,8 +789,8 @@ SHEET = Record(
         "res_name_pre": fields.Column((60, 63), fields.ResidueName),
         "chain_id_pre": fields.Column((64, 65), fields.Character),
         "res_num_pre": fields.Column((65, 69), fields.Integer),
-        "res_icode_pre": fields.Column((69, 70), fields.AChar)
-    }
+        "res_icode_pre": fields.Column((69, 70), fields.AChar),
+    },
 )
 
 
@@ -794,11 +811,15 @@ SSBOND = Record(
         "res_num_2": fields.Column((31, 35), fields.Integer),
         "res_icode_2": fields.Column((35, 36), fields.AChar),
         "sym_op_1": fields.Column((59, 62), fields.Integer),
-        "trans_vec_1": fields.Column([(i, i+1) for i in range(62, 65)], fields.SymOP, strip=False),
+        "trans_vec_1": fields.Column(
+            [(i, i + 1) for i in range(62, 65)], fields.SymOP, strip=False
+        ),
         "sym_op_2": fields.Column((66, 69), fields.Integer),
-        "trans_vec_2": fields.Column([(i, i+1) for i in range(69, 72)], fields.SymOP, strip=False),
+        "trans_vec_2": fields.Column(
+            [(i, i + 1) for i in range(69, 72)], fields.SymOP, strip=False
+        ),
         "length": fields.Column((73, 78), fields.Real),
-    }
+    },
 )
 
 
@@ -822,11 +843,15 @@ LINK = Record(
         "res_num_2": fields.Column((52, 56), fields.Integer),
         "res_icode_2": fields.Column((56, 57), fields.AChar),
         "sym_op_1": fields.Column((59, 62), fields.Integer),
-        "trans_vec_1": fields.Column([(i, i+1) for i in range(62, 65)], fields.SymOP, strip=False),
+        "trans_vec_1": fields.Column(
+            [(i, i + 1) for i in range(62, 65)], fields.SymOP, strip=False
+        ),
         "sym_op_2": fields.Column((66, 69), fields.Integer),
-        "trans_vec_2": fields.Column([(i, i+1) for i in range(69, 72)], fields.SymOP, strip=False),
-        "length": fields.Column((73, 78), fields.Real)
-    }
+        "trans_vec_2": fields.Column(
+            [(i, i + 1) for i in range(69, 72)], fields.SymOP, strip=False
+        ),
+        "length": fields.Column((73, 78), fields.Real),
+    },
 )
 
 
@@ -847,8 +872,8 @@ CISPEP = Record(
         "res_num_2": fields.Column((31, 35), fields.Integer),
         "res_icode_2": fields.Column((35, 36), fields.AChar),
         "model_num": fields.Column((43, 46), fields.Integer),
-        "angle": fields.Column((53, 59), fields.Real)
-    }
+        "angle": fields.Column((53, 59), fields.Real),
+    },
 )
 
 
@@ -862,14 +887,22 @@ SITE = Record(
         "serial": fields.Column((7, 10), fields.Integer),
         "site_id": fields.Column((11, 14), fields.LString),
         "num_res": fields.Column((15, 17), fields.Integer, cast=False),
-        "res_name": fields.Column(((18, 21), (29, 32), (40, 43), (51, 54)), fields.ResidueName, cast=False),
-        "chain_id": fields.Column(((22, 23), (33, 34), (44, 45), (55, 56)), fields.Character, cast=False),
-        "res_num": fields.Column(((23, 27), (34, 38), (45, 49), (56, 60)), fields.Integer, cast=False),
-        "res_icode": fields.Column(((27, 28), (38, 39), (49, 50), (60, 61)), fields.AChar, cast=False),
+        "res_name": fields.Column(
+            ((18, 21), (29, 32), (40, 43), (51, 54)), fields.ResidueName, cast=False
+        ),
+        "chain_id": fields.Column(
+            ((22, 23), (33, 34), (44, 45), (55, 56)), fields.Character, cast=False
+        ),
+        "res_num": fields.Column(
+            ((23, 27), (34, 38), (45, 49), (56, 60)), fields.Integer, cast=False
+        ),
+        "res_icode": fields.Column(
+            ((27, 28), (38, 39), (49, 50), (60, 61)), fields.AChar, cast=False
+        ),
     },
     key_unique="site_id",
     key_continuation="serial",
-    keys_repeat=("num_res",)
+    keys_repeat=("num_res",),
 )
 
 
@@ -888,12 +921,12 @@ CRYST1 = Record(
         "gamma": fields.Column((47, 54), fields.Real),
         "space_group": fields.Column((55, 66), fields.LString),
         "z": fields.Column((66, 70), fields.Integer),
-    }
+    },
 )
 
 _field_data_xform = {
-    "m": fields.Column([(i, i+10) for i in range(10, 31, 10)], fields.Real),
-    "v": fields.Column((45, 55), fields.Real)
+    "m": fields.Column([(i, i + 10) for i in range(10, 31, 10)], fields.Real),
+    "v": fields.Column((45, 55), fields.Real),
 }
 
 ORIGX1 = Record(
@@ -902,7 +935,7 @@ ORIGX1 = Record(
     is_mandatory=True,
     is_one_time=True,
     is_one_line=True,
-    field_data=_field_data_xform
+    field_data=_field_data_xform,
 )
 
 
@@ -912,7 +945,7 @@ ORIGX2 = Record(
     is_mandatory=True,
     is_one_time=True,
     is_one_line=True,
-    field_data=_field_data_xform
+    field_data=_field_data_xform,
 )
 
 
@@ -922,7 +955,7 @@ ORIGX3 = Record(
     is_mandatory=True,
     is_one_time=True,
     is_one_line=True,
-    field_data=_field_data_xform
+    field_data=_field_data_xform,
 )
 
 
@@ -932,7 +965,7 @@ SCALE1 = Record(
     is_mandatory=True,
     is_one_time=True,
     is_one_line=True,
-    field_data=_field_data_xform
+    field_data=_field_data_xform,
 )
 
 
@@ -942,7 +975,7 @@ SCALE2 = Record(
     is_mandatory=True,
     is_one_time=True,
     is_one_line=True,
-    field_data=_field_data_xform
+    field_data=_field_data_xform,
 )
 
 
@@ -952,7 +985,7 @@ SCALE3 = Record(
     is_mandatory=True,
     is_one_time=True,
     is_one_line=True,
-    field_data=_field_data_xform
+    field_data=_field_data_xform,
 )
 
 
@@ -967,7 +1000,7 @@ MTRIX1 = Record(
     is_mandatory=False,
     is_one_time=False,
     is_one_line=True,
-    field_data=_field_data_mtrix
+    field_data=_field_data_mtrix,
 )
 
 
@@ -977,7 +1010,7 @@ MTRIX2 = Record(
     is_mandatory=False,
     is_one_time=False,
     is_one_line=True,
-    field_data=_field_data_mtrix
+    field_data=_field_data_mtrix,
 )
 
 
@@ -987,7 +1020,7 @@ MTRIX3 = Record(
     is_mandatory=False,
     is_one_time=False,
     is_one_line=True,
-    field_data=_field_data_mtrix
+    field_data=_field_data_mtrix,
 )
 
 
@@ -997,7 +1030,7 @@ MODEL = Record(
     is_mandatory=False,
     is_one_time=False,
     is_one_line=True,
-    field_data={"serial": fields.Column((10, 14), fields.Integer)}
+    field_data={"serial": fields.Column((10, 14), fields.Integer)},
 )
 
 
@@ -1021,7 +1054,7 @@ ATOM = Record(
         "occupancy": fields.Column((54, 60), fields.Real),
         "temp_factor": fields.Column((60, 66), fields.Real),
         "element": fields.Column((76, 78), fields.Element),
-        "charge": fields.Column(((79, 80), (78, 79)), fields.LString)
+        "charge": fields.Column(((79, 80), (78, 79)), fields.LString),
     },
 )
 
@@ -1047,8 +1080,8 @@ ANISOU = Record(
         "u02": fields.Column((56, 63), fields.Integer),
         "u12": fields.Column((63, 70), fields.Integer),
         "element": fields.Column((76, 78), fields.Element),
-        "charge": fields.Column(((79, 80), (78, 79)), fields.LString)
-    }
+        "charge": fields.Column(((79, 80), (78, 79)), fields.LString),
+    },
 )
 
 
@@ -1064,7 +1097,7 @@ TER = Record(
         "chain_id": fields.Column((21, 22), fields.Character),
         "res_num": fields.Column((22, 26), fields.Integer),
         "res_icode": fields.Column((26, 27), fields.AChar),
-    }
+    },
 )
 
 
@@ -1089,7 +1122,7 @@ HETATM = Record(
         "u02": fields.Column((56, 63), fields.Integer),
         "u12": fields.Column((63, 70), fields.Integer),
         "element": fields.Column((76, 78), fields.Element),
-        "charge": fields.Column(((79, 80), (78, 79)), fields.LString)
+        "charge": fields.Column(((79, 80), (78, 79)), fields.LString),
     },
 )
 
@@ -1100,7 +1133,7 @@ ENDMDL = Record(
     is_mandatory=False,
     is_one_time=False,
     is_one_line=True,
-    field_data=dict()
+    field_data=dict(),
 )
 
 
@@ -1112,7 +1145,9 @@ CONECT = Record(
     is_one_line=True,
     field_data={
         "serial": fields.Column((7, 11), fields.Integer),
-        "serial_bonded": fields.Column([(i, i+4) for i in range(12, 28, 5)], fields.Integer, cast=False),
+        "serial_bonded": fields.Column(
+            [(i, i + 4) for i in range(12, 28, 5)], fields.Integer, cast=False
+        ),
     },
 )
 
@@ -1209,6 +1244,7 @@ names: np.ndarray = np.array([rec.name for rec in records])
 
 count = names.size
 
+
 def chain(*funcs: Callable):
     """
     Chain functions.
@@ -1224,8 +1260,6 @@ def chain(*funcs: Callable):
         For n functions f_n, return F(x) = f_n(f_{n-1}(...(f_2(f_1(x))))
     """
     return functools.partial(lambda val: functools.reduce(lambda x, y: y(x), funcs, val))
-
-
 
 
 """Creates 1-letter amino acid codes from DataFrame
@@ -1269,9 +1303,3 @@ amino3to1dict = {
     "TRP": "W",
     "TYR": "Y",
 }
-
-
-
-
-
-

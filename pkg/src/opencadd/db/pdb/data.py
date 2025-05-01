@@ -22,17 +22,17 @@ _END_HOLDINGS = f"{_ROOT_DATA}/holdings"
 
 
 def schema(
-        schema_type: Literal[
-            'entry',
-            'polymer_entity',
-            'branched_entity',
-            'nonpolymer_entity',
-            'polymer_entity_instance',
-            'branched_entity_instance',
-            'nonpolymer_entity_instance',
-            'assembly',
-            'chem_comp'
-        ]
+    schema_type: Literal[
+        "entry",
+        "polymer_entity",
+        "branched_entity",
+        "nonpolymer_entity",
+        "polymer_entity_instance",
+        "branched_entity_instance",
+        "nonpolymer_entity_instance",
+        "assembly",
+        "chem_comp",
+    ],
 ) -> dict:
     """
     Get the data schema for a data type.
@@ -319,9 +319,9 @@ def group_entity(group_id: str) -> dict:
 
 
 def interface(
-        pdb_id: str,
-        assembly_id: int | str = 1,
-        interface_id: int | str = 1,
+    pdb_id: str,
+    assembly_id: int | str = 1,
+    interface_id: int | str = 1,
 ) -> dict:
     """
     Description of a pairwise polymeric interface in an assembly of a PDB entry.
@@ -342,9 +342,7 @@ def interface(
     return _data_query(url=f"{_END_DATA}/interface/{pdb_id}/{assembly_id}/{interface_id}")
 
 
-def holdings(
-        status: Literal["current", "unreleased", "removed"] = "current"
-) -> np.ndarray:
+def holdings(status: Literal["current", "unreleased", "removed"] = "current") -> np.ndarray:
     """
     Get all PDB ID holdings data for a specific entry status.
 
@@ -389,7 +387,7 @@ def holdings_without_pdb_file() -> np.ndarray:
     """
     pdb_ids = response_http_request(
         url="https://files.wwpdb.org/pub/pdb/compatible/pdb_bundle/pdb_bundle_index.txt",
-        response_type="str"
+        response_type="str",
     )
     return np.array(pdb_ids.upper().splitlines())
 

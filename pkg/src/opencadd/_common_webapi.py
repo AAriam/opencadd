@@ -2,7 +2,6 @@
 Common web API calls used by different subpackages/modules within the openCADD library.
 """
 
-
 import io
 
 from opencadd._http_request import HTTPRequestRetryConfig, response_http_request
@@ -11,8 +10,8 @@ __author__ = "Armin Ariamajd"
 
 
 def proteinsplus_upload_pdb(
-        pdb_content: bytes | str,
-        retry_config: HTTPRequestRetryConfig = HTTPRequestRetryConfig(),
+    pdb_content: bytes | str,
+    retry_config: HTTPRequestRetryConfig = HTTPRequestRetryConfig(),
 ) -> str:
     """
     Upload a PDB file to the `ProteinsPlus <https://proteins.plus>`_ webserver.
@@ -52,7 +51,7 @@ def proteinsplus_upload_pdb(
             files={"pdb_file[pathvar]": ("dummy_name.pdb", file)},
             response_type="json",
             response_verifier=lambda response_dict: "location" in response_dict.keys(),
-            retry_config=retry_config
+            retry_config=retry_config,
         )["location"]
     # Try to retrieve the dummy PDB ID from the address.
     dummy_pdb_id = response_http_request(

@@ -5,7 +5,6 @@ This module contains the `T2Fpharm` class, used for pharmacophore modeling
 from protein apo structures.
 """
 
-
 # Standard library
 import asyncio
 import operator
@@ -84,10 +83,10 @@ class T2FPharm:
     """
 
     def __init__(
-            self,
-            receptor: protein.Protein,
-            fields: mif.abc.IntraMolecularInteractionField,
-            distance_limit: float = 5,
+        self,
+        receptor: protein.Protein,
+        fields: mif.abc.IntraMolecularInteractionField,
+        distance_limit: float = 5,
     ):
         """
         Parameters
@@ -112,11 +111,10 @@ class T2FPharm:
         shape_distance_data = (
             self._receptor.trajectory_length,
             *self._fields.grid.shape,
-            self._receptor.count_atoms
+            self._receptor.count_atoms,
         )
         self._dist_atoms_within_limit = self._receptor.distance_to_atoms_sparse(
-            kdtree=self._fields.grid.kdtree,
-            max_distance=self._dist_limit_curr
+            kdtree=self._fields.grid.kdtree, max_distance=self._dist_limit_curr
         ).reshape(shape_distance_data)
         nearest_atoms_distances, nearest_atoms_indices = self._receptor.nearest_atoms(
             coords=self._fields.grid.coordinates.reshape(-1, 3)
@@ -158,7 +156,8 @@ class T2FPharm:
     @property
     def distances_to_protein_atoms(self):
         return (
-            self._distances_to_protein_atoms if self._distances_to_protein_atoms is not None
+            self._distances_to_protein_atoms
+            if self._distances_to_protein_atoms is not None
             else self.calculate_distances_to_protein_atoms()
         )
 
@@ -168,7 +167,11 @@ class T2FPharm:
 
     @property
     def psp_distances(self):
-        return self._psp_distances if self._psp_distances is not None else self.calculate_psp_distances()
+        return (
+            self._psp_distances
+            if self._psp_distances is not None
+            else self.calculate_psp_distances()
+        )
 
     @property
     def buriedness(self):
@@ -176,12 +179,14 @@ class T2FPharm:
 
     @property
     def hbonding_atoms_count(self):
-        return self._hbonding_atoms_count if self._hbonding_atoms_count is not None else self.count_hbonding_atoms_in_radius()
+        return (
+            self._hbonding_atoms_count
+            if self._hbonding_atoms_count is not None
+            else self.count_hbonding_atoms_in_radius()
+        )
 
     def filter_by_dist_nearest_atom(
-            self,
-            dist_range: tuple[float, float],
-            invert: bool = False
+        self, dist_range: tuple[float, float], invert: bool = False
     ) -> np.ndarray:
         """
         Filter points by their distances to their nearest atoms.
@@ -207,17 +212,17 @@ class T2FPharm:
         return mask
 
     def __call__(
-            self,
-            vacancy_max_energy: float = +0.6,
-            buriedness_psp_num_dirs: Literal[3, 7, 13] = 7,
-            buriedness_psp_max_len: float = 10.0,
-            buriedness_psp_min_count: int = 4,
-            hbond_max_len: float = 3.0,
-            probes_max_energy: tuple[float, float, float, float] = (-0.6, -0.35, -0.4, -0.4),
-            electrostat_pot_exclusion_range: tuple[float, float] = (-1.0, 1.0),
-            min_neighbor_dist_clustering: float = 1.21,
-            min_common_neighbor_count_clustering: int = 6,
-            min_points_per_cluster_count: int = 15,
+        self,
+        vacancy_max_energy: float = +0.6,
+        buriedness_psp_num_dirs: Literal[3, 7, 13] = 7,
+        buriedness_psp_max_len: float = 10.0,
+        buriedness_psp_min_count: int = 4,
+        hbond_max_len: float = 3.0,
+        probes_max_energy: tuple[float, float, float, float] = (-0.6, -0.35, -0.4, -0.4),
+        electrostat_pot_exclusion_range: tuple[float, float] = (-1.0, 1.0),
+        min_neighbor_dist_clustering: float = 1.21,
+        min_common_neighbor_count_clustering: int = 6,
+        min_points_per_cluster_count: int = 15,
     ):
         hba = autodock.AtomType.OA  # hydrogen-bond acceptor probe
         hbd = autodock.AtomType.HD  # hydrogen-bond donor probe
@@ -233,10 +238,10 @@ class T2FPharm:
             psp_distances=self.grid_psp_dist(
                 grid_vacancy=vacant,
                 num_directions=buriedness_psp_num_dirs,
-                max_radius=buriedness_psp_max_len
+                max_radius=buriedness_psp_max_len,
             ),
             psp_max_length=buriedness_psp_max_len,
-            psp_min_count=buriedness_psp_min_count
+            psp_min_count=buriedness_psp_min_count,
         )
         # A boolean grid indicating whether a specific probe at a specific grid point has high affinity
         is_high_affinity = self.grid_probes < np.array(probes_max_energy)
@@ -257,8 +262,11 @@ class T2FPharm:
 
         is_hba, is_hbd, is_aliph, is_arom = (
             np.logical_and(high_affinity_n_buried[..., probes.index(probe)], condition)
-            for probe, condition in
-        zip(probes, [has_hbd_env, has_hba_env, has_hydrophobic_env, has_hydrophobic_env], strict=False)
+            for probe, condition in zip(
+                probes,
+                [has_hbd_env, has_hba_env, has_hydrophobic_env, has_hydrophobic_env],
+                strict=False,
+            )
         )
 
         is_buried_in_hydrophilic_env = np.logical_and(buried, has_hydrophilic_env)
@@ -273,11 +281,11 @@ class T2FPharm:
         return
 
     def calculate_vacancy(
-            self,
-            source: str | Sequence[str] = "mindist",
-            vacancy_range: tuple[float, float] = (2, ),
-            energy_cutoff: float = +0.6,
-            mode: Literal["max", "min", "avg", "sum"] | None = "min",
+        self,
+        source: str | Sequence[str] = "mindist",
+        vacancy_range: tuple[float, float] = (2,),
+        energy_cutoff: float = +0.6,
+        mode: Literal["max", "min", "avg", "sum"] | None = "min",
     ) -> np.ndarray:
         """
         Calculate whether each grid point is vacant, or occupied by a target atom.
@@ -325,18 +333,16 @@ class T2FPharm:
         return self._distances_to_protein_atoms
 
     def count_hbonding_atoms_in_radius(
-            self,
-            max_len_hbond: float = 3.0,
+        self,
+        max_len_hbond: float = 3.0,
     ) -> np.ndarray:
         proximates = self.distances_to_protein_atoms < max_len_hbond
         self._hbonding_atoms_count = np.empty(
-            shape=(*self.distances_to_protein_atoms.shape[:-1], 2),
-            dtype=np.byte
+            shape=(*self.distances_to_protein_atoms.shape[:-1], 2), dtype=np.byte
         )
         for idx, hbond_role in enumerate(["hbond_acc", "hbond_don"]):
             self._hbonding_atoms_count[..., idx] = np.count_nonzero(
-                np.logical_and(self._receptor.atom_data[hbond_role], proximates),
-                axis=-1
+                np.logical_and(self._receptor.atom_data[hbond_role], proximates), axis=-1
             )
         return self._hbonding_atoms_count
 
@@ -345,24 +351,22 @@ class T2FPharm:
         view = self._receptor.create_new_ngl_widget()
 
         def visualizer(
-                vacancy_energy_cutoff: float,
-                vacancy_calc_mode: [Literal["max", "min", "avg", "sum"]],
-                range_psp_len: tuple[float, float],
-                psp_len_min: float,
-                psp_len_max: float,
-                psp_count_min: int,
-                psp_count_max: int,
-                energy_type,
-                energy_min: float,
-                energy_max: float,
-
+            vacancy_energy_cutoff: float,
+            vacancy_calc_mode: [Literal["max", "min", "avg", "sum"]],
+            range_psp_len: tuple[float, float],
+            psp_len_min: float,
+            psp_len_max: float,
+            psp_count_min: int,
+            psp_count_max: int,
+            energy_type,
+            energy_min: float,
+            energy_max: float,
         ):
             nglview_api.remove_component_by_name(view=view, name="grid")
             self.calculate_vacancy(energy_cutoff=vacancy_energy_cutoff, mode=vacancy_calc_mode)
             self.calculate_psp_distances()
             mask1 = np.logical_and(
-                self.psp_distances >= psp_len_min,
-                self.psp_distances <= psp_len_max
+                self.psp_distances >= psp_len_min, self.psp_distances <= psp_len_max
             )
             psp_counts = np.count_nonzero(mask1, axis=-1)
             mask2 = np.logical_and(psp_counts >= psp_count_min, psp_counts <= psp_count_max)
@@ -382,37 +386,31 @@ class T2FPharm:
             psp_len_max=(0, 50, 1),
             psp_count_min=(0, 13, 1),
             psp_count_max=(0, 13, 1),
-            energy_type = [("HD", self.field.h_bond_donor), ("HA", self.field.h_bond_acceptor)],
-            energy_min=(-2,10,1),
-            energy_max=(-2,10,1),
+            energy_type=[("HD", self.field.h_bond_donor), ("HA", self.field.h_bond_acceptor)],
+            energy_min=(-2, 10, 1),
+            energy_max=(-2, 10, 1),
         )
 
-
     def visualize(
-            self,
-            grid_mask = None,
-            weights1 = None,
-            weights2 = None,
-            color_map: str = "bwr",
-            opacity: float = 0.8,
+        self,
+        grid_mask=None,
+        weights1=None,
+        weights2=None,
+        color_map: str = "bwr",
+        opacity: float = 0.8,
     ):
         if grid_mask is None:
             grid_mask = np.ones(shape=self._fields.grid.shape, dtype=np.bool_)
         normalizer = mpl.colors.Normalize()
-        mapper = plt.cm.ScalarMappable(
-            norm=normalizer,
-            cmap=mpl.colormaps[color_map]
-        )
+        mapper = plt.cm.ScalarMappable(norm=normalizer, cmap=mpl.colormaps[color_map])
         if weights1 is None:
             weights1 = np.repeat(0.5, np.count_nonzero(grid_mask) * 3)
         elif isinstance(weights1, Sequence):
             weights1 = np.tile(weights1, np.count_nonzero(grid_mask) * 3)
         else:
-            weights1 = (mapper.to_rgba(weights1.flatten())[..., :3])
+            weights1 = mapper.to_rgba(weights1.flatten())[..., :3]
         if weights2 is None:
-            weights2 = (
-                    np.ones(np.count_nonzero(grid_mask)) * self._fields.grid.spacing / 4
-            )
+            weights2 = np.ones(np.count_nonzero(grid_mask)) * self._fields.grid.spacing / 4
         elif isinstance(weights2, (int, float)):
             weights2 = np.ones(np.count_nonzero(grid_mask)) + weights2
         else:
@@ -422,7 +420,7 @@ class T2FPharm:
             coords=self._fields.grid.coordinates[grid_mask],
             colors=weights1,
             radii=weights2,
-            opacity=opacity
+            opacity=opacity,
         )
         return
 
@@ -442,21 +440,26 @@ class Timer:
     def cancel(self):
         self._task.cancel()
 
+
 def throttle(wait):
     """Decorator that prevents a function from being called
     more than once every wait period.
     """
+
     def decorator(fn):
         time_of_last_call = 0
         scheduled, timer = False, None
         new_args, new_kwargs = None, None
+
         def throttled(*args, **kwargs):
             nonlocal new_args, new_kwargs, time_of_last_call, scheduled, timer
+
             def call_it():
                 nonlocal new_args, new_kwargs, time_of_last_call, scheduled, timer
                 time_of_last_call = time()
                 fn(*new_args, **new_kwargs)
                 scheduled = False
+
             time_since_last_call = time() - time_of_last_call
             new_args, new_kwargs = args, kwargs
             if not scheduled:
@@ -464,7 +467,9 @@ def throttle(wait):
                 new_wait = max(0, wait - time_since_last_call)
                 timer = Timer(new_wait, call_it)
                 timer.start()
+
         return throttled
+
     return decorator
 
 
@@ -473,26 +478,28 @@ def debounce(wait):
     execution until after `wait` seconds
     have elapsed since the last time it was invoked.
     """
+
     def decorator(fn):
         timer = None
+
         def debounced(*args, **kwargs):
             nonlocal timer
+
             def call_it():
                 fn(*args, **kwargs)
+
             if timer is not None:
                 timer.cancel()
             timer = Timer(wait, call_it)
             timer.start()
+
         return debounced
+
     return decorator
 
 
 class T2FPharmWidget:
-
-    def __init__(
-            self,
-            modeler: T2FPharm
-    ):
+    def __init__(self, modeler: T2FPharm):
         # DECLARE ATTRIBUTES
         self._t2fpharm: T2FPharm
         # Widgets for: BINDING SITE REFINEMENT -> VACANCY
@@ -500,13 +507,13 @@ class T2FPharmWidget:
         self._widget_refine_vacancy_mode_buttons: widgets.ToggleButtons
         self._widget_refine_vacancy_filter_buttons: widgets.ToggleButtons
         self._widget_refine_vacancy_range_slider: widgets.FloatRangeSlider
-        self._widget_refine_vacancy_range_unit:  widgets.Label
+        self._widget_refine_vacancy_range_unit: widgets.Label
         # Widgets for: BINDING SITE REFINEMENT -> BURIEDNESS
         self._widget_refine_buriedness_source_buttons: list[widgets.ToggleButton]
         self._widget_refine_buriedness_mode_buttons: widgets.ToggleButtons
         self._widget_refine_buriedness_filter_buttons: widgets.ToggleButtons
         self._widget_refine_buriedness_range_slider: widgets.FloatRangeSlider
-        self._widget_refine_buriedness_range_unit:  widgets.Label
+        self._widget_refine_buriedness_range_unit: widgets.Label
 
         # Assign attributes
         self._t2fpharm = modeler
@@ -514,9 +521,9 @@ class T2FPharmWidget:
         self._vacancy_data = np.concatenate(
             (
                 self._t2fpharm.fields.tensor,
-                self._t2fpharm.distances_to_nearest_protein_atom[..., np.newaxis]
+                self._t2fpharm.distances_to_nearest_protein_atom[..., np.newaxis],
             ),
-            axis=-1
+            axis=-1,
         )
 
         # CREATE WIDGET FOR: BINDING SITE REFINEMENT -> VACANCY -> SOURCE -> TOGGLE BUTTONS
@@ -524,11 +531,10 @@ class T2FPharmWidget:
         # First add the buttons that are always present, regardless of the fields,
         # then add buttons for each field:
         self._widget_refine_vacancy_source_buttons = self._create_toggle_buttons_source(
-            labels=["Distance"]+list(self._t2fpharm.fields.field_names),
-            tooltips=["Distance of grid points to protein atoms."]+[
-                f"Field {field_name}" for field_name in self._t2fpharm.fields.field_names
-            ],
-            observer=self._on_value_change_vacancy_source
+            labels=["Distance"] + list(self._t2fpharm.fields.field_names),
+            tooltips=["Distance of grid points to protein atoms."]
+            + [f"Field {field_name}" for field_name in self._t2fpharm.fields.field_names],
+            observer=self._on_value_change_vacancy_source,
         )
 
         # CREATE WIDGET FOR: BINDING SITE REFINEMENT -> VACANCY -> MODE -> TOGGLE BUTTONS
@@ -553,8 +559,7 @@ class T2FPharmWidget:
         # CREATE WIDGET FOR: BINDING SITE REFINEMENT -> VACANCY -> RANGE -> UNIT
         # This is a label that shows the unit of the selected vacancy source values:
         self._widget_refine_vacancy_range_unit = widgets.Label(
-            value="",
-            layout=widgets.Layout(margin="0px 0px 0px 0px", align="left")
+            value="", layout=widgets.Layout(margin="0px 0px 0px 0px", align="left")
         )
 
         # CREATE WIDGET FOR: BINDING SITE REFINEMENT -> VACANCY
@@ -566,21 +571,18 @@ class T2FPharmWidget:
                 widgets.Box(
                     children=[self._widget_refine_vacancy_mode_buttons],
                     layout=widgets.Layout(
-                        width='330px',
-                        height='',
-                        flex_flow='row',
-                        display='flex'
-                    )
+                        width="330px", height="", flex_flow="row", display="flex"
+                    ),
                 ),
                 self._widget_refine_vacancy_filter_buttons,
                 widgets.HBox(
                     [
                         self._widget_refine_vacancy_range_slider,
-                        self._widget_refine_vacancy_range_unit
+                        self._widget_refine_vacancy_range_unit,
                     ]
                 ),
             ],
-            header_name="Vacancy"
+            header_name="Vacancy",
         )
 
         # CREATE WIDGET FOR: BINDING SITE REFINEMENT -> BURIEDNESS -> SOURCE -> TOGGLE BUTTON
@@ -588,7 +590,7 @@ class T2FPharmWidget:
         self._widget_refine_buriedness_source_buttons = self._create_toggle_buttons_source(
             labels=["PSP Lengths"],
             tooltips=["Length of PSP events in all 13 cubic directions."],
-            observer=self._on_value_change_buriedness_source
+            observer=self._on_value_change_buriedness_source,
         )
 
         # CREATE WIDGET FOR: BINDING SITE REFINEMENT -> BURIEDNESS -> MODE -> TOGGLE BUTTONS
@@ -613,8 +615,7 @@ class T2FPharmWidget:
         # CREATE WIDGET FOR: BINDING SITE REFINEMENT -> VACANCY -> RANGE -> UNIT
         # This is a label that shows the unit of the selected vacancy source values:
         self._widget_refine_buriedness_range_unit = widgets.Label(
-            value="",
-            layout=widgets.Layout(margin="0px 0px 0px 0px", align="left")
+            value="", layout=widgets.Layout(margin="0px 0px 0px 0px", align="left")
         )
 
         # CREATE WIDGET FOR: BINDING SITE REFINEMENT -> VACANCY
@@ -626,22 +627,19 @@ class T2FPharmWidget:
                 widgets.Box(
                     children=[self._widget_refine_buriedness_mode_buttons],
                     layout=widgets.Layout(
-                        width='330px',
-                        height='',
-                        flex_flow='row',
-                        display='flex'
-                    )
+                        width="330px", height="", flex_flow="row", display="flex"
+                    ),
                 ),
                 self._widget_refine_buriedness_filter_buttons,
                 widgets.HBox(
                     [
                         self._widget_refine_buriedness_range_slider,
-                        self._widget_refine_buriedness_range_unit
+                        self._widget_refine_buriedness_range_unit,
                     ]
                 ),
             ],
             header_name="Buriedness",
-            header_color="silver"
+            header_color="silver",
         )
 
         # Assemble the refinement panel
@@ -656,7 +654,6 @@ class T2FPharmWidget:
         main_panel.set_title(1, "Feature Selection")
         main_panel.set_title(2, "Clustering")
         main_panel.selected_index = 0
-
 
         self._curr_selection_vacancy_source: np.ndarray = np.zeros(
             shape=self._t2fpharm.fields.fields_count + 1,
@@ -694,7 +691,7 @@ class T2FPharmWidget:
         nglview_api.add_spheres(
             view=self._nglwidget,
             coords=self._t2fpharm.fields.grid.coordinates[self._curr_mask[0]],
-            name="grid"
+            name="grid",
         )
         return
 
@@ -705,8 +702,9 @@ class T2FPharmWidget:
         source_name: str = change["owner"].description
         selected: bool = change["new"]
         self._curr_selection_vacancy_source[
-            -1 if source_name == "Distance" else
-            self._t2fpharm.fields.index_field(name=[source_name])
+            -1
+            if source_name == "Distance"
+            else self._t2fpharm.fields.index_field(name=[source_name])
         ] = selected
         num_selected_sources = np.count_nonzero(self._curr_selection_vacancy_source)
         self._widget_refine_vacancy_mode_buttons.disabled = num_selected_sources in (0, 1)
@@ -728,7 +726,7 @@ class T2FPharmWidget:
         self._update_grid()
         return
 
-    #@debounce(1.5)
+    # @debounce(1.5)
     def _on_value_change_vacancy_range(self, change: dict):
         # self._calculate_vacancy_stage_range(val_range=change["new"])
         self._calculate_vacancy()
@@ -762,7 +760,7 @@ class T2FPharmWidget:
             minmax_vals=self._widget_refine_vacancy_range_slider.value,
             reduction_op=self._widget_refine_vacancy_mode_buttons.value,
             reduction_axis=-1,
-            invert=self._widget_refine_vacancy_filter_buttons.value == "Exclude"
+            invert=self._widget_refine_vacancy_filter_buttons.value == "Exclude",
         )
         with self._widget_refine_vacancy_range_slider.hold_trait_notifications():
             self._widget_refine_vacancy_range_slider.min = vacancy_range[0]
@@ -782,11 +780,11 @@ class T2FPharmWidget:
 
     @staticmethod
     def _create_toggle_buttons_source(
-            labels: Sequence[str],
-            tooltips: str | Sequence[str] = "",
-            initial_values: bool | Sequence[bool] = False,
-            button_style: Literal['success', 'info', 'warning', 'danger', ''] = "danger",
-            observer: Callable | None = None,
+        labels: Sequence[str],
+        tooltips: str | Sequence[str] = "",
+        initial_values: bool | Sequence[bool] = False,
+        button_style: Literal["success", "info", "warning", "danger", ""] = "danger",
+        observer: Callable | None = None,
     ):
         if isinstance(tooltips, str):
             tooltips = [tooltips] * len(labels)
@@ -799,7 +797,7 @@ class T2FPharmWidget:
                 description=label,
                 tooltip=tooltip,
                 layout=widgets.Layout(width="auto"),
-                button_style=button_style
+                button_style=button_style,
             )
             toggle_buttons.append(toggle_button)
             if observer is not None:
@@ -809,28 +807,28 @@ class T2FPharmWidget:
 
     @staticmethod
     def _create_toggle_buttons_mode(
-            labels: Sequence[str] | Sequence[tuple[str, Any]] = (
-                    ("Min", "min"),
-                    ("Avg", "avg"),
-                    ("Max", "max"),
-                    ("Sum", "sum"),
-                    ("All", "all"),
-                    ("Any", "any"),
-                    ("One", "one")
-            ),
-            current_value: Any = "min",
-            tooltips: Sequence[str] = (
-                    'Minimum value of all selected source fields.',
-                    'Average value of all selected source fields.',
-                    'Maximum value of all selected source fields.',
-                    'Sum of all selected source fields.',
-                    'All values of selected source fields.',
-                    'Any value of selected source fields.',
-                    'Only one value of selected source fields.',
-            ),
-            button_style: Literal['success', 'info', 'warning', 'danger', ''] = "warning",
-            disabled: bool = True,
-            observer: Callable | None = None,
+        labels: Sequence[str] | Sequence[tuple[str, Any]] = (
+            ("Min", "min"),
+            ("Avg", "avg"),
+            ("Max", "max"),
+            ("Sum", "sum"),
+            ("All", "all"),
+            ("Any", "any"),
+            ("One", "one"),
+        ),
+        current_value: Any = "min",
+        tooltips: Sequence[str] = (
+            "Minimum value of all selected source fields.",
+            "Average value of all selected source fields.",
+            "Maximum value of all selected source fields.",
+            "Sum of all selected source fields.",
+            "All values of selected source fields.",
+            "Any value of selected source fields.",
+            "Only one value of selected source fields.",
+        ),
+        button_style: Literal["success", "info", "warning", "danger", ""] = "warning",
+        disabled: bool = True,
+        observer: Callable | None = None,
     ) -> widgets.ToggleButtons:
         toggle_buttons = widgets.ToggleButtons(
             options=labels,
@@ -852,9 +850,11 @@ class T2FPharmWidget:
             options=["Include", "Exclude"],
             value="Include",
             disabled=True,
-            button_style='info',
-            tooltips=['Include the points filtered by current selection.',
-                      'Exclude the points filtered by current selection.'],
+            button_style="info",
+            tooltips=[
+                "Include the points filtered by current selection.",
+                "Exclude the points filtered by current selection.",
+            ],
             style=widgets.ToggleButtonsStyle(button_width="4em"),
         )
         if observer is not None:
@@ -863,7 +863,7 @@ class T2FPharmWidget:
 
     @staticmethod
     def _create_range_slider(
-            observer: Callable | None = None,
+        observer: Callable | None = None,
     ):
         range_slider = widgets.FloatRangeSlider(
             value=[0, 0],
@@ -872,10 +872,10 @@ class T2FPharmWidget:
             step=0.01,
             disabled=True,
             continuous_update=False,
-            orientation='horizontal',
+            orientation="horizontal",
             readout=True,
-            readout_format='.2e',
-            layout=widgets.Layout(display="flex", align_items='stretch', width='100%')
+            readout_format=".2e",
+            layout=widgets.Layout(display="flex", align_items="stretch", width="100%"),
         )
         if observer is not None:
             range_slider.observe(observer, names="value")
@@ -883,25 +883,25 @@ class T2FPharmWidget:
 
     @staticmethod
     def _create_control_panel(
-            controllers: Sequence[widgets.Widget],
-            header_name: str,
-            header_color: str = "lightblue",
-            controller_labels: Sequence[str] = ("Source", "Mode", "Filter", "Range"),
+        controllers: Sequence[widgets.Widget],
+        header_name: str,
+        header_color: str = "lightblue",
+        controller_labels: Sequence[str] = ("Source", "Mode", "Filter", "Range"),
     ):
         # Create the header, i.e. title of the widget
         # This is created as a button, because it offers more styling options than text,
         # but it doesn't have any functionality.
         header = widgets.Button(
             description=header_name,
-            layout=widgets.Layout(width='auto'),
-            style=widgets.ButtonStyle(button_color=header_color, font_weight='bold')
+            layout=widgets.Layout(width="auto"),
+            style=widgets.ButtonStyle(button_color=header_color, font_weight="bold"),
         )
         # Create the left column holding labels of controllers:
         labels_column = widgets.VBox(
             [
                 widgets.Label(
                     value=f"{label} :",
-                    layout=widgets.Layout(margin="3px 10px 3px 0px", width="50px")
+                    layout=widgets.Layout(margin="3px 10px 3px 0px", width="50px"),
                 )
                 for label in controller_labels
             ],
@@ -911,10 +911,7 @@ class T2FPharmWidget:
         controllers_column = widgets.VBox(
             controllers,
             layout=widgets.Layout(
-                display='flex',
-                flex_flow='column',
-                align_items='stretch',
-                width='100%'
+                display="flex", flex_flow="column", align_items="stretch", width="100%"
             ),
         )
 
@@ -924,20 +921,11 @@ class T2FPharmWidget:
         # Assemble the control panel
         control_panel = widgets.Box(
             layout=widgets.Layout(
-                display='flex',
-                flex_flow='column',
-                align_items='stretch',
-                width='50%'
+                display="flex", flex_flow="column", align_items="stretch", width="50%"
             ),
             children=[header, controller_box],
         )
         return control_panel
-
-
-
-
-
-
 
 
 # RECEPTOR_FILEPATHS = [Path("/Users/home/Downloads/3w32.pdbqt")]
@@ -964,87 +952,85 @@ class T2FPharmWidget:
 # t2f()
 
 
-
-        #
-        #
-        # if isinstance(receptors, (PathLike, Sequence)):
-        #     if isinstance(receptors, PathLike):
-        #         path = Path(receptors)
-        #         if path.is_file():
-        #             if path.suffix.lower() == ".pdbqt":
-        #                 pdbqt_filepaths = [path]
-        #             else:
-        #                 raise ValueError("Receptor's input file's extension should be PDBQT.")
-        #         elif path.is_dir():
-        #             pdbqt_filepaths = list(path.glob("*.pdbqt"))
-        #         else:
-        #             raise ValueError(f"No such file or directory: {path}")
-        #     else:
-        #         pdbqt_filepaths = [
-        #             Path(receptor) for receptor in receptors
-        #             if Path(receptor).is_file() and Path(receptor).suffix.lower() == ".pdbqt"
-        #         ]
-        #     if len(pdbqt_filepaths) == 0:
-        #         raise ValueError(f"No PDBQT file found.")
-        #     if len(pdbqt_filepaths) == 1:
-        #         self._receptor = protein.Protein.from_file(path=pdbqt_filepaths[0])
-        #         self._receptor_is_static = True
-        #         self._receptor_is_trajectory = False
-        #     else:
-        #         self._receptor_is_static = False
-        #         try:
-        #             self._receptor = protein.ProteinTrajectory.from_files(paths=pdbqt_filepaths)
-        #             self._receptor_is_trajectory: bool = True
-        #         except protein.TopologyError:
-        #             self._receptor = protein.ProteinFamily.from_files(paths=pdbqt_filepaths)
-        #             self._receptor_is_trajectory: bool = False
-        # elif isinstance(
-        #         receptors,
-        #         (protein.Protein, protein.ProteinTrajectory, protein.ProteinFamily)
-        # ):
-        #     self._receptor = receptors
-        #     pdbqt_filepaths = self._receptor.to_file_pdbqt()
-        #     if isinstance(receptors, protein.ProteinFamily):
-        #         self._receptor_is_static = False
-        #         self._receptor_is_trajectory = False
-        #     elif isinstance(receptors, protein.ProteinTrajectory):
-        #         self._receptor_is_static = False
-        #         self._receptor_is_trajectory = True
-        #     else:
-        #         self._receptor_is_static = True
-        #         self._receptor_is_trajectory = False
-        #         pdbqt_filepaths = [pdbqt_filepaths]
-        # else:
-        #     raise ValueError("Type of `receptor` not recognized.")
-        #
-        #
-        # self._output_path = pdbqt_filepaths[0].parent if output_path is None else output_path
-        # self._output_path.mkdir(parents=True, exist_ok=True)
-        # self._probe_types = np.array(probe_types, dtype=object)
-        #
-        #
-        #
-        #
-        # self._df_pdbqt = pdbqt.parse_pdbqt(filepath_pdbqt=receptors[0])["ATOM"]
-        #
-        # for t, receptor_filepath in enumerate(receptors):
-        #     df_pdbqt = pdbqt.parse_pdbqt(filepath_pdbqt=receptor_filepath)["ATOM"]
-        #     self._protein_coordinates[t, ...] = df_pdbqt[["x", "y", "z"]].to_numpy()
-        #
-        # self._grid_dists_protein = np.moveaxis(
-        #     distance_matrix(
-        #         self._grid_coords.reshape(-1, 3),
-        #         self._protein_coordinates.reshape(-1, 3)
-        #     ).reshape(*self._grid_shape, self._temporal_len, len(self._df_pdbqt.index)),
-        #     source=3,
-        #     destination=0,
-        # )
-        #
-        # # Get all 26 half directions, in the order: orthogonal, 3d-diagonal, 2d-diagonal
-        # self._direction_vects = np.zeros(shape=(26, 4), dtype=np.byte)
-        # self._direction_vects[:, 1:] = np.concatenate(
-        #     [spatial.GRID_DIRS_ORTHO, spatial.GRID_DIRS_DIAG_3D, spatial.GRID_DIRS_DIAG_2D]
-        # )
-        # # Calculate the length of each direction unit vector
-        # self._direction_vects_len = np.linalg.norm(self._direction_vects, axis=-1) * self._grid_spacing
-
+#
+#
+# if isinstance(receptors, (PathLike, Sequence)):
+#     if isinstance(receptors, PathLike):
+#         path = Path(receptors)
+#         if path.is_file():
+#             if path.suffix.lower() == ".pdbqt":
+#                 pdbqt_filepaths = [path]
+#             else:
+#                 raise ValueError("Receptor's input file's extension should be PDBQT.")
+#         elif path.is_dir():
+#             pdbqt_filepaths = list(path.glob("*.pdbqt"))
+#         else:
+#             raise ValueError(f"No such file or directory: {path}")
+#     else:
+#         pdbqt_filepaths = [
+#             Path(receptor) for receptor in receptors
+#             if Path(receptor).is_file() and Path(receptor).suffix.lower() == ".pdbqt"
+#         ]
+#     if len(pdbqt_filepaths) == 0:
+#         raise ValueError(f"No PDBQT file found.")
+#     if len(pdbqt_filepaths) == 1:
+#         self._receptor = protein.Protein.from_file(path=pdbqt_filepaths[0])
+#         self._receptor_is_static = True
+#         self._receptor_is_trajectory = False
+#     else:
+#         self._receptor_is_static = False
+#         try:
+#             self._receptor = protein.ProteinTrajectory.from_files(paths=pdbqt_filepaths)
+#             self._receptor_is_trajectory: bool = True
+#         except protein.TopologyError:
+#             self._receptor = protein.ProteinFamily.from_files(paths=pdbqt_filepaths)
+#             self._receptor_is_trajectory: bool = False
+# elif isinstance(
+#         receptors,
+#         (protein.Protein, protein.ProteinTrajectory, protein.ProteinFamily)
+# ):
+#     self._receptor = receptors
+#     pdbqt_filepaths = self._receptor.to_file_pdbqt()
+#     if isinstance(receptors, protein.ProteinFamily):
+#         self._receptor_is_static = False
+#         self._receptor_is_trajectory = False
+#     elif isinstance(receptors, protein.ProteinTrajectory):
+#         self._receptor_is_static = False
+#         self._receptor_is_trajectory = True
+#     else:
+#         self._receptor_is_static = True
+#         self._receptor_is_trajectory = False
+#         pdbqt_filepaths = [pdbqt_filepaths]
+# else:
+#     raise ValueError("Type of `receptor` not recognized.")
+#
+#
+# self._output_path = pdbqt_filepaths[0].parent if output_path is None else output_path
+# self._output_path.mkdir(parents=True, exist_ok=True)
+# self._probe_types = np.array(probe_types, dtype=object)
+#
+#
+#
+#
+# self._df_pdbqt = pdbqt.parse_pdbqt(filepath_pdbqt=receptors[0])["ATOM"]
+#
+# for t, receptor_filepath in enumerate(receptors):
+#     df_pdbqt = pdbqt.parse_pdbqt(filepath_pdbqt=receptor_filepath)["ATOM"]
+#     self._protein_coordinates[t, ...] = df_pdbqt[["x", "y", "z"]].to_numpy()
+#
+# self._grid_dists_protein = np.moveaxis(
+#     distance_matrix(
+#         self._grid_coords.reshape(-1, 3),
+#         self._protein_coordinates.reshape(-1, 3)
+#     ).reshape(*self._grid_shape, self._temporal_len, len(self._df_pdbqt.index)),
+#     source=3,
+#     destination=0,
+# )
+#
+# # Get all 26 half directions, in the order: orthogonal, 3d-diagonal, 2d-diagonal
+# self._direction_vects = np.zeros(shape=(26, 4), dtype=np.byte)
+# self._direction_vects[:, 1:] = np.concatenate(
+#     [spatial.GRID_DIRS_ORTHO, spatial.GRID_DIRS_DIAG_3D, spatial.GRID_DIRS_DIAG_2D]
+# )
+# # Calculate the length of each direction unit vector
+# self._direction_vects_len = np.linalg.norm(self._direction_vects, axis=-1) * self._grid_spacing

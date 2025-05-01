@@ -26,7 +26,7 @@ class PointCloud:
             param_name="points",
             array=points,
             ndim_eq=2,
-            dtypes="real"
+            dtypes="real",
         )
         self._points = points
         self._kdtree = None
@@ -50,19 +50,17 @@ class PointCloud:
             self._kdtree = sp.spatial.KDTree(self._points)
         return self._kdtree
 
-    def rmsd(self, points, weights = None):
+    def rmsd(self, points, weights=None):
         if weights is not None:
             weights_arr = jnp.asarray(weights)
             if weights_arr.ndim == 1:
                 if weights_arr.size != self.count_points:
                     raise ValueError
                 weights_arr = jnp.expand_dims(weights_arr, axis=-1)
-            elif (
-                weights_arr.ndim == 2 and (
-                    weights_arr.shape[0] not in (1, self.count_points) or
-                    weights_arr.shape[1] not in (1, self.dimension) or
-                    weights_arr.shape == (1, 1)
-                )
+            elif weights_arr.ndim == 2 and (
+                weights_arr.shape[0] not in (1, self.count_points)
+                or weights_arr.shape[1] not in (1, self.dimension)
+                or weights_arr.shape == (1, 1)
             ):
                 raise ValueError
             else:
@@ -72,11 +70,8 @@ class PointCloud:
             return oc.spacetime.vectorized
 
 
-
 class DynamicPointCloud:
-    """
-
-    """
+    """ """
 
     __slots__ = (
         "_data",
@@ -132,8 +127,8 @@ class DynamicPointCloud:
         return self._kdtrees_per_instance
 
     def axis_aligned_minimum_bounding_box(
-            self,
-            per_instance: bool = True,
+        self,
+        per_instance: bool = True,
     ) -> oc.spacetime.volume.RectangularCuboid:
         """
         Axis-aligned minimum bounding box of the point cloud, either per instance or as a whole.
@@ -163,10 +158,10 @@ class DynamicPointCloud:
         return oc.spacetime.volume.RectangularCuboid(lower_bounds=mins, upper_bounds=maxes)
 
     def toxelate(
-            self,
-            resolution_or_grid: float | Sequence[float] | oc.spacetime.grid.Grid,
-            radius_points: float | npt.ArrayLike,
-            padding: float = 0,
+        self,
+        resolution_or_grid: float | Sequence[float] | oc.spacetime.grid.Grid,
+        radius_points: float | npt.ArrayLike,
+        padding: float = 0,
     ) -> oc.spacetime.volume.ToxelVolume:
         if isinstance(resolution_or_grid, oc.spacetime.grid.Grid):
             grid = resolution_or_grid
@@ -177,13 +172,12 @@ class DynamicPointCloud:
             grid = oc.spacetime.grid.from_bounds_spacing(
                 lower_bounds=total_bounding_box.lower_bounds[0] - padding,
                 upper_bounds=total_bounding_box.upper_bounds[0] + padding,
-                spacings=resolution_or_grid
+                spacings=resolution_or_grid,
             )
         # If `radius_points` is a scalar (i.e. int or float), it means all points have the same
         # radius, and thus we only need to query for the first nearest neighbor of each point:
-        if (
-                np.issubdtype(type(radius_points), np.floating)
-                or np.issubdtype(type(radius_points), np.integer)
+        if np.issubdtype(type(radius_points), np.floating) or np.issubdtype(
+            type(radius_points), np.integer
         ):
             # Radius must be positive:
             if radius_points <= 0:
@@ -196,7 +190,7 @@ class DynamicPointCloud:
                 points=grid.coordinates,
                 num_neaerst_neighbors=1,
                 per_instance=True,
-                distance_upper_bound=radius_points
+                distance_upper_bound=radius_points,
             )
             # Each toxel on the grid is occupied when the nearest point in self is within
             # `radius_points`, i.e. when it is not `np.inf`, since `self.nearest_neighbors` returns
@@ -208,7 +202,9 @@ class DynamicPointCloud:
             #     grid=grid,
             # )
             # Create Toxel volume from field and return
-            return oc.spacetime.volume.ToxelVolume(toxels=np.squeeze(toxel_tensor, axis=-1), grid=grid)
+            return oc.spacetime.volume.ToxelVolume(
+                toxels=np.squeeze(toxel_tensor, axis=-1), grid=grid
+            )
         # If `radius_points` is an array of values, then we cannot rely only on the distances to
         # first nearest neighbors, since it is possible that the first k nearest neighbors have
         # small radii and do not overlap with the toxel, while the (k+1)-th neighbor has a large
@@ -216,30 +212,24 @@ class DynamicPointCloud:
         radii_array = np.asarray(radius_points)
         max_radius = radii_array.max()
         min_radius = radii_array.min()
-        toxel_tensor = np.zeros(
-            shape=(self.count_instances, grid.shape, 1),
-            dtype=np.bool_
-        )
+        toxel_tensor = np.zeros(shape=(self.count_instances, grid.shape, 1), dtype=np.bool_)
         ind_self, ind_gird, dists = self.distance_matrix_sparse(
             points=grid, max_distance=max_radius
         )
         filter_definitely_occupied = dists <= min_radius
         grid_inds_occupied = np.unravel_index(
-            ind_gird[1][filter_definitely_occupied],
-            shape=grid.shape
+            ind_gird[1][filter_definitely_occupied], shape=grid.shape
         )
         toxel_tensor[(ind_self[0][filter_definitely_occupied], *grid_inds_occupied)] = True
         filter_maybe_occupied = jnp.logical_not(filter_definitely_occupied)
-        dists_from_surface = dists[filter_maybe_occupied] - radii_array[ind_self[1][
-            filter_maybe_occupied]]
+        dists_from_surface = (
+            dists[filter_maybe_occupied] - radii_array[ind_self[1][filter_maybe_occupied]]
+        )
         occupied = dists_from_surface <= 0
         grid_inds_occupied2 = np.unravel_index(
-            ind_gird[1][filter_maybe_occupied][occupied],
-            shape=grid.shape
+            ind_gird[1][filter_maybe_occupied][occupied], shape=grid.shape
         )
-        toxel_tensor[
-            (ind_self[0][filter_maybe_occupied][occupied], *grid_inds_occupied2)
-        ] = True
+        toxel_tensor[(ind_self[0][filter_maybe_occupied][occupied], *grid_inds_occupied2)] = True
         toxel_field = oc.spacetime.field.ToxelField(
             tensor=toxel_tensor,
             grid=grid,
@@ -248,42 +238,37 @@ class DynamicPointCloud:
         return oc.spacetime.volume.Toxel(field=toxel_field)
 
     def distance_matrix_sparse(
-            self,
-            points: DynamicPointCloud,
-            max_distance: float,
-            p_norm: float = 2,
-            output_type: Literal[
-                'nd_unraveled', 'dok_matrix', 'coo_matrix', 'dict', 'ndarray'
-            ] = 'nd_unraveled'
+        self,
+        points: DynamicPointCloud,
+        max_distance: float,
+        p_norm: float = 2,
+        output_type: Literal[
+            "nd_unraveled", "dok_matrix", "coo_matrix", "dict", "ndarray"
+        ] = "nd_unraveled",
     ):
         dist_matrix = self._kdtree_total.sparse_distance_matrix(
             other=points._kdtree_total,
             max_distance=max_distance,
             p=p_norm,
-            output_type='ndarray' if output_type == 'nd_unraveled' else output_type
+            output_type="ndarray" if output_type == "nd_unraveled" else output_type,
         )
-        if output_type != 'nd_unraveled':
+        if output_type != "nd_unraveled":
             return dist_matrix
         indices_self = np.unravel_index(
-            dist_matrix["i"],
-            shape=(self.count_instances, self.count_points_per_instance)
+            dist_matrix["i"], shape=(self.count_instances, self.count_points_per_instance)
         )
         indices_other = np.unravel_index(
-            dist_matrix["j"],
-            shape=(points.count_instances, points.count_points_per_instance)
+            dist_matrix["j"], shape=(points.count_instances, points.count_points_per_instance)
         )
         return indices_self, indices_other, dist_matrix["v"]
 
-
     def find_point_pairs_within_radius(
-            self,
-
+        self,
     ):
         pass
 
     def count_neighbors_within_radius(self, points):
         pass
-
 
     def minimize_bounding_box(self):
         """
@@ -303,14 +288,14 @@ class DynamicPointCloud:
         raise NotImplementedError
 
     def nearest_neighbors(
-            self,
-            points: npt.ArrayLike,
-            num_neaerst_neighbors: int | Sequence[int] = 1,
-            per_instance: bool = True,
-            error_tolerance: float = 0,
-            p_norm: float = 2,
-            distance_upper_bound: float = np.inf,
-            distance_dtype: npt.DTypeLike = np.single,
+        self,
+        points: npt.ArrayLike,
+        num_neaerst_neighbors: int | Sequence[int] = 1,
+        per_instance: bool = True,
+        error_tolerance: float = 0,
+        p_norm: float = 2,
+        distance_upper_bound: float = np.inf,
+        distance_dtype: npt.DTypeLike = np.single,
     ):
         """
         For each point in `coordinates`, find the distances to, and indices of, a given number of
@@ -366,9 +351,8 @@ class DynamicPointCloud:
             indices = np.empty(
                 shape=shape_indices,
                 dtype=oc._typing.smallest_integer_dtype_for_range(
-                    min_val=0,
-                    max_val=self.count_points_per_instance
-                )
+                    min_val=0, max_val=self.count_points_per_instance
+                ),
             )
             for idx_instance, kdtree in enumerate(self._kdtrees_list):
                 indices[idx_instance, ..., 0] = idx_instance
@@ -380,24 +364,22 @@ class DynamicPointCloud:
                     eps=error_tolerance,
                     p=p_norm,
                     distance_upper_bound=distance_upper_bound,
-                    workers=-1
+                    workers=-1,
                 )
             return distances, indices
         raise NotImplementedError
 
-
     def count_neighbors(self):
         pass
 
-
     def cluster__common_nearest_neighbor(
-            self,
-            radius_neighborhood: float,
-            min_samples: int,
-            metric: Literal = 'euclidean',
-            metric_params=None,
-            leaf_size=30,
-            p_norm: int = 2,
+        self,
+        radius_neighborhood: float,
+        min_samples: int,
+        metric: Literal = "euclidean",
+        metric_params=None,
+        leaf_size=30,
+        p_norm: int = 2,
     ):
         """
 
@@ -429,5 +411,3 @@ class DynamicPointCloud:
         * https://doi.org/10.3390/a11020019
         * https://doi.org/10.1063/1.4965440
         """
-
-

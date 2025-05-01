@@ -9,7 +9,6 @@ import opencadd.io.pdb._writer
 
 
 class ChemicalEnsemble:
-
     def __init__(self, composition: pd.DataFrame, conformation: jnp.ndarray):
         self._composition = composition
         self._conformation = oc.spacetime.pointcloud.DynamicPointCloud(data=conformation)
@@ -30,22 +29,23 @@ class ChemicalEnsemble:
         return ChemicalEnsemble(composition=composition, conformation=conformation)
 
     def to_pdb(
-            self, model: int | Sequence[int],
-            separate_models: bool = True
+        self, model: int | Sequence[int], separate_models: bool = True
     ) -> str | tuple[str, ...]:
         return self._pdb_writer.write(models=model, separate_models=separate_models)
 
 
 def from_pdb_structure(structure):
     atoms = structure.atom
-    composition = atoms#.drop(["model_num", "alt_loc", "occupancy", "x", "y", "z", "temp_factor"], axis=1)
+    composition = (
+        atoms  # .drop(["model_num", "alt_loc", "occupancy", "x", "y", "z", "temp_factor"], axis=1)
+    )
     conformation = jnp.expand_dims(jnp.array(atoms[["x", "y", "z"]]), axis=0)
     return ChemicalEnsemble(composition=composition, conformation=conformation)
 
 
 def from_pdb_id(
-        pdb_id: str,
-        biological_assembly_id: int | None = 1,
+    pdb_id: str,
+    biological_assembly_id: int | None = 1,
 ):
     return from_pdb_structure(
         oc.io.pdb.read.from_pdb_id(pdb_id=pdb_id, biological_assembly_id=biological_assembly_id)
@@ -53,7 +53,6 @@ def from_pdb_id(
 
 
 class ChemicalEnsembleVisualization:
-
     def __init__(self, ensemble):
         self._ensemble = ensemble
         return

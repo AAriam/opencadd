@@ -6,8 +6,7 @@ from opencadd._typing import ArrayLike
 
 
 def van_der_waals_radius(
-        atom_ids: ArrayLike,
-        id_type: Literal["internal", "element_symbol"] = "internal"
+    atom_ids: ArrayLike, id_type: Literal["internal", "element_symbol"] = "internal"
 ) -> np.ndarray:
     """
     Get the Van der Waals radii of a set of given atoms.
@@ -30,8 +29,3 @@ def van_der_waals_radius(
 
     """
     raise NotImplementedError
-
-
-
-
-

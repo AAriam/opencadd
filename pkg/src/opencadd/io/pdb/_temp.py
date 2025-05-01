@@ -36,7 +36,7 @@ def validate_master(self) -> sections.Bookkeeping:
                     "MTRIX1",
                     "MTRIX2",
                     "MTRIX3",
-                ]
+                ],
             )
         ),
         coord=np.count_nonzero(np.isin(self._lines_rec_names, ["ATOM", "HETATM"])),
@@ -63,8 +63,9 @@ def validate_master(self) -> sections.Bookkeeping:
             raise_level=2,
         )
     # Parse existing MASTER record
-    master = parsing.extract_columns(self._lines_chars[idx_master_record[-1]],
-                                     records.MASTER.columns)
+    master = parsing.extract_columns(
+        self._lines_chars[idx_master_record[-1]], records.MASTER.columns
+    )
     master_record = pdbstruct.BookkeepingSection(*master)
 
     if master_record != bookkeeping_section:
@@ -108,16 +109,12 @@ def validate_section_coordinate(self):
         count_endmdl = indices_record_endmdl.size
         if count_model != count_endmdl:
             self._raise_or_warn(
-                "Number of MODEL and ENDMDL records do not match: "
-                f"{count_model} vs {count_endmdl}",
-                raise_level=1
+                f"Number of MODEL and ENDMDL records do not match: {count_model} vs {count_endmdl}",
+                raise_level=1,
             )
         model_lengths = indices_record_endmdl - indices_record_model
         if model_lengths[0] < 1 or np.any(model_lengths != model_lengths[0]):
-            self._raise_or_warn(
-                "Models have different lengths or are empty",
-                raise_level=1
-            )
+            self._raise_or_warn("Models have different lengths or are empty", raise_level=1)
 
     else:
         # If there is no MODEL record, then there is only one model
@@ -131,8 +128,8 @@ def validate_section_coordinate(self):
     for start_idx, end_idx in zip(models_start_ind, models_end_ind, strict=False):
         models.append(
             read_model(
-                record_types=rec_names[start_idx + 1:end_idx],
-                pdb_lines=rec_chars[start_idx + 1:end_idx]
+                record_types=rec_names[start_idx + 1 : end_idx],
+                pdb_lines=rec_chars[start_idx + 1 : end_idx],
             )
         )
     return CoordinateSection(models=tuple(models))
@@ -140,22 +137,25 @@ def validate_section_coordinate(self):
 
 def validate_dbref(self):
     if not (
-            self._has_record[records.DBREF]
-            or self._has_record[records.DBREF1]
-            or self._has_record[records.DBREF2]
+        self._has_record[records.DBREF]
+        or self._has_record[records.DBREF1]
+        or self._has_record[records.DBREF2]
     ):
         if self._has_record[records.ATOM] or self._has_record[records.TER]:
             self._raise_or_warn(
                 "DBREF and DBREF1/DBREF2 records not found, while ATOM records exist. "
                 "At least one must exist when ATOM records exist.",
-                raise_level=3
+                raise_level=3,
             )
     if self._has_record[records.DBREF1]:
-        if self._idx__record_lines[records.DBREF1].size != self._idx__record_lines[records.DBREF2].size:
+        if (
+            self._idx__record_lines[records.DBREF1].size
+            != self._idx__record_lines[records.DBREF2].size
+        ):
             self._raise_or_warn(
                 "Number of DBREF1 and DBREF2 records do not match. DBREF1/DBREF2 records are "
                 "two-line records that always have to be present together.",
-                raise_level=2
+                raise_level=2,
             )
         self.validate_empty_columns(records.DBREF1)
         self.validate_empty_columns(records.DBREF2)
@@ -211,6 +211,7 @@ def validate_end(self) -> NoReturn:
         )
     return
 
+
 def _parse_record_in_model(self, record: records.Record) -> Optional[pd.DataFrame]:
     if not self.has_record(record):
         return None
@@ -224,8 +225,11 @@ def _parse_record_in_model(self, record: records.Record) -> Optional[pd.DataFram
                     self.indices_record_lines(record) > model_start_idx,
                     self.indices_record_lines(record) < model_end_idx,
                 )
-            ) for model_start_idx, model_end_idx in zip(
-                self.indices_record_lines(records.MODEL), self.indices_record_lines(records.ENDMDL), strict=False
+            )
+            for model_start_idx, model_end_idx in zip(
+                self.indices_record_lines(records.MODEL),
+                self.indices_record_lines(records.ENDMDL),
+                strict=False,
             )
         ]
         model_nr = np.repeat(
@@ -233,17 +237,16 @@ def _parse_record_in_model(self, record: records.Record) -> Optional[pd.DataFram
         )
     return pd.DataFrame({"model_nr": model_nr, **fields})
 
+
 def _check_routine(self, record: records.Record):
     if self.has_record(record):
         self._check_records_are_consecutive(record)
         self.validate_empty_columns(record)
 
+
 def _check_records_are_consecutive(self, record: records.Record):
     if self._has_record[record] and np.any(np.diff(self._idx__record_lines[record]) != 1):
-        self._raise_or_warn(
-            f"{record.name} records are not in consecutive lines.",
-            raise_level=3
-        )
+        self._raise_or_warn(f"{record.name} records are not in consecutive lines.", raise_level=3)
     return
 
 
@@ -256,10 +259,8 @@ if self.strictness > 0:
         self._raise_or_warn(
             f"HEADER record found at line {indices_lines[0]}. "
             f"It must always be the first line of a PDB file.",
-            raise_level=3
+            raise_level=3,
         )
-
-
 
 
 if self.strictness:
@@ -269,12 +270,12 @@ if self.strictness:
                 self._raise_or_warn(
                     f"Mismatched data: PDB ID in the HEADER record ({header['pdb_id']}) "
                     f"does not match that of the OBSLTE record ({obslte['pdb_id']}).",
-                    raise_level=2
+                    raise_level=2,
                 )
         if caveat is not None:
             if header["pdb_id"] != caveat["pdb_id"]:
                 self._raise_or_warn(
                     f"Mismatched data: PDB ID in the HEADER record ({header['pdb_id']}) "
                     f"does not match that of the CAVEAT record ({caveat['pdb_id']}).",
-                    raise_level=2
+                    raise_level=2,
                 )

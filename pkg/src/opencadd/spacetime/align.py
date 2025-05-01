@@ -7,7 +7,7 @@ def scipy(p0, p1, weights=None):
     else:
         weights = np.asarray(weights)
 
-    h = np.einsum('ji,jk->ik', weights[:, None] * p0, p1)
+    h = np.einsum("ji,jk->ik", weights[:, None] * p0, p1)
 
     u, s, vt = np.linalg.svd(h)
 
@@ -17,9 +17,7 @@ def scipy(p0, p1, weights=None):
 
     rot = np.dot(u, vt)
 
-    rssd = np.sqrt(max(
-        np.sum(weights * np.sum(p1 ** 2 + p0 ** 2, axis=1)) - 2 * np.sum(s),
-        0))
+    rssd = np.sqrt(max(np.sum(weights * np.sum(p1**2 + p0**2, axis=1)) - 2 * np.sum(s), 0))
 
     return rot, rssd
 
@@ -42,9 +40,10 @@ def optAlign(p0, p1):
     # must alway center the two proteins to avoid
     # affine transformations.  Center the two proteins to their selections.
 
-
     # Initial residual, see Kabsch.
-    E0 = np.sum(np.sum(p0_centered**2, axis=0), axis=0) + np.sum(np.sum(p1_centered**2, axis=0), axis=0)
+    E0 = np.sum(np.sum(p0_centered**2, axis=0), axis=0) + np.sum(
+        np.sum(p1_centered**2, axis=0), axis=0
+    )
 
     u, s, vt = np.linalg.svd(np.dot(p1_centered.T, p0_centered))
 

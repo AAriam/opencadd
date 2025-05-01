@@ -50,7 +50,7 @@ def retry_on_exception(
     config : opencadd._decorator.RetryConfig, default: RetryConfig(3, 1, 3)
         Retry configuration.
     catch : Type[Exception] | Tuple[Type[Exception]], default: Exception
-        Exception type(s) that will be ignored during the retries. 
+        Exception type(s) that will be ignored during the retries.
         All other exceptions will be raised immediately.
 
     Returns
@@ -73,5 +73,7 @@ def retry_on_exception(
                         raise e
                     time.sleep(curr_sleep_seconds)
                     curr_sleep_seconds *= config.sleep_time_scale
+
         return retry_wrapper
+
     return retry_decorator if function is None else retry_decorator(function)

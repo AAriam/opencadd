@@ -18,8 +18,7 @@ class Volume(ABC):
 
     @property
     @abstractmethod
-    def minimum_bounding_box(self):
-        ...
+    def minimum_bounding_box(self): ...
 
 
 class Field(ABC):
@@ -28,7 +27,3 @@ class Field(ABC):
 
 class Grid(ABC):
     pass
-
-
-
-

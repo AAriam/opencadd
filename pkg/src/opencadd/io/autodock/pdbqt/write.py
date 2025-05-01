@@ -8,31 +8,25 @@ from opencadd import _typing
 
 
 def from_ensemble(
-        ensemble,
-        output_filename: str | None = None,
-        output_path: _typing.PathLike = None,
-        models: int | Sequence[int] | None = None,
+    ensemble,
+    output_filename: str | None = None,
+    output_path: _typing.PathLike = None,
+    models: int | Sequence[int] | None = None,
 ):
-    pdb_strings = oc.io.pdb.write.from_chemsys(
-        system=ensemble,
-        models=models,
-        separate_models=True
-    )
+    pdb_strings = oc.io.pdb.write.from_chemsys(system=ensemble, models=models, separate_models=True)
     return_vals = []
     temp_filepath = Path.cwd() / "_temp_opencadd.pdb"
     for pdb_string in pdb_strings:
         with open(temp_filepath, "w") as f:
             f.write(pdb_string)
-        return_vals.append(
-            from_pdb_filepath(filepath=temp_filepath)
-        )
+        return_vals.append(from_pdb_filepath(filepath=temp_filepath))
     return return_vals
 
 
 def from_pdb_filepath(
-        filepath: _typing.PathLike,
-        output_filename: str | None = None,
-        output_path: _typing.PathLike | None = None,
+    filepath: _typing.PathLike,
+    output_filename: str | None = None,
+    output_path: _typing.PathLike | None = None,
 ):
     """
     Convert a PDB file to a PDBQT file, and save it in the given filepath.
@@ -78,12 +72,12 @@ def from_pdb_filepath(
     else:
         output_path = Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)
-        output_filepath = (output_path/output_filename).with_suffix(".pdbqt")
+        output_filepath = (output_path / output_filename).with_suffix(".pdbqt")
     molecule.write(
         format="pdbqt",
         filename=str(output_filepath),
         overwrite=True,
-        opt={"r": None, "n": None, "p": None, "h":None}
+        opt={"r": None, "n": None, "p": None, "h": None},
     )
     if output_filename is not None:
         return output_filepath.resolve()

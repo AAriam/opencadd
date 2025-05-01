@@ -18,9 +18,10 @@ class FunctionProfiler:
     """
 
     def __init__(
-            self,
-            funcs: Callable | Sequence[Callable],
-            arg_gens: Callable[[Sequence[int]], Iterable[Sequence]] | Sequence[Callable[[Sequence[int]], Iterable[Sequence]]],
+        self,
+        funcs: Callable | Sequence[Callable],
+        arg_gens: Callable[[Sequence[int]], Iterable[Sequence]]
+        | Sequence[Callable[[Sequence[int]], Iterable[Sequence]]],
     ):
         """
         Parameters
@@ -36,9 +37,9 @@ class FunctionProfiler:
             `[f(*args) for args in g([1, 10, 100])]`.
         """
         self._funcs: list[Callable] = funcs if isinstance(funcs, Sequence) else [funcs]
-        self._arg_gens: list[
-            Callable[[Sequence[int]], Iterable[Sequence]]
-        ] = arg_gens if isinstance(arg_gens, Sequence) else [arg_gens]
+        self._arg_gens: list[Callable[[Sequence[int]], Iterable[Sequence]]] = (
+            arg_gens if isinstance(arg_gens, Sequence) else [arg_gens]
+        )
         if len(self._funcs) != len(self._arg_gens):
             raise ValueError(
                 "Parameters `funcs` and `arg_gens` expect inputs with identical lengths, "
@@ -51,7 +52,9 @@ class FunctionProfiler:
         self._results: np.ndarray = None
         return
 
-    def profile(self, arg_sizes: Sequence[int], runs: int = 100, loops_per_run: int = 1) -> NoReturn:
+    def profile(
+        self, arg_sizes: Sequence[int], runs: int = 100, loops_per_run: int = 1
+    ) -> NoReturn:
         """
         Profile all functions.
 
@@ -78,26 +81,30 @@ class FunctionProfiler:
                 [
                     np.min(
                         timeit.repeat(
-                            lambda: func(*args),
-                            repeat=self._runs,
-                            number=self._loops_per_run
+                            lambda: func(*args), repeat=self._runs, number=self._loops_per_run
                         )
-                    ) / self._loops_per_run for args in arg_gen(arg_sizes)
-                ] for func, arg_gen in zip(self._funcs, self._arg_gens, strict=False)
+                    )
+                    / self._loops_per_run
+                    for args in arg_gen(arg_sizes)
+                ]
+                for func, arg_gen in zip(self._funcs, self._arg_gens, strict=False)
             ]
         )
         return
 
     def plot(self, show: bool = True):
         if self._results is None:
-            raise ValueError("No profiling has been performed yet; call `FunctionProfiler.profile` first.")
+            raise ValueError(
+                "No profiling has been performed yet; call `FunctionProfiler.profile` first."
+            )
         fig, ax = plt.subplots()
         artists = []
         for func, result in zip(self._funcs, self._results, strict=False):
-            line, = ax.plot(
-                self._arg_sizes, result,
+            (line,) = ax.plot(
+                self._arg_sizes,
+                result,
                 marker=".",
-                label=f"\u200b{func.__module__}.{func.__qualname__}"
+                label=f"\u200b{func.__module__}.{func.__qualname__}",
             )
             artists.append(line)
         ax.legend(handles=artists, loc="best")

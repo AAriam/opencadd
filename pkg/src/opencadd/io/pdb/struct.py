@@ -18,10 +18,10 @@ class RecordHeader:
     """
 
     def __init__(
-            self,
-            pdb_id: str,
-            dep_date: datetime.date,
-            classification: Sequence[Sequence[str]],
+        self,
+        pdb_id: str,
+        dep_date: datetime.date,
+        classification: Sequence[Sequence[str]],
     ):
         """
         Parameters
@@ -99,8 +99,8 @@ class RecordHeader:
         lines = [
             f"PDB-ID: {self.pdb_id}",
             f"Deposition Date: {self.dep_date}",
-            "Classification (per entity):"
-        ] + [f"\t{i+1}. {', '.join(entity)}" for i, entity in enumerate(self.classification)]
+            "Classification (per entity):",
+        ] + [f"\t{i + 1}. {', '.join(entity)}" for i, entity in enumerate(self.classification)]
         return "\n".join(lines)
 
 
@@ -115,10 +115,10 @@ class RecordObslte:
     """
 
     def __init__(
-            self,
-            pdb_id: str,
-            rep_date: datetime.date,
-            rep_pdb_id: Sequence[str],
+        self,
+        pdb_id: str,
+        rep_date: datetime.date,
+        rep_pdb_id: Sequence[str],
     ):
         """
         Parameters
@@ -184,9 +184,9 @@ class RecordObslte:
 
     def __str__(self):
         lines = [
-                    f"PDB-ID: {self.pdb_id}",
-                    f"Replacement Date: {self.rep_date}",
-                    f"Replacement PDB IDs: {', '.join(self.rep_pdb_id)}"
+            f"PDB-ID: {self.pdb_id}",
+            f"Replacement Date: {self.rep_date}",
+            f"Replacement PDB IDs: {', '.join(self.rep_pdb_id)}",
         ]
         return "\n".join(lines)
 
@@ -248,14 +248,13 @@ class RecordCaveat:
 
     def __str__(self):
         lines = [
-                    f"PDB-ID: {self.pdb_id}",
-                    f"Caveat: {self.description}",
+            f"PDB-ID: {self.pdb_id}",
+            f"Caveat: {self.description}",
         ]
         return "\n".join(lines)
 
 
 class RecordSPRSDE:
-
     def __init__(self, pdb_id: str, sprsde_date: datetime.date, sprsde_pdb_id: np.ndarray):
         self._pdb_id = pdb_id
         self._sprsde_date = sprsde_date
@@ -266,12 +265,10 @@ class RecordSPRSDE:
 
     def __str__(self):
         lines = [
-                    f"PDB-ID: {self.pdb_id}",
-                    f"Superseded Date: {self.sprsde_date}"
-                    f"Superseded PDB IDs: {self.sprsde_pdb_id}",
+            f"PDB-ID: {self.pdb_id}",
+            f"Superseded Date: {self.sprsde_date}Superseded PDB IDs: {self.sprsde_pdb_id}",
         ]
         return "\n".join(lines)
-
 
     @property
     def pdb_id(self) -> str:
@@ -316,9 +313,8 @@ class RecordSPRSDE:
 
 
 class RecordSite:
-    """
+    """ """
 
-    """
     def __init__(self, site_data: pd.DataFrame, site_residues: pd.DataFrame):
         self._site_data = site_data
         self._site_residues = site_residues
@@ -349,19 +345,19 @@ class RecordSite:
 
 class RecordJRNL:
     def __init__(
-            self,
-            author: np.ndarray | None = None,
-            title: str | None = None,
-            editor: np.ndarray | None = None,
-            pub_name: str | None = None,
-            vol: str | None = None,
-            page: str | None = None,
-            year: int | None = None,
-            pub: str | None = None,
-            issn: str | None = None,
-            essn: str | None = None,
-            pm_id: str | None = None,
-            doi: str | None = None
+        self,
+        author: np.ndarray | None = None,
+        title: str | None = None,
+        editor: np.ndarray | None = None,
+        pub_name: str | None = None,
+        vol: str | None = None,
+        page: str | None = None,
+        year: int | None = None,
+        pub: str | None = None,
+        issn: str | None = None,
+        essn: str | None = None,
+        pm_id: str | None = None,
+        doi: str | None = None,
     ):
         self._author = author
         self._title = title
@@ -432,18 +428,18 @@ class RecordJRNL:
     def __repr__(self):
         arguments = []
         for prop, name in (
-                (self.author, "author"),
-                (self.title, "title"),
-                (self.editor, "editor"),
-                (self.pub_name, "pub_name"),
-                (self.vol, "vol"),
-                (self.page, "page"),
-                (self.year, "year"),
-                (self.pub, "pub"),
-                (self.issn, "issn"),
-                (self.essn, "issn"),
-                (self.pm_id, "pm_id"),
-                (self.doi, "doi")
+            (self.author, "author"),
+            (self.title, "title"),
+            (self.editor, "editor"),
+            (self.pub_name, "pub_name"),
+            (self.vol, "vol"),
+            (self.page, "page"),
+            (self.year, "year"),
+            (self.pub, "pub"),
+            (self.issn, "issn"),
+            (self.essn, "issn"),
+            (self.pm_id, "pm_id"),
+            (self.doi, "doi"),
         ):
             if prop is not None:
                 if isinstance(prop, str):
@@ -455,10 +451,10 @@ class RecordJRNL:
 
 class RecordREMARK:
     def __init__(
-            self,
-            full_text: dict,
-            resolution: float | None = None,
-            version: dict | None = None,
+        self,
+        full_text: dict,
+        resolution: float | None = None,
+        version: dict | None = None,
     ):
         self._full_text = full_text
         self._resolution = resolution
@@ -512,11 +508,11 @@ class RecordCRYST1:
     """
 
     def __init__(
-            self,
-            lengths: np.ndarray,
-            angles: np.ndarray,
-            z: int,
-            space_group: str,
+        self,
+        lengths: np.ndarray,
+        angles: np.ndarray,
+        z: int,
+        space_group: str,
     ):
         self._lengths = lengths
         self._angles = angles
@@ -621,62 +617,66 @@ class RecordXForm:
         return f"RecordXForm({self.matrix}, {self.vector})"
 
     def __str__(self):
-        return (
-            f"Transformation Matrix: {self.matrix}\n"
-            f"Translation Vector: {self.vector}"
-        )
+        return f"Transformation Matrix: {self.matrix}\nTranslation Vector: {self.vector}"
 
 
 class RecordMTRIX:
-    def __init__(self, serial: np.ndarray, matrices: np.ndarray, vectors: np.ndarray, is_given: np.ndarray):
+    def __init__(
+        self, serial: np.ndarray, matrices: np.ndarray, vectors: np.ndarray, is_given: np.ndarray
+    ):
         self._serial = serial
         self._matrices = matrices
         self._vectors = vectors
         self._is_given = is_given
-        self._df = pd.DataFrame({"serial": serial, "is_given": is_given}).set_index("serial", drop=False)
-        self._xforms = [RecordXForm(matrix=matrix, vector=vector) for matrix, vector in zip(matrices, vectors, strict=False)]
+        self._df = pd.DataFrame({"serial": serial, "is_given": is_given}).set_index(
+            "serial", drop=False
+        )
+        self._xforms = [
+            RecordXForm(matrix=matrix, vector=vector)
+            for matrix, vector in zip(matrices, vectors, strict=False)
+        ]
         return
 
 
 class PDBStructure:
     def __init__(
-            self,
-            header: RecordHeader | None = None,
-            obslte: RecordObslte | None = None,
-            title: str | None = None,
-            split: np.ndarray | None = None,
-            caveat: str | None = None,
-            compnd: pd.DataFrame | None = None,
-            source: pd.DataFrame | None = None,
-            keywds: np.ndarray | None = None,
-            expdta: np.ndarray | None = None,
-            nummdl: int | None = None,
-            mdltyp: np.ndarray | None = None,
-            author: np.ndarray | None = None,
-            revdat: np.ndarray | None = None,
-            sprsde: RecordSPRSDE | None = None,
-            jrnl: RecordJRNL | None = None,
-            remark: RecordREMARK | None = None,
-            dbref: pd.DataFrame | None = None,
-            seqadv: pd.DataFrame | None = None,
-            seqres: pd.DataFrame | None = None,
-            modres: pd.DataFrame | None = None,
-            het: pd.DataFrame | None = None,
-            hetnam: pd.DataFrame | None = None,
-            helix: pd.DataFrame | None = None,
-            sheet: pd.DataFrame | None = None,
-            ssbond: pd.DataFrame | None = None,
-            link: pd.DataFrame | None = None,
-            cispep: pd.DataFrame | None = None,
-            site: pd.DataFrame | None = None,
-            cryst1: RecordCRYST1 | None = None,
-            origx: None = None,
-            scale: None = None,
-            mtrix: pd.DataFrame | None = None,
-            atom: pd.DataFrame | None = None,
-            anisou: pd.DataFrame | None = None,
-            ter: pd.DataFrame | None = None,
-            conect: pd.DataFrame | None = None,
+        self,
+        header: RecordHeader | None = None,
+        obslte: RecordObslte | None = None,
+        title: str | None = None,
+        split: np.ndarray | None = None,
+        caveat: str | None = None,
+        compnd: pd.DataFrame | None = None,
+        source: pd.DataFrame | None = None,
+        keywds: np.ndarray | None = None,
+        expdta: np.ndarray | None = None,
+        nummdl: int | None = None,
+        mdltyp: np.ndarray | None = None,
+        author: np.ndarray | None = None,
+        revdat: np.ndarray | None = None,
+        sprsde: RecordSPRSDE | None = None,
+        jrnl: RecordJRNL | None = None,
+        remark: RecordREMARK | None = None,
+        dbref: pd.DataFrame | None = None,
+        seqadv: pd.DataFrame | None = None,
+        seqres: pd.DataFrame | None = None,
+        modres: pd.DataFrame | None = None,
+        het: pd.DataFrame | None = None,
+        hetnam: pd.DataFrame | None = None,
+        helix: pd.DataFrame | None = None,
+        sheet: pd.DataFrame | None = None,
+        ssbond: pd.DataFrame | None = None,
+        link: pd.DataFrame | None = None,
+        cispep: pd.DataFrame | None = None,
+        site: pd.DataFrame | None = None,
+        cryst1: RecordCRYST1 | None = None,
+        origx: None = None,
+        scale: None = None,
+        mtrix: pd.DataFrame | None = None,
+        atom: pd.DataFrame | None = None,
+        anisou: pd.DataFrame | None = None,
+        ter: pd.DataFrame | None = None,
+        conect: pd.DataFrame | None = None,
     ):
         self._header = header
         self._obslte = obslte
@@ -1568,9 +1568,9 @@ class PDBStructure:
         return
 
     def remove_heterogen(
-            self,
-            include: str | Sequence[str] | None = None,
-            exclude: str | Sequence[str] | None = None,
+        self,
+        include: str | Sequence[str] | None = None,
+        exclude: str | Sequence[str] | None = None,
     ):
         if self._edit_state is None:
             self._edit_state = self.atom.copy()

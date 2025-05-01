@@ -2,7 +2,6 @@
 An n-dimensional grid of points in euclidean space.
 """
 
-
 # Standard library
 import itertools
 from collections.abc import Sequence
@@ -22,14 +21,14 @@ class Grid:
     """
 
     def __init__(
-            self,
-            shape: np.ndarray,
-            size: np.ndarray,
-            spacings: np.ndarray,
-            lower_bounds: np.ndarray,
-            center: np.ndarray,
-            upper_bounds: np.ndarray,
-            mgrid: np.ndarray,
+        self,
+        shape: np.ndarray,
+        size: np.ndarray,
+        spacings: np.ndarray,
+        lower_bounds: np.ndarray,
+        center: np.ndarray,
+        upper_bounds: np.ndarray,
+        mgrid: np.ndarray,
     ):
         """
 
@@ -61,7 +60,9 @@ class Grid:
         self._dimension: int = self._shape.size
         self._coordinates: jnp.ndarray = jnp.stack(mgrid, axis=-1)
         self._count_points = np.prod(self._shape)
-        self._indices: np.ndarray = np.array(list(np.ndindex(*self._shape))).reshape(*self._shape, -1)
+        self._indices: np.ndarray = np.array(list(np.ndindex(*self._shape))).reshape(
+            *self._shape, -1
+        )
         self._pointcloud = oc.spacetime.pointcloud.DynamicPointCloud(
             data=self._coordinates.reshape(1, self._count_points, self._dimension)
         )
@@ -181,9 +182,9 @@ class Grid:
 
 
 def from_bounds_shape(
-        lower_bounds: Sequence[float],
-        upper_bounds: Sequence[float],
-        shape: Sequence[int],
+    lower_bounds: Sequence[float],
+    upper_bounds: Sequence[float],
+    shape: Sequence[int],
 ) -> Grid:
     """
     Create a `Grid` from its lower- and upper bounds, and shape.
@@ -206,13 +207,17 @@ def from_bounds_shape(
     lower_bounds = np.asarray(lower_bounds)
     upper_bounds = np.asarray(upper_bounds)
     shape = np.asarray(shape)
-    for bound, arg_name in zip((lower_bounds, upper_bounds, shape), ("lower_bounds", "upper_bounds", "shape"), strict=False):
+    for bound, arg_name in zip(
+        (lower_bounds, upper_bounds, shape), ("lower_bounds", "upper_bounds", "shape"), strict=False
+    ):
         if bound.ndim != 1:
             raise ValueError(
                 f"Parameter `{arg_name}` expects a 1D array, "
                 f"but input argument had {bound.ndim} dimensions. Input was: {bound}"
             )
-    for bound, arg_name in zip((lower_bounds, upper_bounds), ("lower_bounds", "upper_bounds"), strict=False):
+    for bound, arg_name in zip(
+        (lower_bounds, upper_bounds), ("lower_bounds", "upper_bounds"), strict=False
+    ):
         if not (np.issubdtype(bound.dtype, np.floating) or np.issubdtype(bound.dtype, np.integer)):
             raise ValueError(
                 f"Parameter `{arg_name}` expects an array of real numbers, "
@@ -258,15 +263,15 @@ def from_bounds_shape(
         center=(lower_bounds + upper_bounds) / 2,
         upper_bounds=upper_bounds,
         spacings=size / (shape - 1),
-        mgrid=np.mgrid[slices]
+        mgrid=np.mgrid[slices],
     )
 
 
 def from_shape_spacing_anchor(
-        shape: Sequence[float],
-        spacings: Sequence[float],
-        anchor_coord: Sequence[float] = None,
-        anchor: Literal["lower", "center", "upper"] | Sequence[int] = "center",
+    shape: Sequence[float],
+    spacings: Sequence[float],
+    anchor_coord: Sequence[float] = None,
+    anchor: Literal["lower", "center", "upper"] | Sequence[int] = "center",
 ):
     shape = np.asarray(shape)
     spacings = np.asarray(spacings)
@@ -290,39 +295,44 @@ def from_shape_spacing_anchor(
 
 
 def from_shape_size_anchor(
-        shape: Sequence[float],
-        size: Sequence[float],
-        anchor_coord: Sequence[float] = None,
-        anchor: Literal["lower", "center", "upper"] | Sequence[int] = "center",
+    shape: Sequence[float],
+    size: Sequence[float],
+    anchor_coord: Sequence[float] = None,
+    anchor: Literal["lower", "center", "upper"] | Sequence[int] = "center",
 ):
     shape = np.asarray(shape)
     size = np.asarray(size)
     num_spacings = shape - 1
     spacings = size / num_spacings
-    return from_shape_spacing_anchor(shape=shape, spacings=spacings, anchor_coord=anchor_coord, anchor=anchor)
+    return from_shape_spacing_anchor(
+        shape=shape, spacings=spacings, anchor_coord=anchor_coord, anchor=anchor
+    )
 
 
 def from_size_spacing_anchor(
-        size: Sequence[float],
-        spacings: Sequence[float],
-        anchor_coord: Sequence[float] = None,
-        anchor: Literal["lower", "center", "upper"] | Sequence[int] = "center",
-        shrink_to_fit: bool = False,
+    size: Sequence[float],
+    spacings: Sequence[float],
+    anchor_coord: Sequence[float] = None,
+    anchor: Literal["lower", "center", "upper"] | Sequence[int] = "center",
+    shrink_to_fit: bool = False,
 ):
     size = np.asarray(size)
     spacings = np.asarray(spacings)
     num_spacings = size / spacings
     fit_func = np.floor if shrink_to_fit else np.ceil
     return from_shape_spacing_anchor(
-        shape=fit_func(num_spacings+1).astype(int), spacings=spacings, anchor_coord=anchor_coord, anchor=anchor
+        shape=fit_func(num_spacings + 1).astype(int),
+        spacings=spacings,
+        anchor_coord=anchor_coord,
+        anchor=anchor,
     )
 
 
 def from_bounds_spacing(
-        lower_bounds: Sequence[float],
-        upper_bounds: Sequence[float],
-        spacings: Sequence[float],
-        shrink_to_fit: bool = False,
+    lower_bounds: Sequence[float],
+    upper_bounds: Sequence[float],
+    spacings: Sequence[float],
+    shrink_to_fit: bool = False,
 ) -> Grid:
     """
     Create a `Grid` from its lower- and upper bounds, and spacings.
@@ -349,17 +359,18 @@ def from_bounds_spacing(
     num_spacings = size / spacings
     fit_func = np.floor if shrink_to_fit else np.ceil
     return from_bounds_shape(
-        lower_bounds=lower_bounds, upper_bounds=upper_bounds, shape=fit_func(num_spacings + 1).astype(int)
+        lower_bounds=lower_bounds,
+        upper_bounds=upper_bounds,
+        shape=fit_func(num_spacings + 1).astype(int),
     )
 
 
-
 def grid_distance(
-        grid: np.ndarray,
-        start_indices: np.ndarray,
-        directions: np.ndarray,
-        target_value: Any,
-        max_dist_in_dir: Sequence[int],
+    grid: np.ndarray,
+    start_indices: np.ndarray,
+    directions: np.ndarray,
+    target_value: Any,
+    max_dist_in_dir: Sequence[int],
 ) -> np.ndarray:
     """
     On an n-dimensional grid of values, for all given starting grid points, find the grid
@@ -400,14 +411,12 @@ def grid_distance(
     for idx_point, point in enumerate(start_indices):
         for idx_dir, direct in enumerate(directions):
             len_max = np.min(
-                np.concatenate([(np.array(grid.shape) - 1 - point)[direct==1], point[direct==-1]])
+                np.concatenate(
+                    [(np.array(grid.shape) - 1 - point)[direct == 1], point[direct == -1]]
+                )
             )
-            for i in range(1, int(min(len_max, max_dist_in_dir[idx_dir]))+1):
+            for i in range(1, int(min(len_max, max_dist_in_dir[idx_dir])) + 1):
                 if grid[tuple(point + i * direct)] == target_value:
                     dists[idx_point, idx_dir] = i
                     break
     return dists
-
-
-
-

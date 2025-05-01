@@ -1,4 +1,3 @@
-
 # Standard library
 from collections.abc import Sequence
 from typing import Any, Literal
@@ -22,10 +21,10 @@ class ToxelField:
     """
 
     def __init__(
-            self,
-            tensor: ArrayLike,
-            grid: Grid,
-            names: Sequence[Any] | None = None,
+        self,
+        tensor: ArrayLike,
+        grid: Grid,
+        names: Sequence[Any] | None = None,
     ):
         """
         Parameters
@@ -42,10 +41,7 @@ class ToxelField:
         _exceptions.raise_for_type(self.__class__.__name__, ("grid", grid, Grid))
         tensor = jnp.asarray(tensor)
         _exceptions.raise_array(
-            parent_name=self.__class__.__name__,
-            param_name="tensor",
-            array=tensor,
-            ndim_gt=2
+            parent_name=self.__class__.__name__, param_name="tensor", array=tensor, ndim_gt=2
         )
         if grid.dimension != tensor.ndim - 2:
             raise ValueError(
@@ -67,10 +63,7 @@ class ToxelField:
         else:
             names = np.asarray(names)
             _exceptions.raise_array(
-                parent_name=self.__class__.__name__,
-                param_name="names",
-                array=names,
-                ndim_eq=1
+                parent_name=self.__class__.__name__, param_name="names", array=names, ndim_eq=1
             )
             if names.size != tensor.shape[-1]:
                 raise ValueError(
@@ -110,7 +103,7 @@ class ToxelField:
             self._grid.direction_vectors(dimensions=dimensions),
             pad_width=((0, 0), (1, 0)),
             mode="constant",
-            constant_values=0
+            constant_values=0,
         )
 
     def __call__(self, name=None, instance=slice(None)):
@@ -144,11 +137,10 @@ class ToxelField:
             )
         return np.squeeze(indices[:, 1])
 
-
     def calculate_vacancy(
-            self,
-            energy_cutoff: float = +0.6,
-            mode: Literal["max", "min", "avg", "sum"] | None = "min",
+        self,
+        energy_cutoff: float = +0.6,
+        mode: Literal["max", "min", "avg", "sum"] | None = "min",
     ) -> np.ndarray:
         """
         Calculate whether each grid point is vacant, or occupied by a target atom.
@@ -204,20 +196,20 @@ class ToxelField:
 
 
 def from_tensor_grid(
-        tensor,
-        grid,
-        names,
+    tensor,
+    grid,
+    names,
 ):
     return ToxelField(tensor=tensor, grid=grid, names=names)
 
 
 def from_array_like(
-        field_tensor: npt.ArrayLike,
-        order_axes: tuple[Literal[0, 1, 2, 3, 4]] = (0, 1, 2, 3, 4),
-        field_names: Sequence[str] | None = None,
-        field_datatype: npt.DTypeLike = np.single,
-        grid_origin: tuple[float, float, float] = (0, 0, 0),
-        grid_point_spacing: float = 1,
+    field_tensor: npt.ArrayLike,
+    order_axes: tuple[Literal[0, 1, 2, 3, 4]] = (0, 1, 2, 3, 4),
+    field_names: Sequence[str] | None = None,
+    field_datatype: npt.DTypeLike = np.single,
+    grid_origin: tuple[float, float, float] = (0, 0, 0),
+    grid_point_spacing: float = 1,
 ):
     """
     Instantiate from a 5-dimensional array-like object containing the field values.
@@ -269,15 +261,10 @@ def from_array_like(
     if not isinstance(grid_point_spacing, (float, int)) or grid_point_spacing <= 0:
         raise ValueError("`spacing` must be a positive number.")
 
-
     # Create the underlying data structure and fill with data
     tensor: np.ndarray = np.array(field_tensor, dtype=field_datatype)
     if order_axes != (0, 1, 2, 3, 4):
-        tensor = np.moveaxis(
-            tensor,
-            source=order_axes,
-            destination=(0, 1, 2, 3, 4)
-        )
+        tensor = np.moveaxis(tensor, source=order_axes, destination=(0, 1, 2, 3, 4))
     # len_field_values, len_field_names = len(field_values), len(field_names)
     # if len_field_values == 0:
     #     raise ValueError("`field_values` cannot be an empty array.")
@@ -308,17 +295,18 @@ def from_array_like(
         field_tensor=tensor,
         field_names=field_names,
         grid_origin=grid_origin,
-        grid_point_spacing=grid_point_spacing
+        grid_point_spacing=grid_point_spacing,
     )
 
+
 def empty(
-        self,
-        temporal_length: int,
-        grid_shape: tuple[int, int, int],
-        grid_spacing: float,
-        field_shape: tuple[int],
-        field_datatype: npt.DTypeLike = np.single,
-        field_names: Sequence[str] | None = None,
-        grid_origin: tuple[float, float, float] = (0, 0, 0),
+    self,
+    temporal_length: int,
+    grid_shape: tuple[int, int, int],
+    grid_spacing: float,
+    field_shape: tuple[int],
+    field_datatype: npt.DTypeLike = np.single,
+    field_names: Sequence[str] | None = None,
+    grid_origin: tuple[float, float, float] = (0, 0, 0),
 ):
     pass

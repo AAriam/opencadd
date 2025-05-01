@@ -22,10 +22,7 @@ def smallest_integer_dtype_for_range(min_val, max_val) -> type[np.integer]:
     signed_mins = [np.iinfo(dtype).min for dtype in signed_types]
     signed_maxes = [np.iinfo(dtype).max for dtype in signed_types]
 
-    if (
-            not np.issubdtype(type(min_val), np.integer)
-            or not np.issubdtype(type(max_val), np.integer)
-    ):
+    if not np.issubdtype(type(min_val), np.integer) or not np.issubdtype(type(max_val), np.integer):
         raise ValueError(
             "Parameters `min_val` and `max_val` expect integer values. "
             f"Input was {min_val, max_val}"

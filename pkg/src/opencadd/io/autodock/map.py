@@ -1,4 +1,3 @@
-
 # Standard library
 from collections.abc import Sequence
 from pathlib import Path
@@ -17,9 +16,9 @@ class AutoDockMAPParsingError(Exception):
 
 
 def from_filepath(
-        filepath: PathLike | Sequence[PathLike] | Sequence[Sequence[PathLike]],
-        data_type: np.dtype = np.single,
-        name: str | Sequence[str] | None = None,
+    filepath: PathLike | Sequence[PathLike] | Sequence[Sequence[PathLike]],
+    data_type: np.dtype = np.single,
+    name: str | Sequence[str] | None = None,
 ):
     """
     Extract the AutoGrid parameters `gridcenter`, `npts` and `spacing` from a MAP file.
@@ -143,9 +142,7 @@ def _parse_single_file(filepath: PathLike, data_type: np.dtype):
             grid_point_values = np.array(lines[line_idx:], dtype=data_type)
             break
     else:
-        raise AutoDockMAPParsingError(
-            f"No grid point values found in MAP file at {filepath}."
-        )
+        raise AutoDockMAPParsingError(f"No grid point values found in MAP file at {filepath}.")
     keys = tokens.keys()
     for token in ("SPACING", "NELEMENTS", "CENTER"):
         if token not in keys:

@@ -10,13 +10,12 @@ import opencadd as oc
 
 
 class LigSiteDetector:
-
     def __init__(
-            self,
-            receptor,#: oc.chem.system.ChemicalSystem,
-            resolution_or_grid: float | Sequence[float] | oc.spacetime.grid.Grid,
-            num_directions: Literal[3, 7, 13] = 13,
-            max_radius: float | None = None,
+        self,
+        receptor,  #: oc.chem.system.ChemicalSystem,
+        resolution_or_grid: float | Sequence[float] | oc.spacetime.grid.Grid,
+        num_directions: Literal[3, 7, 13] = 13,
+        max_radius: float | None = None,
     ):
         self._receptor = receptor
         self._toxel_vol = self._receptor.conformation.toxelate(
@@ -28,13 +27,15 @@ class LigSiteDetector:
         dir_vectors = self._toxel_vol.spatial_direction_vectors(
             dimensions=dimensions[num_directions]
         )
-        len_dir_vectors = np.linalg.norm(dir_vectors[:, 1:] * self._toxel_vol.grid.spacings, axis=-1)
+        len_dir_vectors = np.linalg.norm(
+            dir_vectors[:, 1:] * self._toxel_vol.grid.spacings, axis=-1
+        )
         num_dir_vectors = dir_vectors.shape[0]
         # Calculate distance of each vacant grid point to the nearest occupied grid point in each
         # half direction, in units of corresponding distance vectors
         dists = self._toxel_vol.xeno_neighbor_distance(
             dir_vectors=dir_vectors,
-            dir_multipliers=(max_radius // len_dir_vectors) if max_radius is not None else None
+            dir_multipliers=(max_radius // len_dir_vectors) if max_radius is not None else None,
         ).astype(np.single)
         # set distances that are 0 (meaning no neighbor was found in that direction) to Nan.
         dists[dists == 0] = np.nan
@@ -43,7 +44,9 @@ class LigSiteDetector:
         # Add distances to neighbors in positive half-directions , to distances to neighbors in
         # negative half-directions, in order to get the PSP length in units of direction vectors,
         # and then multiply by direction unit vector lengths, to get the actual PSP distances.
-        self._psp_distances = dists[..., :num_dir_vectors // 2] + dists[..., num_dir_vectors // 2:]
+        self._psp_distances = (
+            dists[..., : num_dir_vectors // 2] + dists[..., num_dir_vectors // 2 :]
+        )
         return
 
     @property
@@ -54,9 +57,9 @@ class LigSiteDetector:
         return oc.pocket.BindingPocket(volume=self.calculate_buriedness())
 
     def calculate_buriedness(
-            self,
-            psp_max_length: float = 20.0,
-            psp_min_count: int = 2,
+        self,
+        psp_max_length: float = 20.0,
+        psp_min_count: int = 2,
     ) -> np.ndarray:
         """
         Calculate whether each grid point is buried inside the target structure or not, based on
@@ -91,9 +94,9 @@ class LigSiteDetector:
         return site
 
     def psp_events(
-            self,
-            num_directions: Literal[3, 7, 13] = 13,
-            max_radius: float | None = None,
+        self,
+        num_directions: Literal[3, 7, 13] = 13,
+        max_radius: float | None = None,
     ) -> np.ndarray:
         """
         Calculate the length of protein–solvent–protein (PSP) events for vacant grid points,

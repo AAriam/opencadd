@@ -174,7 +174,7 @@ def run(pdb_filepath):
         output_path_prefix + "_nvt1_trajectory.dcd",
         5000000,
         initialize=True,
-        checkpoint_out=output_path_prefix + "_checkpoint_nvt1.chk"
+        checkpoint_out=output_path_prefix + "_checkpoint_nvt1.chk",
     )
     print("First simulation done")
 
@@ -188,7 +188,7 @@ def run(pdb_filepath):
         5000000,
         checkpoint_in=output_path_prefix + "_checkpoint_nvt1.chk",
         checkpoint_out=output_path_prefix + "_checkpoint_npt.chk",
-        extra_force=barostat
+        extra_force=barostat,
     )
     print("Second simulation done")
 
@@ -199,7 +199,7 @@ def run(pdb_filepath):
         output_path_prefix + "_nvt2_trajectory.dcd",
         50000000,
         checkpoint_in=output_path_prefix + "_checkpoint_npt.chk",
-        checkpoint_out=output_path_prefix + "_checkpoint_nvt2.chk"
+        checkpoint_out=output_path_prefix + "_checkpoint_nvt2.chk",
     )
     print("Third simulation done; Program finished")
     return

@@ -7,12 +7,12 @@ import numpy as np
 from opencadd.chem import abc
 
 
-class MolecularComposition (abc.Composition):
+class MolecularComposition(abc.Composition):
     def __init__(
-            self,
-            atomic_numbers: Sequence[int],
-            mass_numbers: Sequence[int] | None = None,
-            charges: Sequence[float] | None = None,
+        self,
+        atomic_numbers: Sequence[int],
+        mass_numbers: Sequence[int] | None = None,
+        charges: Sequence[float] | None = None,
     ):
         self._z: jnp.ndarray
         self._a: jnp.ndarray
@@ -20,11 +20,13 @@ class MolecularComposition (abc.Composition):
 
         self._z = jnp.asarray(atomic_numbers, dtype=np.ubyte)
         self._a = (
-            jnp.asarray(mass_numbers, dtype=np.ubyte) if mass_numbers is not None
+            jnp.asarray(mass_numbers, dtype=np.ubyte)
+            if mass_numbers is not None
             else jnp.zeros_like(self._z)
         )
         self._e = (
-            jnp.asarray(charges, dtype=np.single) if mass_numbers is not None
+            jnp.asarray(charges, dtype=np.single)
+            if mass_numbers is not None
             else jnp.zeros_like(self._z)
         )
         return
@@ -41,7 +43,7 @@ class MolecularComposition (abc.Composition):
     def charges(self):
         return self._e
 
-    def van_der_waals_radii(self, ref: Literal['default']):
+    def van_der_waals_radii(self, ref: Literal["default"]):
         raise NotImplementedError
 
 

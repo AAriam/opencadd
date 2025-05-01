@@ -7,10 +7,10 @@ from opencadd.spacetime.volume import ToxelVolume
 
 class BindingPocket:
     def __init__(
-            self,
-            ensemble,
-            volume: ToxelVolume,
-            atoms: Sequence[int],
+        self,
+        ensemble,
+        volume: ToxelVolume,
+        atoms: Sequence[int],
     ):
         self._ensemble = ensemble
         self._volume = volume

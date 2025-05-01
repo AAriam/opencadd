@@ -2,7 +2,6 @@
 Base functionalities to parse an mmCIF datafile or dictionary.
 """
 
-
 import enum
 import itertools
 import re
@@ -154,35 +153,35 @@ class State(enum.Enum):
 
 
 EXPECTED_TOKENS = {
-        State.IN_FILE: (Token.DATA, ),
-        State.JUST_IN_DATA: (Token.SAVE, Token.LOOP, Token.NAME),
-        State.JUST_IN_SAVE: (Token.LOOP, Token.NAME),
-        State.JUST_IN_LOOP: (Token.NAME, ),
-        State.IN_NAME: (Token.VALUE, Token.VALUE_QUOTED, Token.VALUE_FIELD),
-        State.JUST_IN_SAVE_LOOP: (Token.NAME, ),
-        State.IN_SAVE_NAME: (Token.VALUE, Token.VALUE_QUOTED, Token.VALUE_FIELD),
-        State.IN_LOOP_NAME: (Token.NAME, Token.VALUE, Token.VALUE_QUOTED, Token.VALUE_FIELD),
-        State.IN_DATA: (Token.DATA, Token.SAVE, Token.LOOP, Token.NAME),
-        State.IN_SAVE_LOOP_NAME: (Token.NAME, Token.VALUE, Token.VALUE_QUOTED, Token.VALUE_FIELD),
-        State.IN_SAVE: (Token.SAVE_END, Token.LOOP, Token.NAME),
-        State.IN_LOOP_VALUE: (
-            Token.DATA,
-            Token.SAVE,
-            Token.LOOP,
-            Token.NAME,
-            Token.VALUE,
-            Token.VALUE_QUOTED,
-            Token.VALUE_FIELD
-        ),
-        State.IN_SAVE_LOOP_VALUE: (
-            Token.SAVE_END,
-            Token.LOOP,
-            Token.NAME,
-            Token.VALUE,
-            Token.VALUE_QUOTED,
-            Token.VALUE_FIELD
-        ),
-    }
+    State.IN_FILE: (Token.DATA,),
+    State.JUST_IN_DATA: (Token.SAVE, Token.LOOP, Token.NAME),
+    State.JUST_IN_SAVE: (Token.LOOP, Token.NAME),
+    State.JUST_IN_LOOP: (Token.NAME,),
+    State.IN_NAME: (Token.VALUE, Token.VALUE_QUOTED, Token.VALUE_FIELD),
+    State.JUST_IN_SAVE_LOOP: (Token.NAME,),
+    State.IN_SAVE_NAME: (Token.VALUE, Token.VALUE_QUOTED, Token.VALUE_FIELD),
+    State.IN_LOOP_NAME: (Token.NAME, Token.VALUE, Token.VALUE_QUOTED, Token.VALUE_FIELD),
+    State.IN_DATA: (Token.DATA, Token.SAVE, Token.LOOP, Token.NAME),
+    State.IN_SAVE_LOOP_NAME: (Token.NAME, Token.VALUE, Token.VALUE_QUOTED, Token.VALUE_FIELD),
+    State.IN_SAVE: (Token.SAVE_END, Token.LOOP, Token.NAME),
+    State.IN_LOOP_VALUE: (
+        Token.DATA,
+        Token.SAVE,
+        Token.LOOP,
+        Token.NAME,
+        Token.VALUE,
+        Token.VALUE_QUOTED,
+        Token.VALUE_FIELD,
+    ),
+    State.IN_SAVE_LOOP_VALUE: (
+        Token.SAVE_END,
+        Token.LOOP,
+        Token.NAME,
+        Token.VALUE,
+        Token.VALUE_QUOTED,
+        Token.VALUE_FIELD,
+    ),
+}
 """A mapping from each possible state to the expected tokens in that state.
 
 This is only used for generating error messages when unexpected tokens are encountered.
@@ -212,7 +211,6 @@ class CIFParser:
     """
 
     def __init__(self):
-
         self._token_processor = {
             Token.DATA: self._process_block_code,
             Token.SAVE: self._process_frame_code,
@@ -253,8 +251,14 @@ class CIFParser:
             (State.IN_DATA, Token.LOOP): (self._do_nothing, State.JUST_IN_LOOP),
             (State.IN_DATA, Token.NAME): (self._do_nothing, State.IN_NAME),
             (State.IN_DATA, Token.COMMENT): (self._do_nothing, State.IN_DATA),
-            (State.IN_SAVE_LOOP_NAME, Token.NAME): (self._add_loop_keyword, State.IN_SAVE_LOOP_NAME),
-            (State.IN_SAVE_LOOP_NAME, Token.VALUE): (self._register_and_fill_loop, State.IN_SAVE_LOOP_VALUE),
+            (State.IN_SAVE_LOOP_NAME, Token.NAME): (
+                self._add_loop_keyword,
+                State.IN_SAVE_LOOP_NAME,
+            ),
+            (State.IN_SAVE_LOOP_NAME, Token.VALUE): (
+                self._register_and_fill_loop,
+                State.IN_SAVE_LOOP_VALUE,
+            ),
             (State.IN_SAVE_LOOP_NAME, Token.COMMENT): (self._do_nothing, State.IN_SAVE_LOOP_NAME),
             (State.IN_SAVE, Token.SAVE_END): (self._do_nothing, State.IN_DATA),
             (State.IN_SAVE, Token.LOOP): (self._do_nothing, State.JUST_IN_SAVE_LOOP),
@@ -269,7 +273,10 @@ class CIFParser:
             (State.IN_SAVE_LOOP_VALUE, Token.SAVE_END): (self._finalize_loop, State.IN_DATA),
             (State.IN_SAVE_LOOP_VALUE, Token.LOOP): (self._finalize_loop, State.JUST_IN_SAVE_LOOP),
             (State.IN_SAVE_LOOP_VALUE, Token.NAME): (self._finalize_loop, State.IN_SAVE_NAME),
-            (State.IN_SAVE_LOOP_VALUE, Token.VALUE): (self._fill_loop_value, State.IN_SAVE_LOOP_VALUE),
+            (State.IN_SAVE_LOOP_VALUE, Token.VALUE): (
+                self._fill_loop_value,
+                State.IN_SAVE_LOOP_VALUE,
+            ),
             (State.IN_SAVE_LOOP_VALUE, Token.COMMENT): (self._do_nothing, State.IN_SAVE_LOOP_VALUE),
         }
         """
@@ -308,10 +315,7 @@ class CIFParser:
         return
 
     def parse(self, content: str):
-        _exception.raise_for_type(
-            f"{self.__class__.__name__}.parse",
-            ("content", content, str)
-        )
+        _exception.raise_for_type(f"{self.__class__.__name__}.parse", ("content", content, str))
         self._reset_state(content=content)
         for match in self._tokenizer:
             self.curr_match = match
@@ -319,8 +323,7 @@ class CIFParser:
             self.curr_token_value = match.group(match.lastindex)
             self._token_processor.get(self.curr_token_type, self._do_nothing)()
             update_func, new_state = self._state_mapper.get(
-                (self.curr_state, self.curr_token_type),
-                (self._wrong_token, self.curr_state)
+                (self.curr_state, self.curr_token_type), (self._wrong_token, self.curr_state)
             )
             update_func()
             self.curr_state = new_state
@@ -420,29 +423,21 @@ class CIFParser:
     def _do_nothing(self):
         return
 
-    def _add_data_item(self):
-        ...
+    def _add_data_item(self): ...
 
-    def _initialize_loop(self):
-        ...
+    def _initialize_loop(self): ...
 
-    def _add_loop_keyword(self):
-        ...
+    def _add_loop_keyword(self): ...
 
-    def _register_and_fill_loop(self):
-        ...
+    def _register_and_fill_loop(self): ...
 
-    def _fill_loop_value(self):
-        ...
+    def _fill_loop_value(self): ...
 
-    def _finalize_loop(self):
-        ...
+    def _finalize_loop(self): ...
 
 
 class CIFParsingError(Exception):
-
     def __init__(self, parser_instance: CIFParser, error_type: CIFParsingErrorType):
-
         self.state = parser_instance.curr_state
         self.match = parser_instance.curr_match
         self.token_type = parser_instance.curr_token_type
@@ -500,7 +495,6 @@ class CIFToDictParser(CIFParser):
     """
 
     def __init__(self):
-
         super().__init__()
 
         self._cif_dict_horizontal: dict = dict()
@@ -544,7 +538,7 @@ class CIFToDictParser(CIFParser):
         # data_value_list = self._curr_data_keyword_list
         # if len(data_value_list) != 0:
         #     self._raise_or_warn(CIFParsingErrorType.DUPLICATE)
-        #data_value_list.append(self.curr_data_value)
+        # data_value_list.append(self.curr_data_value)
         self._add_data(data_value=[self.curr_data_value], loop_id=0)
         return
 
@@ -604,15 +598,11 @@ class CIFToDictParser(CIFParser):
                 data_name_keyword=pl.Utf8,
                 data_value=pl.List(pl.Utf8),
                 loop_id=pl.UInt32,
-            )
+            ),
         )
         return CIFFileValidator(df=df, errors=self.errors)
 
-    def _add_data(
-            self,
-            data_value: str | list,
-            loop_id: int
-    ):
+    def _add_data(self, data_value: str | list, loop_id: int):
         self._curr_data_category_dict[self.curr_data_name_keyword] = data_value
 
         self._block_codes.append(self.curr_block_code)
@@ -626,7 +616,6 @@ class CIFToDictParser(CIFParser):
 
 
 class CIFFileValidator:
-
     def __init__(self, df: pl.DataFrame, errors: list[CIFParsingError]):
         self._df = df
         self._df_ids = df.select(pl.exclude(["data_value", "loop_id"]))
@@ -655,7 +644,7 @@ class CIFFileValidator:
         return all([empty_data_id, duplicated, table_columns, cat_columns, null, loops, ddl])
 
     def has_empty_data_identifier(
-            self, dim: Literal["elem", "col", "row", "df"] = "df"
+        self, dim: Literal["elem", "col", "row", "df"] = "df"
     ) -> pl.DataFrame | pl.Series | bool:
         if dim == "df":
             return self._df_ids.select((pl.any(pl.all() == "")).any())[0, 0]
@@ -678,7 +667,9 @@ class CIFFileValidator:
     def has_null(self, per_row: bool = False):
         series: pl.Series = self._df.select(
             pl.any(
-                pl.exclude(["frame_code_category", "frame_code_keyword", "data_name_keyword"]).is_null()
+                pl.exclude(
+                    ["frame_code_category", "frame_code_keyword", "data_name_keyword"]
+                ).is_null()
             ).alias("mask")
         )["mask"]
         if per_row:
@@ -686,36 +677,32 @@ class CIFFileValidator:
         return series.any()
 
     def table_columns_have_same_length(self, per_table: bool = False):
-        df_per_loop = self._df.with_columns(
-            pl.col("data_value").arr.lengths().alias("list_lengths")
-        ).groupby(
-            "loop_id"
-        ).agg(
-            (pl.col("list_lengths").n_unique() == 1).alias("has_same_length")
+        df_per_loop = (
+            self._df.with_columns(pl.col("data_value").arr.lengths().alias("list_lengths"))
+            .groupby("loop_id")
+            .agg((pl.col("list_lengths").n_unique() == 1).alias("has_same_length"))
         )
         if per_table:
             return df_per_loop
         return df_per_loop["has_same_length"].all()
 
     def data_category_columns_have_same_length(self, per_category: bool = False):
-        df_per_category = self._df.with_columns(
-            pl.col("data_value").arr.lengths().alias("list_lengths")
-        ).groupby(
-            ["block_code", "frame_code_category", "frame_code_keyword", "data_name_category"]
-        ).agg(
-            (pl.col("list_lengths").n_unique() == 1).alias("has_same_length")
+        df_per_category = (
+            self._df.with_columns(pl.col("data_value").arr.lengths().alias("list_lengths"))
+            .groupby(
+                ["block_code", "frame_code_category", "frame_code_keyword", "data_name_category"]
+            )
+            .agg((pl.col("list_lengths").n_unique() == 1).alias("has_same_length"))
         )
         if per_category:
             return df_per_category
         return df_per_category["has_same_length"].all()
 
     def loops_have_same_category(self, per_loop: bool = False):
-        df_per_loop = self._df.filter(
-            pl.col("loop_id") > 0
-        ).groupby(
-            "loop_id"
-        ).agg(
-            (pl.col("data_name_category").n_unique() == 1).alias("has_same_category")
+        df_per_loop = (
+            self._df.filter(pl.col("loop_id") > 0)
+            .groupby("loop_id")
+            .agg((pl.col("data_name_category").n_unique() == 1).alias("has_same_category"))
         )
         if per_loop:
             return df_per_loop

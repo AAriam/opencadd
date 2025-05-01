@@ -20,7 +20,6 @@ class MinimumBoundingBox(NamedTuple):
     lower_bounds: jnp.ndarray
     upper_bounds: jnp.ndarray
 
-
     @property
     def lengths(self) -> jnp.ndarray:
         return jnp.abs(self.upper_bounds - self.lower_bounds)
@@ -52,16 +51,16 @@ class TensorDataSet:
     )
 
     def __init__(
-            self,
-            data: npt.ArrayLike,
-            first_axes: tuple[int, int] = (1, 2),
-            data_type: npt.DTypeLike = np.single,
-            title_instance: Any | None = None,
-            labels_instance: npt.ArrayLike | None = None,
-            title_sample: Any | None = None,
-            labels_sample: npt.ArrayLike | None = None,
-            title_observation: Any | None = None,
-            labels_observation: npt.ArrayLike | None = None
+        self,
+        data: npt.ArrayLike,
+        first_axes: tuple[int, int] = (1, 2),
+        data_type: npt.DTypeLike = np.single,
+        title_instance: Any | None = None,
+        labels_instance: npt.ArrayLike | None = None,
+        title_sample: Any | None = None,
+        labels_sample: npt.ArrayLike | None = None,
+        title_observation: Any | None = None,
+        labels_observation: npt.ArrayLike | None = None,
     ):
         """
         Parameters
@@ -120,17 +119,17 @@ class TensorDataSet:
         self._data = data_tensor
         self._first_axes = np.asarray(first_axes).astype(np.ubyte)
 
-        num_instances = np.prod(self._data.shape[:self._first_axes[0]])
-        num_individuals = np.prod(self._data.shape[self._first_axes[0]:self._first_axes[1]])
-        num_features = np.prod(self._data.shape[self._first_axes[1]:])
+        num_instances = np.prod(self._data.shape[: self._first_axes[0]])
+        num_individuals = np.prod(self._data.shape[self._first_axes[0] : self._first_axes[1]])
+        num_features = np.prod(self._data.shape[self._first_axes[1] :])
 
         view_total = self._data.reshape(-1, num_features)
         view_per_instance = self._data.reshape(num_instances, -1, num_features)
-        view_per_individual = self._data.reshape(num_individuals, )
-
+        view_per_individual = self._data.reshape(
+            num_individuals,
+        )
 
         first_axes_array = np.asarray(first_axes).astype(np.uby)
-
 
         self._title_instance = title_instance
         self._title_sample = title_sample
@@ -140,11 +139,11 @@ class TensorDataSet:
         else:
             labels_instance_array = np.asarray(labels_instance)
             if labels_instance_array.shape[0] != self._data.shape[0]:
-                raise ValueError("Shape of `labels_instance` along first dimension must match "
-                                 "the number of instances in the dataset.")
+                raise ValueError(
+                    "Shape of `labels_instance` along first dimension must match "
+                    "the number of instances in the dataset."
+                )
             self._labels_instance = labels_instance_array
-
-
 
         self._kdtrees = [sp.spatial.KDTree(data=data_tensor)]
         return
@@ -214,8 +213,8 @@ class TensorDataSet:
         return self._data.shape[0]
 
     def axis_aligned_minimum_bounding_box(
-            self,
-            space: Literal["instance", "individual", "feature"] = "instance",
+        self,
+        space: Literal["instance", "individual", "feature"] = "instance",
     ) -> jnp.ndarray:
         """
         Lengths (along x, y, and z axes, respectively) of a right rectangular prism defining
@@ -224,10 +223,8 @@ class TensorDataSet:
         axes = {
             "instance": tuple(range(*self._first_axes)),
             "individual": tuple(range(self._first_axes[0])),
-            "feature": tuple(range(self._first_axes[1]))
+            "feature": tuple(range(self._first_axes[1])),
         }
         mins = jnp.min(self._data, axis=axes[space])
         maxes = jnp.max(self._data, axis=axes[space])
         return self._kdtree.maxes - self._kdtree.mins
-
-

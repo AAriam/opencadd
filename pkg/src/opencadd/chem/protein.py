@@ -10,17 +10,15 @@ from opencadd._typing import PathLike
 
 
 class Protein:
-
     _SUPPORTED_INPUT_FILES = ("pdb", "pdbqt")
 
     def __init__(
-            self,
-            name: str = None,
-            pdb_code: str = None,
-            atom_data: pd.DataFrame = None,
-            trajectory: np.ndarray = None,
+        self,
+        name: str = None,
+        pdb_code: str = None,
+        atom_data: pd.DataFrame = None,
+        trajectory: np.ndarray = None,
     ):
-
         self._name = name
         self._pdb_code = pdb_code
         self._atom_data = atom_data
@@ -65,11 +63,11 @@ class Protein:
         return self._kdtrees
 
     def nearest_atoms(
-            self,
-            coords: np.ndarray,
-            num_atoms: int = 1,
-            error_tolerance: float = 0,
-            trajectory_filter: slice = slice(None),
+        self,
+        coords: np.ndarray,
+        num_atoms: int = 1,
+        error_tolerance: float = 0,
+        trajectory_filter: slice = slice(None),
     ):
         """
         For a given number of points, find the nearest atom in the protein to each point.
@@ -93,12 +91,10 @@ class Protein:
         """
         num_selected_trajectories = len(self.kdtrees[trajectory_filter])
         distances = np.empty(
-            shape=(num_selected_trajectories, coords.shape[0] * num_atoms),
-            dtype=np.single
+            shape=(num_selected_trajectories, coords.shape[0] * num_atoms), dtype=np.single
         )
         indices = np.empty(
-            shape=(num_selected_trajectories, coords.shape[0] * num_atoms),
-            dtype=np.ushort
+            shape=(num_selected_trajectories, coords.shape[0] * num_atoms), dtype=np.ushort
         )
         for traj_idx, kdtree in enumerate(self._kdtrees[trajectory_filter]):
             nearest_atom_distances, nearest_atom_indices = kdtree.query(
@@ -112,20 +108,20 @@ class Protein:
         return distances, indices
 
     def distance_to_atoms(
-            self,
-
+        self,
     ):
         pass
 
     def distance_to_atoms_sparse(
-            self,
-            kdtree: sp.spatial.KDTree,
-            max_distance: float,
+        self,
+        kdtree: sp.spatial.KDTree,
+        max_distance: float,
     ):
-        distances = self._kdtree.sparse_distance_matrix(
-            other=kdtree,
-            max_distance=max_distance
-        ).toarray().reshape(self.trajectory_length, self.count_atoms, -1)
+        distances = (
+            self._kdtree.sparse_distance_matrix(other=kdtree, max_distance=max_distance)
+            .toarray()
+            .reshape(self.trajectory_length, self.count_atoms, -1)
+        )
         return np.moveaxis(distances, source=2, destination=1)
 
     @property
@@ -152,13 +148,8 @@ class Protein:
     def view(self):
         return nglview.show_file(str(self._structure_filepath))
 
-
-
     def create_new_ngl_widget(self):
         return nglview.show_file(str(self._structure_filepath), height="800px")
-
-
-
 
 
 def from_pdb_id(pdb_id: str) -> Protein:
@@ -175,5 +166,3 @@ def from_file_content(content: str | bytes) -> Protein:
 
 def to_file_pdbqt(protein: Protein) -> Path:
     pass
-
-

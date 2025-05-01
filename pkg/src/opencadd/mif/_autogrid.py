@@ -11,7 +11,6 @@ https://autodock.scripps.edu/wp-content/uploads/sites/56/2021/10/AutoDock4.2.6_U
 https://www.csb.yale.edu/userguides/datamanip/autodock/html/Using_AutoDock_305.21.html
 """
 
-
 # Standard library
 import subprocess
 from collections.abc import Sequence
@@ -28,18 +27,18 @@ from opencadd import spacetime
 from opencadd._typing import PathLike
 from opencadd.const.autodock import AtomType
 
-_PATH_EXECUTABLE = Path(oc.__file__).parent.resolve()/'_exec'/'autogrid4'
+_PATH_EXECUTABLE = Path(oc.__file__).parent.resolve() / "_exec" / "autogrid4"
 
 
 def _from_pdbqt_content(
-        content: Sequence[str],
-        receptor_types: Sequence[AtomType],
-        ligand_types: Sequence[AtomType],
-        grid: spacetime.grid.Grid,
-        smooth: float = 0.5,
-        dielectric: float = -0.1465,
-        param_filepath: Path | None = None,
-        field_datatype: npt.DTypeLike = np.single,
+    content: Sequence[str],
+    receptor_types: Sequence[AtomType],
+    ligand_types: Sequence[AtomType],
+    grid: spacetime.grid.Grid,
+    smooth: float = 0.5,
+    dielectric: float = -0.1465,
+    param_filepath: Path | None = None,
+    field_datatype: npt.DTypeLike = np.single,
 ):
     """
     Run AutoGrid energy calculations and get the results.
@@ -94,7 +93,9 @@ def _from_pdbqt_content(
 
     center, npts, spacing, slices = _extract_grid_values(grid=grid)
 
-    fields_tensor = np.empty(shape=(num_receptors, *grid.shape, len(ligand_types)+2), dtype=field_datatype)
+    fields_tensor = np.empty(
+        shape=(num_receptors, *grid.shape, len(ligand_types) + 2), dtype=field_datatype
+    )
     temp_path = Path.home() / "opencadd_temp"
     temp_path_pdbqt = temp_path.with_suffix(".pdbqt")
     temp_path_gpf = temp_path.with_suffix(".gpf")
@@ -109,10 +110,10 @@ def _from_pdbqt_content(
         dielectric=dielectric,
         parameter_file=param_filepath,
     )
-    with open(temp_path_gpf, 'w') as f:
+    with open(temp_path_gpf, "w") as f:
         f.write(oc.io.autodock.gpf.write(gpf_file))
     for receptor_idx, receptor_filepath in enumerate(content):
-        with open(temp_path_pdbqt, 'w') as f:
+        with open(temp_path_pdbqt, "w") as f:
             f.write(receptor_filepath)
         _submit_job(filepath_gpf=temp_path_gpf)
 
@@ -127,13 +128,15 @@ def _from_pdbqt_content(
     return oc.spacetime.field.from_tensor_grid(
         tensor=fields_tensor,
         grid=grid,
-        names=(*(ligand_type.name for ligand_type in ligand_types), "e", "d")
+        names=(*(ligand_type.name for ligand_type in ligand_types), "e", "d"),
     )
 
 
 def _extract_grid_values(grid: spacetime.grid.Grid):
     if grid.dimension != 3:
-        raise ValueError(f"AutoGrid only accepts 3D grids, but the input grid had {grid.dimension} dimensions.")
+        raise ValueError(
+            f"AutoGrid only accepts 3D grids, but the input grid had {grid.dimension} dimensions."
+        )
     if not np.allclose(grid.spacings, grid.spacings[0]):
         raise ValueError("AutoGrid only accepts grids with equal spacing in all dimensions.")
     is_odd = grid.shape % 2
@@ -146,8 +149,8 @@ def _extract_grid_values(grid: spacetime.grid.Grid):
 
 
 def _submit_job(
-        filepath_gpf: PathLike | Sequence[PathLike],
-        output_path: PathLike | None = None,
+    filepath_gpf: PathLike | Sequence[PathLike],
+    output_path: PathLike | None = None,
 ) -> subprocess.CompletedProcess:
     """
     Run grid energy calculations with AutoGrid4, using the input grid parameter file (GPF).
@@ -184,9 +187,9 @@ def _submit_job(
         args=[
             _PATH_EXECUTABLE,
             "-p",
-            Path(filepath_gpf).with_suffix('.gpf'),
+            Path(filepath_gpf).with_suffix(".gpf"),
             "-l",
-            Path(output_path).with_suffix('.glg')
+            Path(output_path).with_suffix(".glg"),
         ],
         capture_output=True,
         check=True,
@@ -195,8 +198,7 @@ def _submit_job(
 
 
 def calculate_npts(
-        grid_size: tuple[float, float, float],
-        grid_spacing: float
+    grid_size: tuple[float, float, float], grid_spacing: float
 ) -> tuple[int, int, int]:
     """
     Calculate the AutoGrid input argument `npts`.

@@ -42,20 +42,18 @@ def read_file(filepath: PathLike):
             "occupancy": ((55, 60), float),
             "tempFactor": ((61, 66), float),
             "partial_charge": ((67, 76), float),
-            "autodock_atom_type": ((78, 79), (str, 2))
+            "autodock_atom_type": ((78, 79), (str, 2)),
         }
 
         df = pd.DataFrame()
         for col_name, (col_range, col_dtype) in columns.items():
             df[col_name] = np.char.strip(
                 extract_column_from_string_array(
-                    array=record_lines_atom,
-                    char_range=(col_range[0] - 1, col_range[1])
+                    array=record_lines_atom, char_range=(col_range[0] - 1, col_range[1])
                 )
             ).astype(col_dtype)
 
-        autodock_atom_types_ids = np.array(
-            [atom_type.name for atom_type in autodock.AtomType])
+        autodock_atom_types_ids = np.array([atom_type.name for atom_type in autodock.AtomType])
         autodock_atom_types_data = [
             np.array([getattr(atom_type, attr) for atom_type in autodock.AtomType])
             for attr in ["hbond_status", "hbond_count"]
@@ -68,9 +66,7 @@ def read_file(filepath: PathLike):
         df["hbond_count"] = autodock_atom_types_data[1][indices_target_atom_types]
         return df
 
-    record_parsers = {
-        "ATOM": parse_atom_records
-    }
+    record_parsers = {"ATOM": parse_atom_records}
 
     with open(filepath[0]) as f:
         lines = np.array(f.readlines())

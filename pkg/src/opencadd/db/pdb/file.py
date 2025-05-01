@@ -18,10 +18,10 @@ _ROOT_FILE: str = "https://files.rcsb.org"
 
 
 def entry(
-        pdb_id: str,
-        file_format: Literal["cif", "pdb", "xml", "bcif"] = "cif",
-        biological_assembly_id: int | str | None = None,
-        output_path: PathLike | None = None,
+    pdb_id: str,
+    file_format: Literal["cif", "pdb", "xml", "bcif"] = "cif",
+    biological_assembly_id: int | str | None = None,
+    output_path: PathLike | None = None,
 ) -> bytes | Path:
     """
     Download a PDB entry file in one of available formats.
@@ -85,14 +85,16 @@ def entry(
     byte_content = gzip.decompress(response_http_request(url=url, response_type="bytes"))
     if output_path is None:
         return byte_content
-    return _sysio.save_to_file(content=byte_content, filename=pdb_id, extension=file_format, path=output_path)
+    return _sysio.save_to_file(
+        content=byte_content, filename=pdb_id, extension=file_format, path=output_path
+    )
 
 
 def small_molecule(
-        ligand_id: str,
-        file_type: Literal["model_coords", "ideal_coords", "def"] = "model_coords",
-        file_format: Literal["sdf", "mol2", "cif"] = "sdf",
-        output_path: PathLike | None = None,
+    ligand_id: str,
+    file_type: Literal["model_coords", "ideal_coords", "def"] = "model_coords",
+    file_format: Literal["sdf", "mol2", "cif"] = "sdf",
+    output_path: PathLike | None = None,
 ) -> bytes | Path:
     """
     Download a small molecule file in one of available formats.
@@ -145,30 +147,27 @@ def small_molecule(
     if output_path is None:
         return byte_content
     return _sysio.save_to_file(
-        content=byte_content,
-        filename=ligand_id,
-        extension=file_format,
-        path=output_path
+        content=byte_content, filename=ligand_id, extension=file_format, path=output_path
     )
 
 
 def dictionary(
     name: Literal[
-        'pdbx_v50',
-        'pdbx_v5_next',
-        'pdbx_v40',
-        'pdbx_vrpt',
-        'ddl',
-        'ihm',
-        'em',
-        'nmr-star',
-        'img',
-        'sas',
-        'std',
-        'biosync',
-        'sim',
-        'nef',
-        'ndb_ntc'
+        "pdbx_v50",
+        "pdbx_v5_next",
+        "pdbx_v40",
+        "pdbx_vrpt",
+        "ddl",
+        "ihm",
+        "em",
+        "nmr-star",
+        "img",
+        "sas",
+        "std",
+        "biosync",
+        "sim",
+        "nef",
+        "ndb_ntc",
     ] = "pdbx_v50",
     output_path: PathLike | None = None,
 ) -> bytes | Path:
@@ -258,12 +257,14 @@ def dictionary(
     )
     if output_path is None:
         return byte_content
-    return _sysio.save_to_file(content=byte_content, filename=name, extension="dic", path=output_path)
+    return _sysio.save_to_file(
+        content=byte_content, filename=name, extension="dic", path=output_path
+    )
 
 
 def chemical_component_dictionary(
-        variant: Literal['main', 'protonation', 'model'] = "main",
-        output_path: PathLike | None = None,
+    variant: Literal["main", "protonation", "model"] = "main",
+    output_path: PathLike | None = None,
 ) -> bytes | Path:
     """
     Download the Chemical Component Dictionary, or one of its variants.
@@ -302,7 +303,9 @@ def chemical_component_dictionary(
         url = "https://files.wwpdb.org/pub/pdb/data/monomers/aa-variants-v1.cif.gz"
         name = "aa-variants-v1"
     elif variant == "model":
-        url = "https://files.wwpdb.org/pub/pdb/data/component-models/complete/chem_comp_model.cif.gz"
+        url = (
+            "https://files.wwpdb.org/pub/pdb/data/component-models/complete/chem_comp_model.cif.gz"
+        )
         name = "chem_comp_model"
     else:
         raise ValueError(
@@ -319,4 +322,6 @@ def chemical_component_dictionary(
     )
     if output_path is None:
         return byte_content
-    return _sysio.save_to_file(content=byte_content, filename=name, extension="cif", path=output_path)
+    return _sysio.save_to_file(
+        content=byte_content, filename=name, extension="cif", path=output_path
+    )

@@ -1,4 +1,3 @@
-
 import jax.numpy as jnp
 import numpy.typing as npt
 
@@ -10,9 +9,9 @@ class RectangularCuboid:
     """
 
     def __init__(
-            self,
-            lower_bounds: npt.ArrayLike,
-            upper_bounds: npt.ArrayLike,
+        self,
+        lower_bounds: npt.ArrayLike,
+        upper_bounds: npt.ArrayLike,
     ):
         # Declare attributes
         self._lower_bounds: jnp.ndarray
@@ -36,6 +35,3 @@ class RectangularCuboid:
     @property
     def upper_bounds(self) -> jnp.ndarray:
         return self._upper_bounds
-
-
-

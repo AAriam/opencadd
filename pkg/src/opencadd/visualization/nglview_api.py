@@ -29,9 +29,7 @@ import numpy as np
 #     wrap: bool
 
 
-
 class NGLViewAdaptor(nv.Structure, nv.Trajectory):
-
     def __init__(self, ensemble):
         self._ensemble = ensemble
         self.ext = "pdb"
@@ -51,7 +49,6 @@ class NGLViewAdaptor(nv.Structure, nv.Trajectory):
 
 
 class NGLViewer:
-
     def __init__(self):
         self._widget = nv.NGLWidget()
         return
@@ -65,10 +62,10 @@ class NGLViewer:
         return
 
     def add_points(
-            self,
-            coords: list[float],
-            colors: list[float],
-            opacity: float = 0.7,
+        self,
+        coords: list[float],
+        colors: list[float],
+        opacity: float = 0.7,
     ):
         self._widget._js(
             f"""
@@ -98,12 +95,12 @@ class NGLViewer:
         return
 
     def add_spheres(
-            self,
-            coords: Sequence[float],
-            colors: Sequence[float] = (0.5, 0.5, 0.5),
-            radii: Sequence[float] | float = 0.2,
-            opacity: float = 0.7,
-            name: str | None = "spheres"
+        self,
+        coords: Sequence[float],
+        colors: Sequence[float] = (0.5, 0.5, 0.5),
+        radii: Sequence[float] | float = 0.2,
+        opacity: float = 0.7,
+        name: str | None = "spheres",
     ):
         if not isinstance(coords, np.ndarray):
             coords = np.array(coords, dtype=np.single)
@@ -137,7 +134,7 @@ class NGLViewer:
                 dict(
                     position=coords.flatten().tolist(),
                     color=colors.flatten().tolist(),
-                    radius=radii.flatten().tolist()
+                    radius=radii.flatten().tolist(),
                 )
             };
             var shape = new NGL.Shape('{name}');
@@ -151,11 +148,11 @@ class NGLViewer:
         return
 
     def add_representation_within_radius_of_selection(
-            self,
-            component_id: int = 0,
-            selection: str = "ligand",
-            radius: float = 4.0,
-            representation_type: str = "licorice"
+        self,
+        component_id: int = 0,
+        selection: str = "ligand",
+        radius: float = 4.0,
+        representation_type: str = "licorice",
     ) -> NoReturn:
         """
         Add a representation to all residues that have atoms within a certain radius of an atom in a
@@ -189,13 +186,13 @@ class NGLViewer:
         return
 
     def add_representation_to_structure(
-            self,
-            component_id: int = 0,
-            selection: str = "protein",
-            representation: str = "cartoon",
-            aspect_ratio: float = 1,
-            scale: float = 1,
-            multiple_bond: bool = True,
+        self,
+        component_id: int = 0,
+        selection: str = "protein",
+        representation: str = "cartoon",
+        aspect_ratio: float = 1,
+        scale: float = 1,
+        multiple_bond: bool = True,
     ):
         self._widget._execute_js_code(
             f"""
@@ -238,14 +235,14 @@ class NGLViewer:
         return
 
     def add_grid(
-            self,
-            values,
-            shape,
-            basis_vectors,
-            origin=(0, 0, 0),
-            representation: Literal["surface", "dot", "slice"] = "surface",
-            name: str = "Grid",
-            color: str = "rgb(100,0,0)"
+        self,
+        values,
+        shape,
+        basis_vectors,
+        origin=(0, 0, 0),
+        representation: Literal["surface", "dot", "slice"] = "surface",
+        name: str = "Grid",
+        color: str = "rgb(100,0,0)",
     ):
         command = f"""
         var vol = new NGL.Volume("{name}", " ", {values.tolist()}, {shape[0]}, {shape[1]}, {shape[2]})

@@ -13,24 +13,34 @@ from opencadd.const.autodock import AtomType
 
 
 class GPFFileStructure:
-
     def __init__(
-            self,
-            receptor: PathLike,
-            receptor_types: Sequence[AtomType] = (
-                    AtomType.A, AtomType.C, AtomType.HD, AtomType.N, AtomType.OA, AtomType.SA
-            ),
-            ligand_types: Sequence[AtomType] = (
-                    AtomType.A, AtomType.C, AtomType.HD, AtomType.N, AtomType.NA, AtomType.OA, AtomType.SA
-            ),
-            gridcenter: tuple[float, float, float] | Literal["auto"] = "auto",
-            npts: tuple[int, int, int] = (40, 40, 40),
-            spacing: float = 0.375,
-            smooth: float = 0.5,
-            dielectric: float = -0.1465,
-            parameter_file: PathLike | None = None,
-            output_filename: str | None = None,
-            output_path: PathLike | None = None,
+        self,
+        receptor: PathLike,
+        receptor_types: Sequence[AtomType] = (
+            AtomType.A,
+            AtomType.C,
+            AtomType.HD,
+            AtomType.N,
+            AtomType.OA,
+            AtomType.SA,
+        ),
+        ligand_types: Sequence[AtomType] = (
+            AtomType.A,
+            AtomType.C,
+            AtomType.HD,
+            AtomType.N,
+            AtomType.NA,
+            AtomType.OA,
+            AtomType.SA,
+        ),
+        gridcenter: tuple[float, float, float] | Literal["auto"] = "auto",
+        npts: tuple[int, int, int] = (40, 40, 40),
+        spacing: float = 0.375,
+        smooth: float = 0.5,
+        dielectric: float = -0.1465,
+        parameter_file: PathLike | None = None,
+        output_filename: str | None = None,
+        output_path: PathLike | None = None,
     ):
         """
         Parameters
@@ -127,7 +137,7 @@ class GPFFileStructure:
             array=center,
             ndim_eq=1,
             size_eq=3,
-            dtype=(np.integer, np.floating)
+            dtype=(np.integer, np.floating),
         )
         self._gridcenter = center
         return
@@ -145,7 +155,7 @@ class GPFFileStructure:
             array=npts,
             ndim_eq=1,
             size_eq=3,
-            dtype=np.integer
+            dtype=np.integer,
         )
         if np.any(npts % 2 != 0):
             raise ValueError
@@ -247,7 +257,7 @@ class GPFFileStructure:
         self._elecmap = path_common.with_suffix(".e.map")
         self._dsolvmap = path_common.with_suffix(".d.map")
         self._ligand_maps = tuple(
-            path_common.with_suffix(f'.{ligand_type.name}.map') for ligand_type in self.ligand_types
+            path_common.with_suffix(f".{ligand_type.name}.map") for ligand_type in self.ligand_types
         )
         return
 
@@ -277,18 +287,18 @@ class GPFFileStructure:
 
 
 def write(
-        receptor_filepath: PathLike,
-        output_path: PathLike = None,
-        receptor_types: Sequence[AtomType] = None,
-        ligand_types: Sequence[AtomType] = (AtomType.C, AtomType.A, AtomType.HD, AtomType.OA),
-        grid_center: tuple[float, float, float] | Literal["auto"] = "auto",
-        grid_npts: tuple[int, int, int] = (40, 40, 40),
-        grid_spacing: float = 0.375,
-        smooth: float = 0.5,
-        dielectric: float = -0.1465,
-        parameter_filepath: PathLike | None = None,
-        return_paths: bool = True,
-        return_content: bool = False,
+    receptor_filepath: PathLike,
+    output_path: PathLike = None,
+    receptor_types: Sequence[AtomType] = None,
+    ligand_types: Sequence[AtomType] = (AtomType.C, AtomType.A, AtomType.HD, AtomType.OA),
+    grid_center: tuple[float, float, float] | Literal["auto"] = "auto",
+    grid_npts: tuple[int, int, int] = (40, 40, 40),
+    grid_spacing: float = 0.375,
+    smooth: float = 0.5,
+    dielectric: float = -0.1465,
+    parameter_filepath: PathLike | None = None,
+    return_paths: bool = True,
+    return_content: bool = False,
 ) -> tuple[dict | None, str | None] | None:
     """
     Create a Grid Parameter File (GPF), used as an input specification file in AutoGrid.
@@ -325,14 +335,14 @@ def write(
             e=path_common.with_suffix(".e.map"),
             d=path_common.with_suffix(".d.map"),
             ligands={
-                ligand_type.name: path_common.with_suffix(f'.{ligand_type.name}.map')
+                ligand_type.name: path_common.with_suffix(f".{ligand_type.name}.map")
                 for ligand_type in ligand_types
-            }
-        )
+            },
+        ),
     )
 
     # write the file content to pgf file.
-    with open(paths['gpf'], "w") as f:
+    with open(paths["gpf"], "w") as f:
         f.write(file_content)
     if return_paths:
         if return_content:
@@ -367,4 +377,3 @@ def write(gpf_file: GPFFileStructure):
         f"dielectric {gpf_file.dielectric}"
     )
     return file_content
-

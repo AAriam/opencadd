@@ -24,7 +24,7 @@ import opencadd as oc
 import opencadd._common_webapi
 import opencadd._regex
 
-#from opencadd.io.io import filelike_to_filepath
+# from opencadd.io.io import filelike_to_filepath
 from opencadd._decorator import RetryConfig
 from opencadd._http_request import HTTPRequestRetryConfig, response_http_request
 
@@ -35,11 +35,11 @@ class DoGSiteScorerDetector:
     """
 
     def __init__(
-            self,
-            ensemble,
-            pockets,
-            pocket_data,
-            pocket_atoms,
+        self,
+        ensemble,
+        pockets,
+        pocket_data,
+        pocket_atoms,
     ):
         """
 
@@ -179,41 +179,45 @@ class DoGSiteScorerDetector:
 
 
 def _from_ensemble(
-        ensemble: oc.chem.ensemble.ChemicalEnsemble,
-        model: int | None = 0,
-        chain_id: str | None = None,
-        ligand_id_chain_num: tuple[str, str, int] | None = None,
-        include_subpockets: bool = True,
-        calculate_druggability: bool = True,
-        retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig(),
+    ensemble: oc.chem.ensemble.ChemicalEnsemble,
+    model: int | None = 0,
+    chain_id: str | None = None,
+    ligand_id_chain_num: tuple[str, str, int] | None = None,
+    include_subpockets: bool = True,
+    calculate_druggability: bool = True,
+    retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig(),
 ) -> DoGSiteScorerDetector:
-
-    dummy_pdb_id = oc._common_webapi.proteinsplus_upload_pdb(pdb_content=ensemble.to_pdb(model=model))
+    dummy_pdb_id = oc._common_webapi.proteinsplus_upload_pdb(
+        pdb_content=ensemble.to_pdb(model=model)
+    )
     pocket_data_df, atoms_df, pocket_volumes, description = _run(
         pdb_id=dummy_pdb_id,
         chain_id=chain_id,
         ligand_id_chain_num=ligand_id_chain_num,
         include_subpockets=include_subpockets,
         calculate_druggability=calculate_druggability,
-        retry_config=retry_config
+        retry_config=retry_config,
     )
     pockets = {
         pocket_name: oc.pocket.BindingPocket(
             ensemble=ensemble,
             volume=volume,
-            atoms=atoms_df.loc[pocket_name, "atom_serial"].to_numpy()
-        ) for volume, pocket_name in zip(pocket_volumes, pocket_data_df.index, strict=False)
+            atoms=atoms_df.loc[pocket_name, "atom_serial"].to_numpy(),
+        )
+        for volume, pocket_name in zip(pocket_volumes, pocket_data_df.index, strict=False)
     }
-    return DoGSiteScorerDetector(ensemble=ensemble, pockets=pockets, pocket_data=pocket_data_df, pocket_atoms=atoms_df)
+    return DoGSiteScorerDetector(
+        ensemble=ensemble, pockets=pockets, pocket_data=pocket_data_df, pocket_atoms=atoms_df
+    )
 
 
 def _run(
-        pdb_id: str,
-        chain_id: str | None = None,
-        ligand_id_chain_num: tuple[str, str, int] | None = None,
-        include_subpockets: bool = True,
-        calculate_druggability: bool = True,
-        retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig(),
+    pdb_id: str,
+    chain_id: str | None = None,
+    ligand_id_chain_num: tuple[str, str, int] | None = None,
+    include_subpockets: bool = True,
+    calculate_druggability: bool = True,
+    retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig(),
 ) -> tuple[pd.DataFrame, pd.DataFrame, list, str]:
     """
     Detect binding pockets for a protein structure from the Protein Data Bank.
@@ -248,27 +252,24 @@ def _run(
         ligand_id_chain_num=ligand_id_chain_num,
         include_subpockets=include_subpockets,
         calculate_druggability=calculate_druggability,
-        retry_config=retry_config
+        retry_config=retry_config,
     )
     pockets_table, description, ccp4_files, pdb_files = _get_results(
-        job_result_urls=job_result_urls,
-        retry_config=retry_config
+        job_result_urls=job_result_urls, retry_config=retry_config
     )
     pocket_data_df, atoms_df, pocket_volumes = _parse_results(
-        pockets_table=pockets_table,
-        ccp4_files=ccp4_files,
-        pdb_files=pdb_files
+        pockets_table=pockets_table, ccp4_files=ccp4_files, pdb_files=pdb_files
     )
     return pocket_data_df, atoms_df, pocket_volumes, description
 
 
 def _submit_job(
-        pdb_id: str,
-        chain_id: str | None = None,
-        ligand_id_chain_num: tuple[str, str, int] | None = None,
-        include_subpockets: bool = True,
-        calculate_druggability: bool = True,
-        retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig(),
+    pdb_id: str,
+    chain_id: str | None = None,
+    ligand_id_chain_num: tuple[str, str, int] | None = None,
+    include_subpockets: bool = True,
+    calculate_druggability: bool = True,
+    retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig(),
 ) -> dict[str, str | list[str]]:
     # Submit the job and get submission URL
     url_of_job = response_http_request(
@@ -279,15 +280,16 @@ def _submit_job(
                 "pdbCode": pdb_id,
                 "analysisDetail": str(int(include_subpockets)),
                 "bindingSitePredictionGranularity": str(int(calculate_druggability)),
-                "ligand": "_".join(
-                    [str(i) for i in ligand_id_chain_num]) if ligand_id_chain_num is not None else "",
+                "ligand": "_".join([str(i) for i in ligand_id_chain_num])
+                if ligand_id_chain_num is not None
+                else "",
                 "chain": chain_id if chain_id is not None else "",
             }
         },
         headers={"Content-type": "application/json", "Accept": "application/json"},
         response_type="json",
         response_verifier=lambda response_dict: "location" in response_dict.keys(),
-        retry_config=retry_config
+        retry_config=retry_config,
     )["location"]
     # Get the URLs of job results when job is done (takes usually 90 seconds)
     job_result_urls: dict = response_http_request(
@@ -297,40 +299,32 @@ def _submit_job(
         response_verifier=lambda response_dict: "result_table" in response_dict.keys(),
         retry_config=HTTPRequestRetryConfig(
             config_status=retry_config.config_status,
-            config_response=RetryConfig(num_tries=30, sleep_time_init=10, sleep_time_scale=1)
-        )
+            config_response=RetryConfig(num_tries=30, sleep_time_init=10, sleep_time_scale=1),
+        ),
     )
     return job_result_urls
 
 
 def _get_results(
-        job_result_urls: dict,
-        retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig()
+    job_result_urls: dict, retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig()
 ) -> tuple[str, str, list[bytes], list[bytes]]:
     pockets_table, description = [
         response_http_request(
-            url=job_result_urls[data],
-            response_type="str",
-            retry_config=retry_config
-        ) for data in ["result_table", "descriptor_explanation"]
+            url=job_result_urls[data], response_type="str", retry_config=retry_config
+        )
+        for data in ["result_table", "descriptor_explanation"]
     ]
     ccp4_files, pdb_files = [
         [
-            response_http_request(
-                url=url_file,
-                response_type="bytes",
-                retry_config=retry_config
-            ) for url_file in url_files
-        ] for url_files in (job_result_urls["pockets"], job_result_urls["residues"])
+            response_http_request(url=url_file, response_type="bytes", retry_config=retry_config)
+            for url_file in url_files
+        ]
+        for url_files in (job_result_urls["pockets"], job_result_urls["residues"])
     ]
     return pockets_table, description, ccp4_files, pdb_files
 
 
-def _parse_results(
-        pockets_table: str,
-        ccp4_files: Sequence[bytes],
-        pdb_files: Sequence[bytes]
-):
+def _parse_results(pockets_table: str, ccp4_files: Sequence[bytes], pdb_files: Sequence[bytes]):
     """
     Parse the PDB files generated by DoGSiteScorer for each detected pocket.
 
@@ -357,7 +351,9 @@ def _parse_results(
     for name, content in zip(pocket_data_df.index, pdb_files, strict=False):
         lines = content.decode().splitlines()
         info_line = lines[5]
-        center_and_radius = [float(elem) for elem in info_line.split() if oc._regex.ANY_NUM.match(elem)]
+        center_and_radius = [
+            float(elem) for elem in info_line.split() if oc._regex.ANY_NUM.match(elem)
+        ]
         pocket_centers.append(center_and_radius[:3])
         pocket_radii.append(center_and_radius[3])
         serials = [int(line[6:11]) for line in lines[6:]]

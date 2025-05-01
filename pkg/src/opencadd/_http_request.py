@@ -19,7 +19,6 @@ class WebAPIError(IOError):
     """Base Exception class for all web API exceptions."""
 
 
-
 class WebAPIStatusCodeError(WebAPIError):
     """
     Base Exception class for web API status code related exceptions.
@@ -55,7 +54,6 @@ class WebAPITemporaryStatusCodeError(WebAPIStatusCodeError):
     """
 
 
-
 class WebAPIPersistentStatusCodeError(WebAPIStatusCodeError):
     """
     Exception class for status code errors related to persistent issues.
@@ -63,7 +61,6 @@ class WebAPIPersistentStatusCodeError(WebAPIStatusCodeError):
     By default, raised when status code is in range [400, 600),
     but not in (408, 429, 500, 502, 503, 504).
     """
-
 
 
 class WebAPIValueError(WebAPIError):
@@ -84,10 +81,10 @@ class WebAPIValueError(WebAPIError):
 
 
 def raise_for_status_code(
-        response: requests.Response,
-        error_status_code_range: tuple[int, int] = (400, 599),
-        temporary_error_status_codes: Sequence[int] | None = (408, 429, 500, 502, 503, 504),
-        ignored_status_codes: Sequence[int] | None = None,
+    response: requests.Response,
+    error_status_code_range: tuple[int, int] = (400, 599),
+    temporary_error_status_codes: Sequence[int] | None = (408, 429, 500, 502, 503, 504),
+    ignored_status_codes: Sequence[int] | None = None,
 ) -> NoReturn:
     """
     Raise an `opencadd.webapi.http_request.WebAPIStatusCodeError` for certain HTTP status codes.
@@ -116,7 +113,10 @@ def raise_for_status_code(
     """
     if ignored_status_codes is not None and response.status_code in ignored_status_codes:
         return
-    if temporary_error_status_codes is not None and response.status_code in temporary_error_status_codes:
+    if (
+        temporary_error_status_codes is not None
+        and response.status_code in temporary_error_status_codes
+    ):
         raise WebAPITemporaryStatusCodeError(response)
     if error_status_code_range[0] <= response.status_code <= error_status_code_range[1]:
         raise WebAPIPersistentStatusCodeError(response)
@@ -150,28 +150,28 @@ class HTTPRequestRetryConfig(NamedTuple):
 
 
 def response_http_request(
-        url: str,
-        verb: str | Literal["GET", "POST", "PUT", "PATCH", "OPTIONS", "DELETE"] = "GET",
-        params: dict | list[tuple] | bytes | None = None,
-        data: dict | list[tuple] | bytes | None = None,
-        headers=None,
-        cookies=None,
-        files=None,
-        auth=None,
-        timeout: float | tuple[float, float] | None = (10, 20),
-        allow_redirects=True,
-        proxies=None,
-        hooks=None,
-        stream=None,
-        verify=None,
-        cert=None,
-        json=None,
-        response_type: Literal["str", "json", "bytes"] | None = None,
-        encoding: str | None = None,
-        response_verifier: Callable[[Any], bool] | None = None,
-        retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig(),
-        ignored_status_codes: Sequence[int] | None = None,
-        **json_kwargs,
+    url: str,
+    verb: str | Literal["GET", "POST", "PUT", "PATCH", "OPTIONS", "DELETE"] = "GET",
+    params: dict | list[tuple] | bytes | None = None,
+    data: dict | list[tuple] | bytes | None = None,
+    headers=None,
+    cookies=None,
+    files=None,
+    auth=None,
+    timeout: float | tuple[float, float] | None = (10, 20),
+    allow_redirects=True,
+    proxies=None,
+    hooks=None,
+    stream=None,
+    verify=None,
+    cert=None,
+    json=None,
+    response_type: Literal["str", "json", "bytes"] | None = None,
+    encoding: str | None = None,
+    response_verifier: Callable[[Any], bool] | None = None,
+    retry_config: HTTPRequestRetryConfig | None = HTTPRequestRetryConfig(),
+    ignored_status_codes: Sequence[int] | None = None,
+    **json_kwargs,
 ) -> requests.Response | str | dict | bytes:
     """
     Send an HTTP request and get the response in specified type.
@@ -223,8 +223,8 @@ def response_http_request(
     * Documentation of JSON decoding keyword arguments:
         https://docs.python.org/3/library/json.html#json.loads
     """
-    def get_response_value():
 
+    def get_response_value():
         def get_response():
             response = requests.request(
                 method=verb,
@@ -249,19 +249,24 @@ def response_http_request(
                 temporary_error_status_codes=(
                     None if retry_config is None else retry_config.status_codes_to_retry
                 ),
-                ignored_status_codes=ignored_status_codes
+                ignored_status_codes=ignored_status_codes,
             )
             return response
+
         # Depending on specifications in argument `retry_config`, either decorate `get_response`
         # with `retry_on_exception`, or leave it as is.
-        response_func = get_response if (
+        response_func = (
+            get_response
+            if (
                 retry_config is None
                 or retry_config.status_codes_to_retry is None
                 or retry_config.config_status is None
-        ) else retry_on_exception(
+            )
+            else retry_on_exception(
                 get_response,
                 config=retry_config.config_status,
-                catch=WebAPITemporaryStatusCodeError
+                catch=WebAPITemporaryStatusCodeError,
+            )
         )
         # Call the (decorated or non-decorated) response function.
         response = response_func()
@@ -283,19 +288,22 @@ def response_http_request(
         if response_verifier is None or response_verifier(response_value):
             return response_value
         # otherwise raise
-        raise WebAPIValueError(
-            response_value=response_value, response_verifier=response_verifier
-        )
+        raise WebAPIValueError(response_value=response_value, response_verifier=response_verifier)
+
     # Depending on specifications in argument `retry_config`, either decorate `get_response_value`
     # with `retry_on_exception`, or leave it as is.
-    response_val_func = get_response_value if (
+    response_val_func = (
+        get_response_value
+        if (
             retry_config is None
             or retry_config.config_response is None
             or response_verifier is None
-    ) else retry_on_exception(
+        )
+        else retry_on_exception(
             get_response_value,
             config=retry_config.config_response,
             catch=WebAPIValueError,
+        )
     )
     # Call the (decorated or non-decorated) response-value function and return.
     return response_val_func()

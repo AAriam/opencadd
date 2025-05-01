@@ -11,7 +11,6 @@ https://autodock.scripps.edu/wp-content/uploads/sites/56/2021/10/AutoDock4.2.6_U
 https://www.csb.yale.edu/userguides/datamanip/autodock/html/Using_AutoDock_305.21.html
 """
 
-
 # Standard library
 import subprocess
 from collections.abc import Sequence
@@ -28,29 +27,28 @@ from opencadd.const import autodock
 # from opencadd.mif.abc import IntraMolecularInteractionField
 #
 #
-_PATH_EXECUTABLE = Path(__file__).parent.resolve()/'executables'/'autogrid4'
+_PATH_EXECUTABLE = Path(__file__).parent.resolve() / "executables" / "autogrid4"
 
 
 class AutoGridField(IntraMolecularInteractionField):
-
     def __init__(
-            self,
-            receptor_filepaths: Sequence[PathLike],
-            grid_center: tuple[float, float, float],
-            grid_size: tuple[float, float, float] = (25, 25, 25),
-            grid_npts: tuple[int, int, int] | None = None,
-            grid_spacing: float = 0.375,
-            ligand_type_hydrogen_bond_donor: autodock.AtomType = autodock.AtomType.HD,
-            ligand_type_hydrogen_bond_acceptor: autodock.AtomType = autodock.AtomType.OA,
-            ligand_type_hydrophobic: autodock.AtomType = autodock.AtomType.C,
-            ligand_type_aromatic: autodock.AtomType = autodock.AtomType.A,
-            ligand_types_other: Sequence[autodock.AtomType] | None = (),
-            smooth: float = 0.5,
-            dielectric: float = -0.1465,
-            receptor_types: Sequence[Sequence[autodock.AtomType]] | None = None,
-            param_filepath: Path | None = None,
-            output_path: Path | None = None,
-            field_datatype: npt.DTypeLike = np.single,
+        self,
+        receptor_filepaths: Sequence[PathLike],
+        grid_center: tuple[float, float, float],
+        grid_size: tuple[float, float, float] = (25, 25, 25),
+        grid_npts: tuple[int, int, int] | None = None,
+        grid_spacing: float = 0.375,
+        ligand_type_hydrogen_bond_donor: autodock.AtomType = autodock.AtomType.HD,
+        ligand_type_hydrogen_bond_acceptor: autodock.AtomType = autodock.AtomType.OA,
+        ligand_type_hydrophobic: autodock.AtomType = autodock.AtomType.C,
+        ligand_type_aromatic: autodock.AtomType = autodock.AtomType.A,
+        ligand_types_other: Sequence[autodock.AtomType] | None = (),
+        smooth: float = 0.5,
+        dielectric: float = -0.1465,
+        receptor_types: Sequence[Sequence[autodock.AtomType]] | None = None,
+        param_filepath: Path | None = None,
+        output_path: Path | None = None,
+        field_datatype: npt.DTypeLike = np.single,
     ):
         """
         Run AutoGrid energy calculations and get the results.
@@ -110,17 +108,19 @@ class AutoGridField(IntraMolecularInteractionField):
         if receptor_types is not None:
             receptor_types = np.array(receptor_types)
             if receptor_types.ndim == 1:
-                receptor_types = np.tile(
-                    receptor_types, num_receptors
-                ).reshape(num_receptors, -1)
+                receptor_types = np.tile(receptor_types, num_receptors).reshape(num_receptors, -1)
         if grid_npts is None:
             grid_npts = calculate_npts(grid_size=grid_size, grid_spacing=grid_spacing)
         grid_shape = np.array(grid_npts) + 1
-        ligand_types=(ligand_type_hydrogen_bond_donor, ligand_type_hydrogen_bond_acceptor,
-                      ligand_type_hydrophobic, ligand_type_aromatic, *ligand_types_other)
+        ligand_types = (
+            ligand_type_hydrogen_bond_donor,
+            ligand_type_hydrogen_bond_acceptor,
+            ligand_type_hydrophobic,
+            ligand_type_aromatic,
+            *ligand_types_other,
+        )
         fields_tensor = np.empty(
-            shape=(num_receptors, *grid_shape, len(ligand_types) + 2),
-            dtype=field_datatype
+            shape=(num_receptors, *grid_shape, len(ligand_types) + 2), dtype=field_datatype
         )
         for receptor_idx, receptor_filepath in enumerate(receptor_filepaths):
             fields_values, paths_fields, path_gpf, path_gridfld, path_xyz = routine_run(
@@ -132,25 +132,24 @@ class AutoGridField(IntraMolecularInteractionField):
                 grid_spacing=grid_spacing,
                 smooth=smooth,
                 dielectric=dielectric,
-                receptor_types=receptor_types[receptor_idx] if receptor_types is not None else
-                None,
+                receptor_types=receptor_types[receptor_idx] if receptor_types is not None else None,
                 param_filepath=param_filepath,
                 output_path=output_path,
                 field_datatype=field_datatype,
             )
             for field_idx, field_values in enumerate(fields_values):
                 fields_tensor[receptor_idx, ..., field_idx] = field_values.reshape(
-                    tuple(grid_shape),
-                    order="F"
+                    tuple(grid_shape), order="F"
                 )
         super().__init__(
             field_tensor=fields_tensor,
-            field_names=[ligand_type.name for ligand_type in ligand_types] + ["Electro.", "Desolv."],
+            field_names=[ligand_type.name for ligand_type in ligand_types]
+            + ["Electro.", "Desolv."],
             grid_origin=np.array(grid_center) - grid_spacing * np.array(grid_npts) / 2,
             grid_point_spacing=grid_spacing,
         )
         for lig_idx, ligand_type in enumerate(ligand_types_other):
-            setattr(self, ligand_type.name, self._tensor[..., lig_idx+4])
+            setattr(self, ligand_type.name, self._tensor[..., lig_idx + 4])
         return
 
     @property
@@ -214,18 +213,18 @@ class AutoGridField(IntraMolecularInteractionField):
 
 
 def routine_run(
-        receptor_filepath: PathLike,
-        ligand_types: Sequence[autodock.AtomType],
-        grid_center: tuple[float, float, float],
-        grid_size: tuple[float, float, float] = (25, 25, 25),
-        grid_npts: tuple[int, int, int] | None = None,
-        grid_spacing: float = 0.375,
-        smooth: float = 0.5,
-        dielectric: float = -0.1465,
-        receptor_types: Sequence[autodock.AtomType] | None = None,
-        param_filepath: PathLike | None = None,
-        output_path: PathLike | None = None,
-        field_datatype: npt.DTypeLike = np.single,
+    receptor_filepath: PathLike,
+    ligand_types: Sequence[autodock.AtomType],
+    grid_center: tuple[float, float, float],
+    grid_size: tuple[float, float, float] = (25, 25, 25),
+    grid_npts: tuple[int, int, int] | None = None,
+    grid_spacing: float = 0.375,
+    smooth: float = 0.5,
+    dielectric: float = -0.1465,
+    receptor_types: Sequence[autodock.AtomType] | None = None,
+    param_filepath: PathLike | None = None,
+    output_path: PathLike | None = None,
+    field_datatype: npt.DTypeLike = np.single,
 ) -> tuple[tuple[np.ndarray], tuple[Path], Path, Path, Path]:
     """
     Run AutoGrid energy calculations and get the results.
@@ -306,8 +305,8 @@ def routine_run(
 
 
 def from_filepath_gpf(
-        filepath: PathLike | Sequence[PathLike],
-        output_path: PathLike | None = None,
+    filepath: PathLike | Sequence[PathLike],
+    output_path: PathLike | None = None,
 ) -> subprocess.CompletedProcess:
     """
     Run grid energy calculations with AutoGrid4, using the input grid parameter file (GPF).
@@ -344,9 +343,9 @@ def from_filepath_gpf(
         args=[
             _PATH_EXECUTABLE,
             "-p",
-            Path(filepath).with_suffix('.gpf'),
+            Path(filepath).with_suffix(".gpf"),
             "-l",
-            Path(output_path).with_suffix('.glg')
+            Path(output_path).with_suffix(".glg"),
         ],
         capture_output=True,
         check=True,
@@ -355,8 +354,7 @@ def from_filepath_gpf(
 
 
 def calculate_npts(
-        grid_size: tuple[float, float, float],
-        grid_spacing: float
+    grid_size: tuple[float, float, float], grid_spacing: float
 ) -> tuple[int, int, int]:
     """
     Calculate the AutoGrid input argument `npts`.

@@ -9,7 +9,6 @@ from opencadd import _exceptions
 
 
 class ToxelVolume:
-
     def __init__(self, toxels, grid):
         _exceptions.raise_for_type(self.__class__.__name__, ("grid", grid, oc.spacetime.grid.Grid))
         toxels = jnp.asarray(toxels)
@@ -48,9 +47,9 @@ class ToxelVolume:
         return self._toxels
 
     def xeno_neighbor_distance(
-            self,
-            dir_vectors: np.ndarray | None = None,
-            dir_multipliers: Sequence[int] | int | None = None,
+        self,
+        dir_vectors: np.ndarray | None = None,
+        dir_multipliers: Sequence[int] | int | None = None,
     ):
         """
         Given an n-dimensional boolean array, for each boolean element calculate its distances
@@ -106,7 +105,7 @@ class ToxelVolume:
         dists = np.zeros(shape=(*self._toxels.shape, dir_vectors.shape[0]), dtype=np.uintc)
         # Calculate the maximum multiplier along each direction:
         # First, calculate the maximum possible multipliers
-        with np.errstate(divide='ignore', invalid='ignore'):
+        with np.errstate(divide="ignore", invalid="ignore"):
             max_mult_axis = (np.array(self._toxels.shape) - 1) / np.abs(dir_vectors)
             max_mult_axis[np.isnan(max_mult_axis)] = np.inf
             max_mult_dir = np.min(max_mult_axis, axis=-1)
@@ -123,8 +122,9 @@ class ToxelVolume:
             for mult in range(1, max_mult[idx_dir]):
                 start_slice, end_slice = slicer(mult * direction)
                 reached_xeno = np.logical_xor(self._toxels[start_slice], self._toxels[end_slice])
-                dists[(*start_slice, idx_dir)][curr_mask[start_slice]] = reached_xeno[curr_mask[
-                    start_slice]] * mult
+                dists[(*start_slice, idx_dir)][curr_mask[start_slice]] = (
+                    reached_xeno[curr_mask[start_slice]] * mult
+                )
                 curr_mask[start_slice][reached_xeno] = 0
         return dists
 
@@ -133,5 +133,5 @@ class ToxelVolume:
             self._grid.direction_vectors(dimensions=dimensions),
             pad_width=((0, 0), (1, 0)),
             mode="constant",
-            constant_values=0
+            constant_values=0,
         )

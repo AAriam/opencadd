@@ -44,27 +44,32 @@ class PDBParser:
         """
         if not isinstance(content, str):
             _exceptions.raise_for_type(
-                param_name="content",
-                parent_name="PDBParser",
-                expected_type=str,
-                param_arg=content
+                param_name="content", parent_name="PDBParser", expected_type=str, param_arg=content
             )
 
         self.strictness: Literal[0, 1, 2, 3] = strictness
         self._lines: np.ndarray = np.array(content.splitlines())
         """Lines of the PDB file, as a 1D array of strings"""
-        self._lines_chars: np.ndarray = self._lines.view(dtype=(str, 1)).reshape(self._lines.size, -1)
+        self._lines_chars: np.ndarray = self._lines.view(dtype=(str, 1)).reshape(
+            self._lines.size, -1
+        )
         """Character view of the PDB file, i.e. 2-d array where first axis (rows) is lines and second axis 
         (columns) is characters. If the lines had different lengths, then all other lines will be padded with
         empty characters from the right, so that the shape of the array is (num_lines, max_num_chars_per_line).
         In a standard PDB file, all lines are 80 characters, so the shape will be (num_lines, 80).
         """
-        self._lines_rec_names = np.char.strip(self._lines_chars[:, :6].view(dtype=(str, 6)).reshape(-1))
+        self._lines_rec_names = np.char.strip(
+            self._lines_chars[:, :6].view(dtype=(str, 6)).reshape(-1)
+        )
         """Record name of each line in the PDB file, stripped of whitespaces.
         For example: array(['HEADER', 'TITLE', 'TITLE', ..., 'CONECT', 'MASTER', 'END'])"""
-        self._lines_rec_content: np.ndarray = self._lines_chars[:, 6:].view(dtype=(str, 74)).reshape(-1)
+        self._lines_rec_content: np.ndarray = (
+            self._lines_chars[:, 6:].view(dtype=(str, 74)).reshape(-1)
+        )
         """Record content of each line in the PDB file, i.e. with the 6 first characters stripped"""
-        self._mask_records: np.ndarray = np.expand_dims(self._lines_rec_names, axis=-1) == _records.names
+        self._mask_records: np.ndarray = (
+            np.expand_dims(self._lines_rec_names, axis=-1) == _records.names
+        )
 
         record_line_is_valid = np.isin(self._lines_rec_names, _records.names)
         if not np.any(record_line_is_valid):
@@ -76,7 +81,7 @@ class PDBParser:
                     "Input file contains invalid lines. "
                     "Following lines do not start with a valid record name: "
                     f"{self._lines[np.logical_not(record_line_is_valid)]}",
-                    raise_level=2
+                    raise_level=2,
                 )
 
             # Check if all lines are 80 characters:
@@ -84,22 +89,24 @@ class PDBParser:
             lines_not80 = line_widths != 80
             if np.any(lines_not80):
                 faulty_lines = [
-                    f"{line_num} ({line_width})" for line_num, line_width in zip(
+                    f"{line_num} ({line_width})"
+                    for line_num, line_width in zip(
                         np.argwhere(lines_not80).reshape(-1) + 1,
-                        line_widths[lines_not80], strict=False
+                        line_widths[lines_not80],
+                        strict=False,
                     )
                 ]
                 self._raise_or_warn(
                     "Following lines are not 80 characters long (lengths given in brackets): "
                     f"{', '.join(faulty_lines)}",
-                    raise_level=3
+                    raise_level=3,
                 )
 
         idx_lines_records = np.argwhere(self._mask_records)
         self._idx__record_lines = dict()
         self._count_records: np.ndarray = np.empty(
             shape=_records.count,
-            dtype=_typing.smallest_integer_dtype_for_range(0, self._lines.size)
+            dtype=_typing.smallest_integer_dtype_for_range(0, self._lines.size),
         )
         self._has_record: np.ndarray = np.empty(shape=_records.count, dtype=np.bool_)
         for record_idx in range(_records.count):
@@ -121,6 +128,7 @@ class PDBParser:
         """
         Parse the HEADER record of the PDB file.
         """
+
         def parse_classification(classification: str) -> tuple[tuple[str, ...], ...]:
             """Parse the classification field of the HEADER record."""
             # The classification string is left-justified, and can describe dual functions of molecules
@@ -133,6 +141,7 @@ class PDBParser:
                 for entity_class in class_per_entity
             )
             return class_per_entity_and_function
+
         # Extract record fields as a dict
         if not self.has_record(_records.HEADER):
             return None
@@ -220,14 +229,14 @@ class PDBParser:
             return None
         if self.strictness:
             allowed_values = [
-                'X-RAY DIFFRACTION',
-                'FIBER DIFFRACTION',
-                'NEUTRON DIFFRACTION',
-                'ELECTRON CRYSTALLOGRAPHY',
-                'ELECTRON MICROSCOPY',
-                'SOLID-STATE NMR',
-                'SOLUTION NMR',
-                'SOLUTION SCATTERING'
+                "X-RAY DIFFRACTION",
+                "FIBER DIFFRACTION",
+                "NEUTRON DIFFRACTION",
+                "ELECTRON CRYSTALLOGRAPHY",
+                "ELECTRON MICROSCOPY",
+                "SOLID-STATE NMR",
+                "SOLUTION NMR",
+                "SOLUTION SCATTERING",
             ]
             value_is_unknown = np.isin(techniques, allowed_values, invert=True)
             if np.any(value_is_unknown):
@@ -327,16 +336,18 @@ class PDBParser:
         tags = _records.JRNL.fields_dict["tag"].extract(char_table=record_lines)
         ref = dict()
         for sub_record, sub_record_name in (
-                (_records.JRNL_AUTH, "author"),
-                (_records.JRNL_TITL, "title"),
-                (_records.JRNL_EDIT, "editor"),
-                (_records.JRNL_PUBL, "pub"),
-                (_records.JRNL_PMID, "pm_id"),
-                (_records.JRNL_DOI, "doi"),
+            (_records.JRNL_AUTH, "author"),
+            (_records.JRNL_TITL, "title"),
+            (_records.JRNL_EDIT, "editor"),
+            (_records.JRNL_PUBL, "pub"),
+            (_records.JRNL_PMID, "pm_id"),
+            (_records.JRNL_DOI, "doi"),
         ):
             is_sub_record_line = tags == sub_record.name
             if np.any(is_sub_record_line):
-                sub_record_val = sub_record.extract(record_char_table=record_lines[is_sub_record_line])
+                sub_record_val = sub_record.extract(
+                    record_char_table=record_lines[is_sub_record_line]
+                )
                 ref[sub_record_name] = sub_record_val
 
         is_ref_line = tags == _records.JRNL_REF.name
@@ -456,12 +467,12 @@ class PDBParser:
         if lines.size > 1:
             self._raise_or_warn(
                 "REMARK 4 occurs multiple times; only the first occurrence will be parsed.",
-                raise_level=2
+                raise_level=2,
             )
         data = {
-            field_name: lines[0][start:stop] for field_name, (start, stop) in zip(
-                ("pdb_id", "ver_num", "ver_date"),
-                ((11, 15), (40, 44), (46, 55)), strict=False
+            field_name: lines[0][start:stop]
+            for field_name, (start, stop) in zip(
+                ("pdb_id", "ver_num", "ver_date"), ((11, 15), (40, 44), (46, 55)), strict=False
             )
         }
         data["ver_date"] = _fields.Date.from_pdb(data["ver_date"])
@@ -484,16 +495,14 @@ class PDBParser:
         df_main = pd.DataFrame(columns=_records.DBREF.fields_dict.keys())
         if self.has_record(_records.DBREF):
             # Extract DBREF records; no post-extraction processing needed.
-            df_main = pd.concat(
-                (df_main, self._extract_record(_records.DBREF))
-            )
+            df_main = pd.concat((df_main, self._extract_record(_records.DBREF)))
         if self.has_record(_records.DBREF1):
             # Extract DBREF1/DBREF2 records and merge rows to obtain the corresponding DBREF-like dataframe.
             df = pd.merge(
                 self._extract_record(_records.DBREF1),
                 self._extract_record(_records.DBREF2),
                 how="outer",
-                on=["pdb_id", "chain_id"]
+                on=["pdb_id", "chain_id"],
             )
             df_main = pd.concat((df_main, df))
         return df_main.set_index("chain_id", drop=False)
@@ -516,9 +525,9 @@ class PDBParser:
                     self._raise_or_warn(
                         "SEQRES records not found, while ATOM records exist. "
                         "SEQRES is a mandatory record when ATOM records exist.",
-                        raise_level=3
+                        raise_level=3,
                     )
-            #self._check_routine(_records.SEQRES)
+            # self._check_routine(_records.SEQRES)
         return self._extract_record(_records.SEQRES)
 
     def modres(self) -> pd.DataFrame | None:
@@ -534,7 +543,14 @@ class PDBParser:
         formul = self.record_formul()
         het_data = pd.DataFrame(
             columns=[
-                "comp_num", "het_id", "name", "synonym", "is_water", "formula", "count_in_chain", "count_rest"
+                "comp_num",
+                "het_id",
+                "name",
+                "synonym",
+                "is_water",
+                "formula",
+                "count_in_chain",
+                "count_rest",
             ]
         )
         het_data.index.name = "het_id"
@@ -547,13 +563,14 @@ class PDBParser:
             return df_tot.sort_values("comp_num")
         df_tot = non_none[0].drop("het_id", axis=1)
         for df in non_none[1:]:
-            df_tot = pd.merge(df_tot, df.drop("het_id", axis=1), how="outer", left_index=True, right_index=True)
+            df_tot = pd.merge(
+                df_tot, df.drop("het_id", axis=1), how="outer", left_index=True, right_index=True
+            )
         df_tot["het_id"] = df_tot.index
         df_tot.loc[df_tot.is_water, "name"] = "WATER"
         return pd.concat([het_data, df_tot]).sort_values("comp_num")
 
     def record_formul(self) -> pd.DataFrame | None:
-
         def parse_formula_field(text: str):
             """
 
@@ -579,7 +596,7 @@ class PDBParser:
                 return formula_split[-2], formula_split[1], formula_split[0]
             self._raise_or_warn(
                 f"Could not parse the 'text' field of the FORMUL record; got: {text}.",
-                raise_level=2
+                raise_level=2,
             )
             return text, 0, 0
 
@@ -625,7 +642,9 @@ class PDBParser:
         data = self._extract_record(_records.CRYST1)
         lengths = np.array([data["a"], data["b"], data["c"]])
         angles = np.array([data["alpha"], data["beta"], data["gamma"]])
-        return struct.RecordCRYST1(lengths=lengths, angles=angles, z=data["z"], space_group=data["space_group"])
+        return struct.RecordCRYST1(
+            lengths=lengths, angles=angles, z=data["z"], space_group=data["space_group"]
+        )
 
     def origx(self) -> struct.RecordXForm | None:
         o1 = self._extract_record(_records.ORIGX1)
@@ -648,7 +667,9 @@ class PDBParser:
         return struct.RecordXForm(matrix=transformation_matrix, vector=translation_vector)
 
     def mtrix(self):
-        ms = [self._extract_record(rec) for rec in (_records.MTRIX1, _records.MTRIX2, _records.MTRIX3)]
+        ms = [
+            self._extract_record(rec) for rec in (_records.MTRIX1, _records.MTRIX2, _records.MTRIX3)
+        ]
         if any(m is None for m in ms):
             return None
         shared_serials = ms[0]["serial"]
@@ -660,14 +681,18 @@ class PDBParser:
             shared_serials = np.intersect1d(shared_serials, m["serial"])
 
         idx = [
-            np.argwhere(shared_serials == np.expand_dims(m["serial"], axis=-1))[:, 1]
-            for m in ms
+            np.argwhere(shared_serials == np.expand_dims(m["serial"], axis=-1))[:, 1] for m in ms
         ]
         matrices = np.stack([ms[n]["m"][idx[n]] for n in range(3)], axis=1)
         vectors = np.stack([ms[n]["v"][idx[n]] for n in range(3)], axis=1)
         is_given = np.any([ms[n]["is_given"][idx[n]] == "1" for n in range(3)], axis=0)
         return pd.DataFrame(
-            {"serial": shared_serials, "is_given":is_given, "matrix": list(matrices), "vector": list(vectors)}
+            {
+                "serial": shared_serials,
+                "is_given": is_given,
+                "matrix": list(matrices),
+                "vector": list(vectors),
+            }
         ).set_index("serial", drop=False)
 
     # def atom(self):
@@ -736,8 +761,7 @@ class PDBParser:
                     mask_ter = np.logical_and(idx_ter_lines > idx_start, idx_ter_lines < idx_end)
                     if mask_ter.size > 0:
                         mask_not_polymer = np.logical_and(
-                            idx_lines > idx_ter_lines[mask_ter][-1],
-                            idx_lines < idx_end
+                            idx_lines > idx_ter_lines[mask_ter][-1], idx_lines < idx_end
                         )
                         is_polymer[mask_not_polymer] = False
                 data["res_poly"] = is_polymer
@@ -870,7 +894,9 @@ class PDBParser:
         if df is None:
             return None
         df["model_num"] = self._model_num_of_lines(self.indices_record_lines(_records.TER))
-        return df.set_index("serial", drop=False)[["model_num", "chain_id", "res_name", "res_num", "res_icode", "serial"]]
+        return df.set_index("serial", drop=False)[
+            ["model_num", "chain_id", "res_name", "res_num", "res_icode", "serial"]
+        ]
 
     def conect(self):
         """
@@ -907,13 +933,13 @@ class PDBParser:
         for unique_serial in unique_serials:
             mask = data["serial"] == unique_serial
             bonded_serials = data["serial_bonded"][mask]
-            non_empty_fields = bonded_serials[
-                bonded_serials != ""
-            ]
+            non_empty_fields = bonded_serials[bonded_serials != ""]
             bonds[unique_serial] = non_empty_fields.astype(int)
 
         serial_bonded = [ser_bond[ser_bond != ""] for ser_bond in data["serial_bonded"]]
-        return pd.DataFrame({"serial_1": data["serial"], "serial_2": serial_bonded}).explode("serial_2", ignore_index=True)
+        return pd.DataFrame({"serial_1": data["serial"], "serial_2": serial_bonded}).explode(
+            "serial_2", ignore_index=True
+        )
 
     def master(self):
         """
@@ -989,6 +1015,7 @@ class PDBParser:
         -------
         pandas.DataFrame | None
         """
+
         def parse_token_value_pairs(start_: int, stop_: int) -> dict[str, Any]:
             spec_dict = dict()
             for token, value in spec_list[start_:stop_]:
@@ -997,12 +1024,13 @@ class PDBParser:
                 except KeyError:
                     self._raise_or_warn(
                         f"Encountered invalid token in {record.name} records: {token}.",
-                        raise_level=2
+                        raise_level=2,
                     )
                     spec_dict[token] = value
                 else:
                     spec_dict[col_name] = dtype.from_pdb(value)
             return spec_dict
+
         # Both COMPND and SOURCE records have only one field, called 'compound' and 'srcName', respectively.
         #  These fields are specification lists (see `opencadd.io.pdb.fields.SpecificationList`) with a given
         #  set of possible token-value pairs. The problem is that each token may exist several times in the
@@ -1029,8 +1057,10 @@ class PDBParser:
                 df.loc[idx_row] = parse_token_value_pairs(start, stop)
                 idx_row += 1
             else:
-                data_mol = parse_token_value_pairs(start, start+ind_fragments[0])
-                for start_frag, end_frag in np.lib.stride_tricks.sliding_window_view((*ind_fragments, None), 2):
+                data_mol = parse_token_value_pairs(start, start + ind_fragments[0])
+                for start_frag, end_frag in np.lib.stride_tricks.sliding_window_view(
+                    (*ind_fragments, None), 2
+                ):
                     data_frag = parse_token_value_pairs(start + start_frag, start + end_frag)
                     df.loc[idx_row] = data_mol | data_frag
                     idx_row += 1
@@ -1048,7 +1078,9 @@ class PDBParser:
         idx_lines = np.expand_dims(idx_lines, axis=-1)
         indices_model_start = self.indices_record_lines(_records.MODEL)
         indices_model_end = self.indices_record_lines(_records.ENDMDL)
-        mask_in_model = np.logical_and(idx_lines > indices_model_start, idx_lines < indices_model_end)
+        mask_in_model = np.logical_and(
+            idx_lines > indices_model_start, idx_lines < indices_model_end
+        )
         counts = np.count_nonzero(mask_in_model, axis=1)
         line_in_no_model = counts == 0
         line_in_multiple_models = counts > 1
@@ -1082,15 +1114,17 @@ class PDBParser:
     def has_record(self, record: _records.Record) -> bool:
         return self._has_record[record.index]
 
-    def record_lines(self, record: _records.Record = None, as_char: bool = True, drop_name: bool = False):
+    def record_lines(
+        self, record: _records.Record = None, as_char: bool = True, drop_name: bool = False
+    ):
         idx = self.indices_record_lines(record) if record is not None else slice(None)
         if as_char:
-            return self._lines_chars[idx, (6 if drop_name else 0):]
+            return self._lines_chars[idx, (6 if drop_name else 0) :]
         return self._lines_rec_content[idx] if drop_name else self._lines[idx]
 
     def _extract_record(
-            self,
-            record: _records.Record,
+        self,
+        record: _records.Record,
     ):
         if not self.has_record(record):
             self._raise_or_warn_if_mandatory(record)
@@ -1130,11 +1164,7 @@ class PDBParser:
         self._strictness = value
         return
 
-    def _raise_or_warn(
-            self,
-            msg: str,
-            raise_level: Literal[1, 2, 3]
-    ) -> NoReturn:
+    def _raise_or_warn(self, msg: str, raise_level: Literal[1, 2, 3]) -> NoReturn:
         """
         Given an error message, raise it as a `PDBParsingError` or post a warning message,
         depending on the level of `strictness` and the error level.
@@ -1160,16 +1190,14 @@ class PDBParser:
     def _raise_or_warn_if_mandatory(self, record: _records.Record):
         if record.is_mandatory:
             self._raise_or_warn(
-                f"{record.name} record not found; it is a mandatory record.",
-                raise_level=3
+                f"{record.name} record not found; it is a mandatory record.", raise_level=3
             )
         return
 
     def _validate_existence(self, record: _records.Record):
         if not self.has_record(record):
             self._raise_or_warn(
-                f"{record.name} record not found. It is a mandatory record.",
-                raise_level=3
+                f"{record.name} record not found. It is a mandatory record.", raise_level=3
             )
             return False
         return True
@@ -1180,7 +1208,7 @@ class PDBParser:
                 f"Multiple {record.name} records found at lines "
                 f"{', '.join(self.indices_record_lines(record))}. "
                 f"{record.name} is a one-time/single-line record and must only appear once in the file.",
-                raise_level=1
+                raise_level=1,
             )
             return False
         return True
@@ -1191,19 +1219,19 @@ class PDBParser:
             if not pdb_id[0].isdigit():
                 self._raise_or_warn(
                     f"PDB ID {pdb_id} not correct. The first character in the ID must be a digit.",
-                    raise_level=3
+                    raise_level=3,
                 )
                 validated = False
             if not pdb_id[1:].isalpha():
                 self._raise_or_warn(
                     f"PDB ID {pdb_id} not correct. The last three characters in the ID must be alphabetical.",
-                    raise_level=3
+                    raise_level=3,
                 )
                 validated = False
             if not pdb_id.isupper():
                 self._raise_or_warn(
                     f"PDB ID {pdb_id} not correct. All characters in the ID must be upper-case.",
-                    raise_level=3
+                    raise_level=3,
                 )
                 validated = False
         return validated
@@ -1216,7 +1244,7 @@ class PDBParser:
                 self._raise_or_warn(
                     f"{record.name} records contain non-space characters in columns that must be empty."
                     f"Positions (line number, character number): {positions}",
-                    raise_level=1
+                    raise_level=1,
                 )
                 return False
         return True

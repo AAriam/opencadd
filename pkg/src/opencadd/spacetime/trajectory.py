@@ -1,4 +1,3 @@
-
 import jax.numpy as jnp
 
 from opencadd._typing import ArrayLike

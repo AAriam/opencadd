@@ -7,10 +7,7 @@ import opencadd as oc
 
 
 @jax.jit
-def _rmsd_1_1_s(
-    p0: jax.Array,
-    p1: jax.Array
-) -> jax.Array:
+def _rmsd_1_1_s(p0: jax.Array, p1: jax.Array) -> jax.Array:
     """
     RMSD between two instances.
 
@@ -414,11 +411,11 @@ rmsd : jax.Array, shape: (n_instances_0, n_instances_1)
 
 
 def rmsd(
-        p0: oc._typing.ArrayLike,
-        p1: oc._typing.ArrayLike,
-        weights: oc._typing.ArrayLike = None,
-        stacked: bool = False,
-        weights_axis: Literal[0, 1] = 0
+    p0: oc._typing.ArrayLike,
+    p1: oc._typing.ArrayLike,
+    weights: oc._typing.ArrayLike = None,
+    stacked: bool = False,
+    weights_axis: Literal[0, 1] = 0,
 ) -> jax.Array:
     """
     Root-mean-square deviation (RMSD) between datasets.
@@ -576,8 +573,3 @@ def rmsd(
         raise NotImplementedError
 
     raise ValueError
-
-
-
-
-

@@ -63,10 +63,10 @@ def create_topology(filepath_pdf):
 
 
 def cluster_trajectory(
-        filepath_topology: PathLike,
-        filepath_trajectory: PathLike,
-        path_output: PathLike,
-        n_clusters: int = 5,
+    filepath_topology: PathLike,
+    filepath_trajectory: PathLike,
+    path_output: PathLike,
+    n_clusters: int = 5,
 ):
     """
     Uses pytraj to cluster the given trajectory into a given number of clusters.
@@ -86,21 +86,21 @@ def cluster_trajectory(
 
     """
     out_dir = Path(path_output)
-    summary_path = str(out_dir.joinpath('cluster_summary.out'))
-    info_path = str(out_dir.joinpath('cluster_info.out'))
-    repout_path = str(out_dir.joinpath('repout.crd'))
-    cluster_path = str(out_dir.joinpath('clusterout.crd'))
+    summary_path = str(out_dir.joinpath("cluster_summary.out"))
+    info_path = str(out_dir.joinpath("cluster_info.out"))
+    repout_path = str(out_dir.joinpath("repout.crd"))
+    cluster_path = str(out_dir.joinpath("clusterout.crd"))
 
     traj = pt.load(filepath_trajectory, filepath_topology)
     frame_indices = kmeans(
         traj,
         n_clusters=n_clusters,
-        mask='@CA',
-        metric='rms',
+        mask="@CA",
+        metric="rms",
         options=(
-            f'summary {summary_path} info {info_path} '
-            f'repout {repout_path} repfmt pdb clusterout {cluster_path}'
-        )
+            f"summary {summary_path} info {info_path} "
+            f"repout {repout_path} repfmt pdb clusterout {cluster_path}"
+        ),
     )
     return
 

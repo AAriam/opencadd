@@ -6,11 +6,11 @@ import numpy as np
 
 
 def filter_array(
-        array: np.ndarray,
-        minmax_vals: tuple[float, float],
-        reduction_op: str,
-        reduction_axis: int = -1,
-        invert: bool = False
+    array: np.ndarray,
+    minmax_vals: tuple[float, float],
+    reduction_op: str,
+    reduction_axis: int = -1,
+    invert: bool = False,
 ) -> np.ndarray:
     """
     Filter points by their distances to their nearest atoms.
@@ -34,26 +34,18 @@ def filter_array(
     if reduction_op in red_funcs_pre:
         array_values = red_funcs_pre[reduction_op](array, axis=reduction_axis)
         array_mask = filter_array_by_range(
-            array=array_values,
-            minmax_vals=minmax_vals,
-            invert=invert
+            array=array_values, minmax_vals=minmax_vals, invert=invert
         )
         return array_mask, (array_values.min(), array_values.max())
     if reduction_op in red_funcs_post:
-        mask_array = filter_array_by_range(
-            array=array,
-            minmax_vals=minmax_vals,
-            invert=invert
-        )
+        mask_array = filter_array_by_range(array=array, minmax_vals=minmax_vals, invert=invert)
         reduced_mask_array = red_funcs_post[reduction_op](mask_array, axis=reduction_axis)
         return reduced_mask_array, (array.min(), array().max())
     raise ValueError("Reduction operation not recognized.")
 
 
 def filter_array_by_range(
-        array: np.ndarray,
-        minmax_vals: tuple[float, float],
-        invert: bool = False
+    array: np.ndarray, minmax_vals: tuple[float, float], invert: bool = False
 ):
     op_lower, op_upper = (operator.le, operator.ge) if invert else (operator.ge, operator.le)
     op_combine = np.logical_or if invert else np.logical_and

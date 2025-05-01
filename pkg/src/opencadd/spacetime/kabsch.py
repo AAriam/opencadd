@@ -39,17 +39,17 @@ def kabsch_unweighted(p0: jax.Array, p1: jax.Array) -> tuple[jax.Array, jax.Arra
     p0c = p0 - c_p0  # p0 centered
     p1c = p1 - c_p1  # p1 centered
     # Calculate SVD of the cross-covariance matrix
-    h = jnp.einsum('ji,jk->ik', p0c, p1c)  # equivalent to `p0c.T @ p1c`
+    h = jnp.einsum("ji,jk->ik", p0c, p1c)  # equivalent to `p0c.T @ p1c`
     u, s, vt = jnp.linalg.svd(h)
     # Calculate rotation matrix
-    rot = jnp.einsum('ij,jk->ki', u, vt)  # equivalent to `(u @ vt).T`
+    rot = jnp.einsum("ij,jk->ki", u, vt)  # equivalent to `(u @ vt).T`
     det_sign = jnp.sign(jnp.linalg.det(rot))  # Sign of the determinant of the rotation matrix
     # Note: since u @ vt is a rotation matrix, it's determinant is either 1, or -1 in case of
     #  an improper rotation. In the later case, the improper rotation is corrected to a proper rotation
     #  by manipulating the s and u values:
     s = s.at[-1].multiply(det_sign)
     u = u.at[:, -1].multiply(det_sign)
-    rot = jnp.einsum('ij,jk->ki', u, vt)  # final rotation matrix
+    rot = jnp.einsum("ij,jk->ki", u, vt)  # final rotation matrix
     # Notice that the above code could have be written as a conditional as well:
     #     rot = jnp.einsum('ij,jk->ki', u, vt)
     #     if jnp.linalg.det(rot) < 0:
@@ -58,14 +58,14 @@ def kabsch_unweighted(p0: jax.Array, p1: jax.Array) -> tuple[jax.Array, jax.Arra
     #         rot = np.einsum('ij,jk->ki', u, vt)
     #  However, then the function could not have been jitted.
     trans = c_p0 - jnp.dot(c_p1, rot)  # translation vector
-    e0 = jnp.sum(p0c ** 2 + p1c ** 2)  # initial residual
+    e0 = jnp.sum(p0c**2 + p1c**2)  # initial residual
     rmsd = jnp.sqrt(jnp.maximum((e0 - (2 * jnp.sum(s))) / p0.shape[0], 0))  # rmsd after alignment
     return rot, trans, rmsd
 
 
 @jax.jit
 def kabsch_unweighted_transform(
-        p0: jax.Array, p1: jax.Array
+    p0: jax.Array, p1: jax.Array
 ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     rot, trans, rmsd = kabsch_unweighted(p0, p1)
     return rot, trans, rmsd, p1 @ rot + trans
@@ -91,13 +91,13 @@ def kabsch_weighted(p0, p1, w):
     c_p1 = jnp.sum(p1 * w, axis=0) / denom2
     p0c = p0 - c_p0
     p1c = p1 - c_p1
-    h = jnp.einsum('ji,jk->ik', p0c * w, p1c)
+    h = jnp.einsum("ji,jk->ik", p0c * w, p1c)
     u, s, vt = jnp.linalg.svd(h)
-    det_sign = jnp.sign(jnp.linalg.det(jnp.einsum('ij,jk->ki', u, vt)))
+    det_sign = jnp.sign(jnp.linalg.det(jnp.einsum("ij,jk->ki", u, vt)))
     s = s.at[-1].multiply(det_sign)
     u = u.at[:, -1].multiply(det_sign)
-    rot = jnp.einsum('ij,jk->ki', u, vt)
+    rot = jnp.einsum("ij,jk->ki", u, vt)
     trans = c_p0 - jnp.dot(c_p1, rot)
-    e0 = jnp.sum(w * (p0c ** 2 + p1c ** 2))
+    e0 = jnp.sum(w * (p0c**2 + p1c**2))
     rmsd = jnp.sqrt(jnp.maximum((e0 - (2 * jnp.sum(s))) / denom, 0))
     return rot, trans, rmsd

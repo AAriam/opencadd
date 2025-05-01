@@ -32,30 +32,28 @@ def extract_column_from_string_array(array: np.ndarray, char_range: tuple[int, i
     """
     # Create a view with Char data type, reshape array to have the same shape as input,
     # and take only the characters in the given range
-    view = array.view(dtype=(str, 1)).reshape(array.size, -1)[:, char_range[0]:char_range[1]]
+    view = array.view(dtype=(str, 1)).reshape(array.size, -1)[:, char_range[0] : char_range[1]]
     # Create array from view buffer
     return np.frombuffer(view.tobytes(), dtype=(str, char_range[1] - char_range[0]))
 
 
 def extract_columns_by_interval(
-        char_table: np.ndarray,
-        interval: tuple[int, int],
-        strip: bool = True
+    char_table: np.ndarray, interval: tuple[int, int], strip: bool = True
 ) -> np.ndarray:
-    column = char_table[:, interval[0]:interval[1]].view(dtype=(str, interval[1] - interval[0])).reshape(-1)
+    column = (
+        char_table[:, interval[0] : interval[1]]
+        .view(dtype=(str, interval[1] - interval[0]))
+        .reshape(-1)
+    )
     return np.char.strip(column) if strip else column
 
 
 def extract_columns_by_index(
-        char_table: np.ndarray,
-        indices: Sequence[int],
-        column_len: int,
-        strip: bool = True
+    char_table: np.ndarray, indices: Sequence[int], column_len: int, strip: bool = True
 ) -> np.ndarray:
     """"""
     column = np.asarray(char_table[:, indices], order="C").view(dtype=(str, column_len))
     return np.char.strip(column) if strip else column
-
 
     # if isinstance(column, Column):
     #     return column.parser(
