@@ -57,4 +57,4 @@ def autogrid(
         field_datatype=field_datatype,
     )
 
-    return MolecularInteractionField(ensemble=ensemble, field=toxel_field)
+    return toxel_field
