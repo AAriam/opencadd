@@ -1,33 +1,34 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Literal
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 import numpy as np
 import numpy.typing as npt
 import scipy as sp
 
-import opencadd as oc
-import opencadd._exceptions
-import opencadd._typing
-import opencadd.spacetime.vectorized
+import scids
+import scids.util
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from typing import Literal
+    from scids.typing import ArrayLike
 
 class PointCloud:
     """
     A discrete set of points in n-dimensional space.
     """
 
-    def __init__(self, points: oc._typing.ArrayLike):
+    def __init__(self, points: ArrayLike):
         points = jnp.asarray(points)
-        oc._exceptions.raise_array(
-            parent_name=self.__class__.__name__,
-            param_name="points",
-            array=points,
-            ndim_eq=2,
-            dtypes="real",
-        )
+        # oc._exceptions.raise_array(
+        #     parent_name=self.__class__.__name__,
+        #     param_name="points",
+        #     array=points,
+        #     ndim_eq=2,
+        #     dtypes="real",
+        # )
         self._points = points
         self._kdtree = None
         return
@@ -37,7 +38,7 @@ class PointCloud:
         return self._points
 
     @property
-    def count_points(self) -> int:
+    def point_count(self) -> int:
         return self._points.shape[0]
 
     @property
@@ -54,11 +55,11 @@ class PointCloud:
         if weights is not None:
             weights_arr = jnp.asarray(weights)
             if weights_arr.ndim == 1:
-                if weights_arr.size != self.count_points:
+                if weights_arr.size != self.point_count:
                     raise ValueError
                 weights_arr = jnp.expand_dims(weights_arr, axis=-1)
             elif weights_arr.ndim == 2 and (
-                weights_arr.shape[0] not in (1, self.count_points)
+                weights_arr.shape[0] not in (1, self.point_count)
                 or weights_arr.shape[1] not in (1, self.dimension)
                 or weights_arr.shape == (1, 1)
             ):
@@ -80,7 +81,7 @@ class DynamicPointCloud:
         "_kdtrees_per_instance",
     )
 
-    def __init__(self, data: oc._typing.ArrayLike):
+    def __init__(self, data: ArrayLike):
         # Check for errors in `data`:
         data_tensor = jnp.asarray(data)
         if data_tensor.ndim != 3:
@@ -103,11 +104,11 @@ class DynamicPointCloud:
         return self._data.shape[0]
 
     @property
-    def count_points_per_instance(self) -> int:
+    def point_count_per_instance(self) -> int:
         return self._data.shape[1]
 
     @property
-    def count_points_total(self) -> int:
+    def point_count_total(self) -> int:
         return np.prod(self._data.shape[:2])
 
     @property
@@ -129,7 +130,7 @@ class DynamicPointCloud:
     def axis_aligned_minimum_bounding_box(
         self,
         per_instance: bool = True,
-    ) -> oc.spacetime.volume.RectangularCuboid:
+    ) -> scids.rectangular_cuboid.RectangularCuboid:
         """
         Axis-aligned minimum bounding box of the point cloud, either per instance or as a whole.
 
@@ -155,21 +156,21 @@ class DynamicPointCloud:
         else:
             mins = jnp.expand_dims(jnp.min(self._data, axis=(0, 1)), axis=0)
             maxes = jnp.expand_dims(jnp.max(self._data, axis=(0, 1)), axis=0)
-        return oc.spacetime.volume.RectangularCuboid(lower_bounds=mins, upper_bounds=maxes)
+        return scids.rectangular_cuboid.RectangularCuboid(lower_bounds=mins, upper_bounds=maxes)
 
     def toxelate(
         self,
-        resolution_or_grid: float | Sequence[float] | oc.spacetime.grid.Grid,
+        resolution_or_grid: float | Sequence[float] | scids.grid.Grid,
         radius_points: float | npt.ArrayLike,
         padding: float = 0,
-    ) -> oc.spacetime.volume.ToxelVolume:
-        if isinstance(resolution_or_grid, oc.spacetime.grid.Grid):
+    ) -> scids.volume.ToxelVolume:
+        if isinstance(resolution_or_grid, scids.grid.Grid):
             grid = resolution_or_grid
         else:
             # Get the bounding box of all instances superposed.
             total_bounding_box = self.axis_aligned_minimum_bounding_box(per_instance=False)
             # Create a grid the size of the total bounding box, with given resolution
-            grid = oc.spacetime.grid.from_bounds_spacing(
+            grid = scids.grid.from_bounds_spacing(
                 lower_bounds=total_bounding_box.lower_bounds[0] - padding,
                 upper_bounds=total_bounding_box.upper_bounds[0] + padding,
                 spacings=resolution_or_grid,
@@ -202,7 +203,7 @@ class DynamicPointCloud:
             #     grid=grid,
             # )
             # Create Toxel volume from field and return
-            return oc.spacetime.volume.ToxelVolume(
+            return scids.volume.ToxelVolume(
                 toxels=np.squeeze(toxel_tensor, axis=-1), grid=grid
             )
         # If `radius_points` is an array of values, then we cannot rely only on the distances to
@@ -230,12 +231,12 @@ class DynamicPointCloud:
             ind_gird[1][filter_maybe_occupied][occupied], shape=grid.shape
         )
         toxel_tensor[(ind_self[0][filter_maybe_occupied][occupied], *grid_inds_occupied2)] = True
-        toxel_field = oc.spacetime.field.ToxelField(
+        toxel_field = scids.field.ToxelField(
             tensor=toxel_tensor,
             grid=grid,
         )
         # Create Toxel volume from field and return
-        return oc.spacetime.volume.Toxel(field=toxel_field)
+        return scids.volume.ToxelVolume(field=toxel_field)
 
     def distance_matrix_sparse(
         self,
@@ -255,10 +256,10 @@ class DynamicPointCloud:
         if output_type != "nd_unraveled":
             return dist_matrix
         indices_self = np.unravel_index(
-            dist_matrix["i"], shape=(self.count_instances, self.count_points_per_instance)
+            dist_matrix["i"], shape=(self.count_instances, self.point_count_per_instance)
         )
         indices_other = np.unravel_index(
-            dist_matrix["j"], shape=(points.count_instances, points.count_points_per_instance)
+            dist_matrix["j"], shape=(points.count_instances, points.point_count_per_instance)
         )
         return indices_self, indices_other, dist_matrix["v"]
 
@@ -350,8 +351,8 @@ class DynamicPointCloud:
             distances = np.empty(shape=shape_distances, dtype=distance_dtype)
             indices = np.empty(
                 shape=shape_indices,
-                dtype=oc._typing.smallest_integer_dtype_for_range(
-                    min_val=0, max_val=self.count_points_per_instance
+                dtype=scids.util.smallest_np_integer_dtype_for_range(
+                    min_val=0, max_val=self.point_count_per_instance
                 ),
             )
             for idx_instance, kdtree in enumerate(self._kdtrees_list):

@@ -206,7 +206,7 @@ class TensorDataSet:
         return self._data.shape[2:]
 
     @property
-    def count_points(self) -> int:
+    def point_count(self) -> int:
         """
         Number of coordinates (points).
         """

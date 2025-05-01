@@ -1,24 +1,25 @@
-from collections.abc import Sequence
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 import numpy as np
 
-import opencadd as oc
-import opencadd._typing
-from opencadd import _exceptions
-
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from scids.grid import Grid
+    from scids.typing import ArrayLike
 
 class ToxelVolume:
-    def __init__(self, toxels, grid):
-        _exceptions.raise_for_type(self.__class__.__name__, ("grid", grid, oc.spacetime.grid.Grid))
+    def __init__(self, toxels: ArrayLike, grid: Grid):
         toxels = jnp.asarray(toxels)
-        _exceptions.raise_array(
-            parent_name=self.__class__.__name__,
-            param_name="toxels",
-            array=toxels,
-            ndim_gt=2,
-            dtype=np.bool_,
-        )
+        # _exceptions.raise_array(
+        #     parent_name=self.__class__.__name__,
+        #     param_name="toxels",
+        #     array=toxels,
+        #     ndim_gt=2,
+        #     dtype=np.bool_,
+        # )
         if grid.dimension != toxels.ndim - 1:
             raise ValueError(
                 "Dimension Mismatch:\n"

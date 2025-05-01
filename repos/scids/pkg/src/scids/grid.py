@@ -1,23 +1,34 @@
-"""
-An n-dimensional grid of points in euclidean space.
-"""
+"""An n-dimensional grid of points in euclidean space."""
 
-# Standard library
 import itertools
 from collections.abc import Sequence
 from typing import Any, Literal
 
 import jax.numpy as jnp
-
-# 3rd-party
 import numpy as np
 
-import opencadd as oc
+import scids
 
 
 class Grid:
-    """
-    An n-dimensional grid of points in euclidean space.
+    """An n-dimensional grid of points in euclidean space.
+
+    Parameters
+    ----------
+    shape
+        Shape of the grid, i.e. number of points in each dimension.
+    size
+        Length of the grid in each dimension.
+    lower_bounds
+        Coordinates of the point with minimum values in all dimensions.
+    center
+        Coordinates of the geometric center of the grid.
+    upper_bounds
+        Coordinates of the point with maximum values in all dimensions.
+    spacings
+        Spacing between grid points in each dimension.
+    mgrid
+        Fleshed out meshgrid of grid point coordinates.
     """
 
     def __init__(
@@ -30,25 +41,6 @@ class Grid:
         upper_bounds: np.ndarray,
         mgrid: np.ndarray,
     ):
-        """
-
-        Parameters
-        ----------
-        shape : numpy.ndarray
-            Shape of the grid, i.e. number of points in each dimension.
-        size : numpy.ndarray
-            Length of the grid in each dimension.
-        lower_bounds : numpy.ndarray
-            Coordinates of the point with minimum values in all dimensions.
-        center : numpy.ndarray
-            Coordinates of the geometric center of the grid.
-        upper_bounds : numpy.ndarray
-            Coordinates of the point with maximum values in all dimensions.
-        spacings : numpy.ndarray
-            Spacing between grid points in each dimension.
-        mgrid : numpy.ndarray
-            Fleshed out meshgrid of grid point coordinates.
-        """
         self._shape: np.ndarray = shape
         self._size: np.ndarray = size
         self._lower_bounds: np.ndarray = lower_bounds
@@ -59,12 +51,12 @@ class Grid:
 
         self._dimension: int = self._shape.size
         self._coordinates: jnp.ndarray = jnp.stack(mgrid, axis=-1)
-        self._count_points = np.prod(self._shape)
+        self._point_count = np.prod(self._shape)
         self._indices: np.ndarray = np.array(list(np.ndindex(*self._shape))).reshape(
             *self._shape, -1
         )
-        self._pointcloud = oc.spacetime.pointcloud.DynamicPointCloud(
-            data=self._coordinates.reshape(1, self._count_points, self._dimension)
+        self._pointcloud = scids.pointcloud.DynamicPointCloud(
+            data=self._coordinates.reshape(1, self._point_count, self._dimension)
         )
         self._direction_vectors = np.array(
             list(itertools.product([-1, 0, 1], repeat=self._dimension))
@@ -75,91 +67,67 @@ class Grid:
         # self._shape.setflags(write=False)
         return
 
-    def __repr__(self):
-        rep = (
-            f"Grid(\n  shape={self._shape},\n  size={self._size},\n  spacings={self._spacings},\n  "
-            f"lower_bounds={self._lower_bounds},\n  center={self._center},\n  upper_bounds={self._upper_bounds}\n)"
-        )
-        return rep
-
     @property
     def dimension(self) -> int:
-        """
-        Dimension of the grid, i.e. number of axes.
-        """
+        """Dimension of the grid, i.e. number of axes."""
         return self._dimension
 
     @property
     def shape(self) -> np.ndarray:
-        """
-        Shape of the grid, i.e. number of grid points in each dimension.
-        """
+        """Shape of the grid, i.e. number of grid points in each dimension."""
         return np.array(self._shape)
 
     @property
     def size(self) -> np.ndarray:
-        """
-        Size of the grid, i.e. length in each dimension.
-        """
+        """Size of the grid, i.e. length in each dimension."""
         return np.array(self._size)
 
     @property
-    def count_points(self) -> int:
-        """
-        Total number of points in the grid.
-        """
-        return self._count_points
+    def point_count(self) -> int:
+        """Total number of points in the grid."""
+        return self._point_count
 
     @property
     def lower_bounds(self) -> np.ndarray:
-        """
-        Coordinates of the origin point of the grid, i.e. the point where all indices are zero.
-        """
+        """Coordinates of the origin point of the grid, i.e. the point where all indices are zero."""
         return np.array(self._lower_bounds)
 
     @property
     def center(self) -> np.ndarray:
-        """
-        Coordinates of the center of the grid.
-        """
+        """Coordinates of the center of the grid."""
         return np.array(self._center)
 
     @property
     def upper_bounds(self) -> np.ndarray:
+        """Coordinates of the point with maximum index values in all dimensions."""
         return np.array(self._upper_bounds)
 
     @property
     def spacings(self) -> np.ndarray:
-        """
-        Distance between two adjacent points along a dimension.
-        """
+        """Distance between two adjacent points along a dimension."""
         return np.array(self._spacings)
 
     @property
     def indices(self) -> np.ndarray:
-        """
-        Indices of all grid points.
-        """
+        """Indices of all grid points."""
         return self._indices
 
     @property
     def coordinates(self) -> jnp.ndarray:
-        """
-        Coordinates of all grid points.
+        """Coordinates of all grid points.
 
-        Returns
-        -------
-        numpy.ndarray
-            A 4-dimensional array containing the (x,y,z)-coordinates of each grid point
-            in Ångstrom (Å), in the target structure's reference frame.
+        TODO: Fix the below description to match the actual output.
 
-            The shape of the array is (nx, ny, nz, 3), where nx, ny, and nz are the number of grid
-            points along the x-, y-, and z-axis, respectively. These are each equal to the
-            corresponding input `npts` value, plus 1 (due to center point). The array is ordered in
-            the same way that the grid points are ordered in space, and thus the individual grid
-            points can be indexed using their actual coordinates (in unit vectors), assuming the
-            origin is at the edge of the grid with smallest x, y, and z values. That is, indexing
-            grid[i, j, k] gives the point located at position (i, j, k) on the actual grid.
+        This is a 4-dimensional array containing the (x,y,z)-coordinates of each grid point
+        in Ångstrom (Å), in the target structure's reference frame.
+
+        The shape of the array is (nx, ny, nz, 3), where nx, ny, and nz are the number of grid
+        points along the x-, y-, and z-axis, respectively. These are each equal to the
+        corresponding input `npts` value, plus 1 (due to center point). The array is ordered in
+        the same way that the grid points are ordered in space, and thus the individual grid
+        points can be indexed using their actual coordinates (in unit vectors), assuming the
+        origin is at the edge of the grid with smallest x, y, and z values. That is, indexing
+        grid[i, j, k] gives the point located at position (i, j, k) on the actual grid.
         """
         return self._coordinates
 
@@ -171,14 +139,21 @@ class Grid:
     def points(self):
         return self._pointcloud
 
+    @property
+    def unit_vectors(self):
+        return self.coordinates[tuple(np.eye(self.dimension, dtype=int))] - self.coordinates_2d[0]
+
     def direction_vectors(self, dimensions: Sequence[int] | None = None) -> np.ndarray:
         if dimensions is None:
             dimensions = np.arange(1, self._dimension + 1)
         return self._direction_vectors[np.isin(self._direction_vectors_dimension, dimensions)]
 
-    @property
-    def unit_vectors(self):
-        return self.coordinates[tuple(np.eye(self.dimension, dtype=int))] - self.coordinates_2d[0]
+    def __repr__(self):
+        rep = (
+            f"Grid(\n  shape={self._shape},\n  size={self._size},\n  spacings={self._spacings},\n  "
+            f"lower_bounds={self._lower_bounds},\n  center={self._center},\n  upper_bounds={self._upper_bounds}\n)"
+        )
+        return rep
 
 
 def from_bounds_shape(
@@ -186,23 +161,18 @@ def from_bounds_shape(
     upper_bounds: Sequence[float],
     shape: Sequence[int],
 ) -> Grid:
-    """
-    Create a `Grid` from its lower- and upper bounds, and shape.
+    """Create a Grid from its lower and upper bounds, plus shape.
+
+    Note that all arguments must be 1D arrays of the same size.
 
     Parameters
     ----------
-    lower_bounds : sequence of float
-        Coordinates of the point with minimum values in all dimensions.
-    upper_bounds : sequence of float
-        Coordinates of the point with maximum values in all dimensions.
-        This must have the same length as `lower_bounds`.
-    shape : sequence of int
+    lower_bounds
+        Coordinates of the point with minimum index values in all dimensions.
+    upper_bounds
+        Coordinates of the point with maximum index values in all dimensions.
+    shape
         Shape of the grid, i.e. number of points in each dimension.
-        This must have the same length as `lower_bounds` and `upper_bounds`.
-
-    Returns
-    -------
-    Grid
     """
     lower_bounds = np.asarray(lower_bounds)
     upper_bounds = np.asarray(upper_bounds)

@@ -1,22 +1,26 @@
-# Standard library
+from __future__ import annotations
+
 from collections.abc import Sequence
-from typing import Any, Literal
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
-
-# 3rd-party
 import numpy as np
-import numpy.typing as npt
 
-from opencadd import _exceptions
-from opencadd._typing import ArrayLike
-from opencadd.spacetime.grid import Grid
+from scids import _exceptions
+from scids.typing import ArrayLike
+from scids.grid import Grid
+
+if TYPE_CHECKING:
+    from typing import Any, Literal
+    import numpy.typing as npt
 
 
 class ToxelField:
-    """
-    A collection of n scalar fields, or one n-dimensional vector field, sampled at regularly
-    spaced points on a 3-dimensional grid in Euclidean space, over time (or e.g. in different
+    """Toxel field.
+
+    This can be a collection of n scalar fields,
+    or one n-dimensional vector field,
+    sampled at regularly spaced points on a 3-dimensional grid in Euclidean space, over time (or e.g. in different
     environments).
     """
 
@@ -84,9 +88,7 @@ class ToxelField:
 
     @property
     def tensor(self):
-        """
-        The 5-dimensional array representing the field values for each grid point at different
-        times.
+        """The 5-dimensional array representing the field values for each grid point at different times.
 
         Returns
         -------
