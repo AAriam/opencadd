@@ -17,7 +17,6 @@ import numpy as np
 from IPython.display import display
 from ipywidgets import interact
 
-from opencadd import mif
 from opencadd.chem import protein
 from opencadd.const import autodock
 from opencadd.spacetime import field, vectorized
@@ -76,7 +75,7 @@ class T2FPharm:
     def __init__(
         self,
         receptor: protein.Protein,
-        fields: mif.abc.IntraMolecularInteractionField,
+        fields: field.ToxelField,
         distance_limit: float = 5,
     ):
         """
