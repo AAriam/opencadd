@@ -82,7 +82,7 @@ class AutodockGpfFile:
     npts
         Number of grid points to add to the central grid point,
         along x-, y- and z-axes, respectively.
-        Each value must be an even integer number;
+        Each value must be an even integer;
         when added to the central grid point,
         there will be an odd number of points in each dimension.
         The number of x-, y and z-grid points need not be equal.
@@ -93,10 +93,13 @@ class AutodockGpfFile:
     receptor_types
         AutoDock atom types present in the receptor.
     ligand_types
-        Atom types present in the ligand.
+        Atom types present in the ligand, i.e.,
+        types of atoms for which interaction energies must be calculated.
     gridcenter
-        Coordinates (x, y, z) of the center of grid map, in angstroms (Å).
-        If set to "auto", AutoGrid automatically centers the grid on the center of macromolecule.
+        Coordinates (x, y, z) of the center of grid map
+        in the reference frame of the target structure, in angstroms (Å).
+        If set to "auto", AutoGrid automatically centers the grid
+        on the center of macromolecule.
     smooth
         Smoothing parameter for the pairwise atomic affinity potentials
         (both van der Waals and hydrogen bonds), in angstroms (Å).
