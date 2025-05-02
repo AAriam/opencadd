@@ -16,6 +16,7 @@ References
 import gzip
 import io
 from collections.abc import Sequence
+import re
 
 import numpy as np
 import pandas as pd
@@ -348,11 +349,27 @@ def _parse_results(pockets_table: str, ccp4_files: Sequence[bytes], pdb_files: S
     #  corresponding to a specific pocket's residues.
     #  They also contain the geometric center and the max. radius of the pockets.
     pocket_names_repeated, atom_serials, pocket_centers, pocket_radii = [], [], [], []
+
+    any_num_regex = re.compile(r"^-?\d+(?:\.\d+)?$")
+    r"""Match any number; positive or negative; decimal or integer.
+
+    This regular expression matches numbers that may or may not have a minus sign at the beginning,
+    and may or may not have a decimal point with one or more digits after it.
+    Breakdown:
+    * '^': Matches the start of the string.
+    * '-?': Matches an optional minus sign.
+    * '\d+': Matches one or more digits (0-9).
+    * '(?:\.\d+)?': Matches an optional decimal point followed by one or more digits.
+    The '?:' syntax creates a non-capturing group.
+    * '$': Matches the end of the string.
+    """
+
+
     for name, content in zip(pocket_data_df.index, pdb_files, strict=False):
         lines = content.decode().splitlines()
         info_line = lines[5]
         center_and_radius = [
-            float(elem) for elem in info_line.split() if oc._regex.ANY_NUM.match(elem)
+            float(elem) for elem in info_line.split() if any_num_regex.match(elem)
         ]
         pocket_centers.append(center_and_radius[:3])
         pocket_radii.append(center_and_radius[3])

@@ -1,5 +1,4 @@
-"""
-Obtain various data from the Protein Data Bank (PDB) webservers.
+"""Obtain various data from the Protein Data Bank (PDB) webservers.
 
 References
 ----------
@@ -17,4 +16,4 @@ File services:
 
 """
 
-from . import data, file
+from sciapi.pdb import data, file
