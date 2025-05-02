@@ -53,9 +53,9 @@ def read_file(filepath: PathLike):
                 )
             ).astype(col_dtype)
 
-        autodock_atom_types_ids = np.array([atom_type.name for atom_type in autodock.AtomType])
+        autodock_atom_types_ids = np.array([atom_type.name for atom_type in autodock.Autodock4AtomType])
         autodock_atom_types_data = [
-            np.array([getattr(atom_type, attr) for atom_type in autodock.AtomType])
+            np.array([getattr(atom_type, attr) for atom_type in autodock.Autodock4AtomType])
             for attr in ["hbond_status", "hbond_count"]
         ]
         indices_target_atom_types = np.where(
