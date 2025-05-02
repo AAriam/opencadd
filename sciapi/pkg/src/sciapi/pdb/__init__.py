@@ -20,3 +20,7 @@ File services:
 """
 
 from sciapi.pdb import file
+
+__all__ = [
+    "file",
+]
