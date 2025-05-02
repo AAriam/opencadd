@@ -1,20 +1,27 @@
-"""
-Download various data files from the Protein Data Bank (PDB) webservers.
-"""
+"""Download various data files from the PDB webservers."""
 
-# Standard library
+from __future__ import annotations
+
 import gzip
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING
 
-from opencadd import _sysio
+import pylinks
 
-# Self
-from opencadd._http_request import response_http_request
-from opencadd._typing import PathLike
+from sciapi import util
 
-# General API endpoints
-_ROOT_FILE: str = "https://files.rcsb.org"
+if TYPE_CHECKING:
+    from typing import Literal
+    from sciapi.typing import PathLike
+
+__all__ = [
+    "entry",
+    "small_molecule",
+    "dictionary",
+    "chemical_component_dictionary",
+]
+
+URL = pylinks.url.create("https://files.rcsb.org")
 
 
 def entry(
@@ -23,8 +30,7 @@ def entry(
     biological_assembly_id: int | str | None = None,
     output_path: PathLike | None = None,
 ) -> bytes | Path:
-    """
-    Download a PDB entry file in one of available formats.
+    """Download a PDB entry file in one of available formats.
 
     Parameters
     ----------
@@ -62,30 +68,34 @@ def entry(
     ----------
     * `RCSB Documentation: Structures Without Legacy PDB Format Files <https://www.rcsb.org/docs/general-help/structures-without-legacy-pdb-format-files>`_
     """
-    # Check whether PDB ID is valid:
+
+    # Validate inputs
     if not isinstance(pdb_id, str):
         raise ValueError("`pdb_id` must be of type string.")
     if len(pdb_id) != 4:
         raise ValueError("`pdb_id` must have 4 characters.")
     if not pdb_id[0].isnumeric() or pdb_id[0] == "0":
         raise ValueError("First character of `pdb_id` must be a non-zero digit.")
-    # Build HTTP request URL
-    url_prefix = f"{_ROOT_FILE}/download/{pdb_id}"
     if file_format not in ("cif", "pdb", "xml", "bcif"):
         raise ValueError(f"File format {file_format} not recognized.")
+
+    # Build request URL
     if biological_assembly_id is None:
-        url = f"{url_prefix}.{file_format}.gz"
+        file_suffix = f".{file_format}.gz"
     elif file_format == "cif":
-        url = f"{url_prefix}-assembly{biological_assembly_id}.cif.gz"
+        file_suffix = f"-assembly{biological_assembly_id}.cif.gz"
     elif file_format == "pdb":
-        url = f"{url_prefix}.pdb{biological_assembly_id}.gz"
+        file_suffix = f".pdb{biological_assembly_id}.gz"
     else:
         raise ValueError("Biological assemblies can only be downloaded in CIF and PDB formats.")
+    filename = f"{pdb_id}{file_suffix}"
+    url = URL / "download" / filename
+
     # Download file and decompress
-    byte_content = gzip.decompress(response_http_request(url=url, response_type="bytes"))
+    byte_content = gzip.decompress(pylinks.http.request(url=url, response_type="bytes"))
     if output_path is None:
         return byte_content
-    return _sysio.save_to_file(
+    return util.write_to_file(
         content=byte_content, filename=pdb_id, extension=file_format, path=output_path
     )
 
@@ -96,8 +106,7 @@ def small_molecule(
     file_format: Literal["sdf", "mol2", "cif"] = "sdf",
     output_path: PathLike | None = None,
 ) -> bytes | Path:
-    """
-    Download a small molecule file in one of available formats.
+    """Download a small molecule file in one of available formats.
 
     Parameters
     ----------
@@ -130,7 +139,7 @@ def small_molecule(
     if file_type not in ("model_coords", "ideal_coords", "def"):
         raise ValueError(f"File type {file_type} not recognized.")
 
-    _URL_PREFIX_MOL = f"{_ROOT_FILE}/ligands/download/"
+    _URL_PREFIX_MOL = f"{URL}/ligands/download/"
     if file_type == "def":
         url = f"{_URL_PREFIX_MOL}{ligand_id}.cif"
     elif file_type == "model_coords":
@@ -143,10 +152,10 @@ def small_molecule(
     else:
         raise ValueError(f"File format {file_format} is not accepted for type `model_coords`")
 
-    byte_content = response_http_request(url=url, response_type="bytes")
+    byte_content = pylinks.http.request(url=url, response_type="bytes")
     if output_path is None:
         return byte_content
-    return _sysio.save_to_file(
+    return util.write_to_file(
         content=byte_content, filename=ligand_id, extension=file_format, path=output_path
     )
 
@@ -257,7 +266,7 @@ def dictionary(
     )
     if output_path is None:
         return byte_content
-    return _sysio.save_to_file(
+    return util.write_to_file(
         content=byte_content, filename=name, extension="dic", path=output_path
     )
 
@@ -322,6 +331,6 @@ def chemical_component_dictionary(
     )
     if output_path is None:
         return byte_content
-    return _sysio.save_to_file(
+    return util.write_to_file(
         content=byte_content, filename=name, extension="cif", path=output_path
     )
