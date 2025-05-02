@@ -2,15 +2,16 @@ from enum import Enum
 from typing import Literal
 
 
-class AtomType(Enum):
-    """
-    Collection of AutoDock-defined atom types and their properties,
-    used in AutoDock software (e.g. AutoGrid4) and file formats (e.g. PDBQT).
+class Autodock4AtomType(Enum):
+    """AutoDock4 atom types and their properties.
+
+    These are used in the AutoDock4 software (e.g. AutoGrid4)
+    and file formats (e.g. PDBQT, GPF).
 
     References
     ----------
     An official documentation could not be found; the list is taken from below link:
-    https://mmb.irbbarcelona.org/gitlab/BioExcel/structureChecking/blob/5f07d82dc36d1f43733ae3b1ecd9f40aebe8b0a2/biobb_structure_checking/dat/autodock_atomtypes.dat
+    - https://mmb.irbbarcelona.org/gitlab/BioExcel/structureChecking/blob/5f07d82dc36d1f43733ae3b1ecd9f40aebe8b0a2/biobb_structure_checking/dat/autodock_atomtypes.dat
     """
 
     H = ("Hydrogen, non H-bonding", 0, 0)
