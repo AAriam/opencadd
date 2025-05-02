@@ -41,25 +41,24 @@ class Grid:
         upper_bounds: np.ndarray,
         mgrid: np.ndarray,
     ):
-        self._shape: np.ndarray = shape
-        self._size: np.ndarray = size
-        self._lower_bounds: np.ndarray = lower_bounds
-        self._center: np.ndarray = center
-        self._upper_bounds: np.ndarray = upper_bounds
-        self._spacings: np.ndarray = spacings
-        self._mgrid: jnp.ndarray = jnp.asarray(mgrid)
+        self._shape = shape
+        self._size = size
+        self._lower_bounds = lower_bounds
+        self._center = center
+        self._upper_bounds = upper_bounds
+        self._spacings = spacings
+        self._mgrid = jnp.asarray(mgrid)
 
-        self._dimension: int = self._shape.size
         self._coordinates: jnp.ndarray = jnp.stack(mgrid, axis=-1)
         self._point_count = np.prod(self._shape)
         self._indices: np.ndarray = np.array(list(np.ndindex(*self._shape))).reshape(
             *self._shape, -1
         )
         self._pointcloud = scids.pointcloud.DynamicPointCloud(
-            data=self._coordinates.reshape(1, self._point_count, self._dimension)
+            data=self._coordinates.reshape(1, self._point_count, self.dimension)
         )
         self._direction_vectors = np.array(
-            list(itertools.product([-1, 0, 1], repeat=self._dimension))
+            list(itertools.product([-1, 0, 1], repeat=self.dimension))
         )
         self._direction_vectors_dimension = np.count_nonzero(self._direction_vectors, axis=-1)
 
@@ -70,7 +69,7 @@ class Grid:
     @property
     def dimension(self) -> int:
         """Dimension of the grid, i.e. number of axes."""
-        return self._dimension
+        return self._shape.size
 
     @property
     def shape(self) -> np.ndarray:
@@ -145,7 +144,7 @@ class Grid:
 
     def direction_vectors(self, dimensions: Sequence[int] | None = None) -> np.ndarray:
         if dimensions is None:
-            dimensions = np.arange(1, self._dimension + 1)
+            dimensions = np.arange(1, self.dimension + 1)
         return self._direction_vectors[np.isin(self._direction_vectors_dimension, dimensions)]
 
     def __repr__(self):
