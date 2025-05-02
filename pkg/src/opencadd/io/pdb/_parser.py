@@ -53,7 +53,7 @@ class PDBParser:
         self._lines_chars: np.ndarray = self._lines.view(dtype=(str, 1)).reshape(
             self._lines.size, -1
         )
-        """Character view of the PDB file, i.e. 2-d array where first axis (rows) is lines and second axis 
+        """Character view of the PDB file, i.e. 2-d array where first axis (rows) is lines and second axis
         (columns) is characters. If the lines had different lengths, then all other lines will be padded with
         empty characters from the right, so that the shape of the array is (num_lines, max_num_chars_per_line).
         In a standard PDB file, all lines are 80 characters, so the shape will be (num_lines, 80).
@@ -106,7 +106,7 @@ class PDBParser:
         self._idx__record_lines = dict()
         self._count_records: np.ndarray = np.empty(
             shape=_records.count,
-            dtype=_typing.smallest_integer_dtype_for_range(0, self._lines.size),
+            dtype=_typing.smallest_np_integer_dtype_for_range(0, self._lines.size),
         )
         self._has_record: np.ndarray = np.empty(shape=_records.count, dtype=np.bool_)
         for record_idx in range(_records.count):
