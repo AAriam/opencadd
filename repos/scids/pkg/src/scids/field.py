@@ -1,3 +1,5 @@
+"""Toxel field."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -6,7 +8,7 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 import numpy as np
 
-from scids import _exceptions
+from scids import exception
 from scids.typing import ArrayLike
 from scids.grid import Grid
 
@@ -18,10 +20,24 @@ if TYPE_CHECKING:
 class ToxelField:
     """Toxel field.
 
-    This can be a collection of n scalar fields,
-    or one n-dimensional vector field,
-    sampled at regularly spaced points on a 3-dimensional grid in Euclidean space, over time (or e.g. in different
-    environments).
+    A collection of n scalar fields, or one m-dimensional vector field,
+    sampled over time (or any other dimension)
+    at regularly spaced points on a n-dimensional grid in Euclidean space.
+
+    Parameters
+    ----------
+    tensor
+        An (n + 2)-dimensional array (where n is the number of grid dimensions)
+        representing the field values for each grid point at different times.
+        The first dimension represents time, the next n dimensions represent
+        the grid points along their respective axes,
+        and the last dimension represents the field values.
+        In each dimension, the elements should be ordered from the smallest index to largest.
+    grid
+        A Grid object representing the grid on which the field is sampled.
+    names
+        Optional labels for each field value.
+        If given, the grid can then be indexed using labels as well.
     """
 
     def __init__(
@@ -30,23 +46,12 @@ class ToxelField:
         grid: Grid,
         names: Sequence[Any] | None = None,
     ):
-        """
-        Parameters
-        ----------
-        tensor : array_like
-            A 5-dimensional array representing the field values for each grid point at different
-            times. The dimensions represent time, index along x, y, and z axes, and field values.
-            In each dimension, the elements should be ordered from the smallest index to largest.
-
-        names : Sequence[str]
-            Label for each type of data present. The grid can then be indexed using labels as well.
-        """
         # Check for errors in input arguments.
-        _exceptions.raise_for_type(self.__class__.__name__, ("grid", grid, Grid))
+        # _exceptions.raise_for_type(self.__class__.__name__, ("grid", grid, Grid))
         tensor = jnp.asarray(tensor)
-        _exceptions.raise_array(
-            parent_name=self.__class__.__name__, param_name="tensor", array=tensor, ndim_gt=2
-        )
+        # _exceptions.raise_array(
+        #     parent_name=self.__class__.__name__, param_name="tensor", array=tensor, ndim_gt=2
+        # )
         if grid.dimension != tensor.ndim - 2:
             raise ValueError(
                 "Dimension Mismatch:\n"
@@ -66,9 +71,9 @@ class ToxelField:
             names = np.arange(tensor.shape[-1])
         else:
             names = np.asarray(names)
-            _exceptions.raise_array(
-                parent_name=self.__class__.__name__, param_name="names", array=names, ndim_eq=1
-            )
+            # _exceptions.raise_array(
+            #     parent_name=self.__class__.__name__, param_name="names", array=names, ndim_eq=1
+            # )
             if names.size != tensor.shape[-1]:
                 raise ValueError(
                     "Shape Mismatch:\n"
@@ -155,7 +160,7 @@ class ToxelField:
         mode: Literal["max", "min", "avg", "sum"], Optional, default: "min"
             If the energy of more than one ligand type is to be compared, this parameter defines
             how those different energy values must be processed, before comparing with the cutoff.
-        ligand_types : Sequence[opencadd.consts.autodock.AtomType], Optional, default: None
+        ligand_types : Sequence[opencadd.consts.autodock.Autodock4AtomType], Optional, default: None
             A subset of ligand types that were used to initialize the object, whose energy values
             are to be taken as reference for calculating the vacancy of each grid point. If not
             set to None, then all ligand interaction energies are considered.
