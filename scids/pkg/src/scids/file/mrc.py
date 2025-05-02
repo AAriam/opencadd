@@ -1,10 +1,8 @@
-"""
-Read and write MRC/CCP4 files.
-"""
+"""Read and write MRC/CCP4 files."""
 
 import numpy as np
 
-import opencadd as oc
+import scids
 
 HEADER_DTYPE = np.dtype(
     [
@@ -41,21 +39,6 @@ HEADER_DTYPE = np.dtype(
 )
 
 
-class MRCFile:
-    @property
-    def shape(self) -> np.ndarray:
-        """
-        Number of columns (fast axis), rows (medium axis), and sections (slow axis)
-        in the 3D data array.
-
-        Returns
-        -------
-        numpy.ndarray, shape: (3,), dtype: int
-            (NX, NY, NZ), also called (NC, NR, NS).
-        """
-        return self._shape
-
-
 MODE = {
     0: np.int8,
     1: np.int16,
@@ -63,6 +46,7 @@ MODE = {
     6: np.uint16,
     12: np.float16,
 }
+
 HEADER_LEN = 1024  # Bytes.
 
 
@@ -91,7 +75,7 @@ def from_file_content(content: bytes):
         buffer=content, dtype=MODE[word_mode], count=np.prod(grid_shape), offset=1024 + word_nsymbt
     ).reshape((1, *grid_shape), order="F")
 
-    grid = oc.spacetime.grid.from_shape_size_anchor(
+    grid = scids.grid.from_shape_size_anchor(
         shape=grid_shape,
         size=word_cella,
         anchor_coord=words_nxstart_nystart_nzstart * word_cella / num_spacings,
@@ -100,5 +84,5 @@ def from_file_content(content: bytes):
 
     if np.all(np.isin(map_values, (0, 1))):
         map_values = map_values.astype(np.bool_)
-        return oc.spacetime.volume.ToxelVolume(grid=grid, toxels=map_values)
-    return oc.spacetime.field.from_tensor_grid(tensor=map_values, grid=grid)
+        return scids.volume.ToxelVolume(grid=grid, toxels=map_values)
+    return scids.field.from_tensor_grid(tensor=map_values, grid=grid)
