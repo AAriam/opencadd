@@ -423,3 +423,33 @@ def from_spec(
         smooth=smooth,
         dielectric=dielectric,
     )
+
+
+def get_npts_from_size(
+    size: tuple[float, float, float],
+    spacing: float,
+) -> tuple[int, int, int]:
+    """Calculate the AutoGrid input argument `npts` from grid size and spacing.
+
+    The calculated values are the smallest valid values (i.e. even integers)
+    that are needed to cover the whole cuboid pocket.
+    Therefore, in cases where a dimension is not divisible by the spacing value,
+    or the resulting value is an odd number,
+    the value will be rounded up to the next even integer.
+
+    Parameters
+    ----------
+    size
+        Length of the grid along x-, y-, and z-axes, respectively.
+    spacing
+        The same parameter as in AutoGrid, i.e. the grid-point spacing.
+
+    Notes
+    -----
+    The units of values in do not matter in this function,
+    as long as they are both in the same units.
+    However, notice that in AutoGrid functions,
+    the `spacing` argument must be in Ångstrom.
+    """
+    npts_min = np.ceil(np.array(size) / spacing)
+    return tuple(np.where(npts_min % 2 == 0, npts_min, npts_min + 1).astype(int))
