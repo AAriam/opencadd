@@ -86,17 +86,14 @@ class T2FPharm:
         fields : opencadd.misc.field.ToxelField
             Toxel fields calculated for the receptor.
         """
-        # Declare attributes
-        self._receptor: protein.Protein
-        self._fields: field.ToxelField
-        self._dist_limit_curr: float
-        self._dist_atoms_within_limit: np.ndarray
-        self._dist_nearest_atoms: np.ndarray
-        self._idx_nearest_atoms: np.ndarray
-        # Assign attributes
         self._receptor = receptor
         self._fields = fields
         self._dist_limit_curr = distance_limit
+
+        self._dist_atoms_within_limit: np.ndarray
+        self._dist_nearest_atoms: np.ndarray
+        self._idx_nearest_atoms: np.ndarray
+
         # Distance-related attributes
         shape_distance_data = (
             self._receptor.trajectory_length,
@@ -209,10 +206,10 @@ class T2FPharm:
         min_common_neighbor_count_clustering: int = 6,
         min_points_per_cluster_count: int = 15,
     ):
-        hba = autodock.AtomType.OA  # hydrogen-bond acceptor probe
-        hbd = autodock.AtomType.HD  # hydrogen-bond donor probe
-        aliph = autodock.AtomType.C  # aliphatic hydrophobic probe
-        arom = autodock.AtomType.A  # aromatic hydrophobic probe
+        hba = autodock.Autodock4AtomType.OA  # hydrogen-bond acceptor probe
+        hbd = autodock.Autodock4AtomType.HD  # hydrogen-bond donor probe
+        aliph = autodock.Autodock4AtomType.C  # aliphatic hydrophobic probe
+        arom = autodock.Autodock4AtomType.A  # aromatic hydrophobic probe
         probes = (hba, hbd, aliph, arom)
 
         # Vacancy of each grid point as a boolean grid
@@ -282,7 +279,7 @@ class T2FPharm:
         mode: Literal["max", "min", "avg", "sum"], Optional, default: "min"
             If the energy of more than one ligand type is to be compared, this parameter defines
             how those different energy values must be processed, before comparing with the cutoff.
-        ligand_types : Sequence[opencadd.consts.autodock.AtomType], Optional, default: None
+        ligand_types : Sequence[opencadd.consts.autodock.Autodock4AtomType], Optional, default: None
             A subset of ligand types that were used to initialize the object, whose energy values
             are to be taken as reference for calculating the vacancy of each grid point. If not
             set to None, then all ligand interaction energies are considered.
@@ -917,10 +914,10 @@ class T2FPharmWidget:
 # GRID_CENTER = (15.91, 32.33, 11.03)
 # GRID_SIZE = (20, 20, 20)
 # GRID_SPACING = 0.6
-# HBD = autodock.AtomType.HD
-# HBA = autodock.AtomType.OA
-# AL = autodock.AtomType.C
-# AR = autodock.AtomType.A
+# HBD = autodock.Autodock4AtomType.HD
+# HBA = autodock.Autodock4AtomType.OA
+# AL = autodock.Autodock4AtomType.C
+# AR = autodock.Autodock4AtomType.A
 # PROBES = (HBD, HBA, AL, AR)
 # VACANCY_MAX_ENERGY = 0.6
 # PSP_NUM_DIRS = 7
