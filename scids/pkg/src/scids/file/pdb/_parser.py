@@ -25,24 +25,24 @@ class PDBParsingError(Exception):
 
 
 class PDBParser:
-    """Parser for PDB files."""
+    """Parser for PDB files.
+
+    Parameters
+    ----------
+    content
+        String content of the PDB file.
+    strictness
+        Level of strictness for raising exceptions and warnings when encountering mistakes
+        in the PDB file:
+
+        - 0: raise only fatal errors and don't show any warnings.
+        - 1: raise only fatal errors. All other errors are reported as warnings.
+        - 2: raise fatal errors and mistakes resulting in ambiguous data.
+                Inconsequential mistakes are reported as warnings.
+        - 3: completely validate the PDB file and raise all errors.
+    """
 
     def __init__(self, content: str, strictness: Literal[0, 1, 2, 3] = 0):
-        """
-        Parameters
-        ----------
-        content : str
-            String content of the PDB file.
-        strictness : {0, 1, 2, 3}, optional, default: 0
-            Level of strictness for raising exceptions and warnings when encountering mistakes
-            in the PDB file:
-
-            * 0: raise only fatal errors and don't show any warnings.
-            * 1: raise only fatal errors. All other errors are reported as warnings.
-            * 2: raise fatal errors and mistakes resulting in ambiguous data.
-                 Inconsequential mistakes are reported as warnings.
-            * 3: completely validate the PDB file and raise all errors.
-        """
         if not isinstance(content, str):
             _exceptions.raise_for_type(
                 param_name="content", parent_name="PDBParser", expected_type=str, param_arg=content
