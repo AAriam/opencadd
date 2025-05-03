@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import gzip
 import csv
 import re
 import io
@@ -126,7 +127,7 @@ class ProteinsPlusAPI:
             endpoint="dogsite_rest" if algorithm == "scorer" else "dogsite3_rest",
             json={json_key: params},
         )
-        return DoGSiteResponse(base_response.job_url, retry_config=self._retry_config)
+        return DoGSiteResponse(base_response.job_url, retry_config=self._retry_config, algorithm=algorithm)
 
     def protoss(self, pdb_id: str) -> ProtossResponse:
         """Predict protonation and tautomerization, and add missing hydrogen atoms.
@@ -311,6 +312,7 @@ class DoGSiteResponse(ProteinsPlusResponse):
     ):
         super().__init__(job_url, retry_config)
         self._algorithm = algorithm
+        self._full_data: list[dict[str, Any]] | None = None
         return
 
     @property
@@ -348,6 +350,8 @@ class DoGSiteResponse(ProteinsPlusResponse):
         matching the ATOM records in the returned PDB files
         with the original PDB.
         """
+        if self._full_data:
+            return self._full_data
         result_table = self.result_table
         ccp4_files = self.pockets
         pdb_files = self.residues
@@ -364,7 +368,8 @@ class DoGSiteResponse(ProteinsPlusResponse):
                 pocket_data["pdb"] = pdb_file
             pocket_data["mrc"] = ccp4_file
             full_data.append(pocket_data)
-        return full_data
+        self._full_data = full_data
+        return self._full_data
 
     @property
     def result_table(self) -> str:
@@ -467,10 +472,7 @@ class DoGSiteResponse(ProteinsPlusResponse):
         the order of the pockets in the result table.
         """
         return tuple(
-            pl.http.request(
-                url=url_file,
-                response_type="bytes",
-            )
+            gzip.decompress(pl.http.request(url=url_file,response_type="bytes"))
             for url_file in self.job_results["pockets"]
         )
 
