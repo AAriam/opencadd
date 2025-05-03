@@ -61,7 +61,7 @@ def parse(file: bytes | Path):
         MRC/CCP4 file content (in bytes) or path.
     """
     if isinstance(file, Path):
-        conent = file.read_bytes()
+        content = file.read_bytes()
     elif isinstance(file, bytes):
         content = file
     else:
@@ -70,10 +70,9 @@ def parse(file: bytes | Path):
     content_int32 = np.frombuffer(buffer=content, dtype=np.int32, count=256, offset=0)
     content_float32 = content_int32.view(dtype=np.float32)
     content_uint8 = content_int32.view(dtype=np.uint8)
-
     word_map = content_uint8[208:212].view("S4")[0].decode()
     if word_map != "MAP ":
-        raise ValueError
+        raise ValueError(f"Invalid MRC file: missing MAP marker, got {word_map}")
     word_machst = content_uint8[212:216]
 
     grid_shape = content_int32[0:3]
