@@ -1,5 +1,7 @@
 """Read and write MRC/CCP4 files."""
 
+from pathlib import Path
+
 import numpy as np
 
 import scids
@@ -50,7 +52,21 @@ MODE = {
 HEADER_LEN = 1024  # Bytes.
 
 
-def from_file_content(content: bytes):
+def parse(file: bytes | Path):
+    """Read an MRC/CCP4 file.
+
+    Parameters
+    ----------
+    file
+        MRC/CCP4 file content (in bytes) or path.
+    """
+    if isinstance(file, Path):
+        conent = file.read_bytes()
+    elif isinstance(file, bytes):
+        content = file
+    else:
+        raise TypeError(f"Expected bytes or Path, but got {type(file).__name__}")
+
     content_int32 = np.frombuffer(buffer=content, dtype=np.int32, count=256, offset=0)
     content_float32 = content_int32.view(dtype=np.float32)
     content_uint8 = content_int32.view(dtype=np.uint8)
@@ -72,7 +88,7 @@ def from_file_content(content: bytes):
     word_nsymbt = content_int32[23]
 
     map_values = np.frombuffer(
-        buffer=content, dtype=MODE[word_mode], count=np.prod(grid_shape), offset=1024 + word_nsymbt
+        buffer=content, dtype=MODE[word_mode], count=np.prod(grid_shape), offset=HEADER_LEN + word_nsymbt
     ).reshape((1, *grid_shape), order="F")
 
     grid = scids.grid.from_shape_size_anchor(
