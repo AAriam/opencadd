@@ -29,23 +29,6 @@ import numpy as np
 #     wrap: bool
 
 
-class NGLViewAdaptor(nv.Structure, nv.Trajectory):
-    def __init__(self, ensemble):
-        self._ensemble = ensemble
-        self.ext = "pdb"
-        self.params = {}
-        self.id = 0
-        return
-
-    def get_structure_string(self):
-        return self._ensemble.to_pdb(0)
-
-    def get_coordinates(self, index):
-        return self._ensemble.conformation.points[index]
-
-    @property
-    def n_frames(self):
-        return self._ensemble.conformation.points.shape[0]
 
 
 class NGLViewer:
@@ -56,10 +39,6 @@ class NGLViewer:
     @property
     def widget(self):
         return self._widget
-
-    def add_ensemble(self, ensemble):
-        self._widget.add_trajectory(NGLViewAdaptor(ensemble=ensemble))
-        return
 
     def add_points(
         self,
@@ -86,7 +65,7 @@ class NGLViewer:
                 }}
             )
             var shape = new NGL.Shape('grid');
-    
+
             shape.addBuffer(point_buffer);
             var shapeComp = this.stage.addComponentFromObject(shape);
             shapeComp.addRepresentation("buffer", {{ opacity: {opacity} }});
@@ -139,7 +118,7 @@ class NGLViewer:
             };
             var shape = new NGL.Shape('{name}');
             var buffer = new NGL.SphereBuffer(params);
-    
+
             shape.addBuffer(buffer);
             var shapeComp = this.stage.addComponentFromObject(shape);
             shapeComp.addRepresentation("buffer", {{opacity:{opacity}}});
@@ -178,7 +157,7 @@ class NGLViewer:
             // Expand selection to all atoms within residues of selected atoms.
             var residuesWithinRad = component.structure.getAtomSetWithinGroup(atomsWithinRad);
             component.addRepresentation(
-                "{representation_type}", 
+                "{representation_type}",
                 {{sele: residuesWithinRad.toSeleString()}}
             );
             """
@@ -202,13 +181,13 @@ class NGLViewer:
             if(component.type !== "structure") return;
             // add representation
             component.addRepresentation(
-                "{representation}", 
+                "{representation}",
                 {{
-                    sele: {selection}, 
-                    aspectRatio: {aspect_ratio}, 
-                    scale: {scale}, 
+                    sele: {selection},
+                    aspectRatio: {aspect_ratio},
+                    scale: {scale},
                     multipleBond: {multiple_bond}
-                }} 
+                }}
             );
             """
         )
@@ -247,9 +226,9 @@ class NGLViewer:
         command = f"""
         var vol = new NGL.Volume("{name}", " ", {values.tolist()}, {shape[0]}, {shape[1]}, {shape[2]})
         var m = new NGL.Matrix4()
-        m.set({basis_vectors[0][0]}, {basis_vectors[1][0]}, {basis_vectors[2][0]}, {origin[0]}, 
-              {basis_vectors[0][1]}, {basis_vectors[1][1]}, {basis_vectors[2][1]}, {origin[1]}, 
-              {basis_vectors[0][2]}, {basis_vectors[1][2]}, {basis_vectors[2][2]}, {origin[2]}, 
+        m.set({basis_vectors[0][0]}, {basis_vectors[1][0]}, {basis_vectors[2][0]}, {origin[0]},
+              {basis_vectors[0][1]}, {basis_vectors[1][1]}, {basis_vectors[2][1]}, {origin[1]},
+              {basis_vectors[0][2]}, {basis_vectors[1][2]}, {basis_vectors[2][2]}, {origin[2]},
               0, 0, 0, 1
         )
         vol.setMatrix(m)
