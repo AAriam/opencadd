@@ -50,8 +50,8 @@ from pathlib import Path
 
 import numpy as np
 
-from scids import exceptions
-from scids.typing import ArrayLike, PathLike
+from scids import exception
+from scids.typing import PathLike
 from scids.data import Autodock4AtomType
 
 if TYPE_CHECKING:
