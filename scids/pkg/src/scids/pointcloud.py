@@ -412,3 +412,14 @@ class DynamicPointCloud:
         * https://doi.org/10.3390/a11020019
         * https://doi.org/10.1063/1.4965440
         """
+
+
+def from_array(points: ArrayLike) -> DynamicPointCloud:
+    """Create a dynamic pointcloud from an array of coordinates.
+
+    Parameters
+    ----------
+    points
+        An array of points in n-dimensional space.
+    """
+    return DynamicPointCloud(points)
