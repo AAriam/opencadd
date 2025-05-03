@@ -57,39 +57,13 @@ class Grid:
         self._pointcloud = scids.pointcloud.DynamicPointCloud(
             data=self._coordinates.reshape(1, self._point_count, self.dimension)
         )
+        # All possible combinations of -1, 0, and 1 in n dimensions
         self._direction_vectors = np.array(
             list(itertools.product([-1, 0, 1], repeat=self.dimension))
         )
+        # Manhattan distance for each direction vector
         self._direction_vectors_dimension = np.count_nonzero(self._direction_vectors, axis=-1)
-
-        # for array in (self._shape, self._size, self._lower_bounds, self._center, self._upper_bounds, self._spacings,)
-        # self._shape.setflags(write=False)
         return
-
-    @property
-    def dimension(self) -> int:
-        """Dimension of the grid, i.e. number of axes."""
-        return self._shape.size
-
-    @property
-    def shape(self) -> np.ndarray:
-        """Shape of the grid, i.e. number of grid points in each dimension."""
-        return np.array(self._shape)
-
-    @property
-    def size(self) -> np.ndarray:
-        """Size of the grid, i.e. length in each dimension."""
-        return np.array(self._size)
-
-    @property
-    def point_count(self) -> int:
-        """Total number of points in the grid."""
-        return self._point_count
-
-    @property
-    def lower_bounds(self) -> np.ndarray:
-        """Coordinates of the origin point of the grid, i.e. the point where all indices are zero."""
-        return np.array(self._lower_bounds)
 
     @property
     def center(self) -> np.ndarray:
@@ -97,52 +71,137 @@ class Grid:
         return np.array(self._center)
 
     @property
-    def upper_bounds(self) -> np.ndarray:
-        """Coordinates of the point with maximum index values in all dimensions."""
-        return np.array(self._upper_bounds)
-
-    @property
-    def spacings(self) -> np.ndarray:
-        """Distance between two adjacent points along a dimension."""
-        return np.array(self._spacings)
-
-    @property
-    def indices(self) -> np.ndarray:
-        """Indices of all grid points."""
-        return self._indices
-
-    @property
     def coordinates(self) -> jnp.ndarray:
         """Coordinates of all grid points.
 
-        TODO: Fix the below description to match the actual output.
-
-        This is a 4-dimensional array containing the (x,y,z)-coordinates of each grid point
-        in Ångstrom (Å), in the target structure's reference frame.
-
-        The shape of the array is (nx, ny, nz, 3), where nx, ny, and nz are the number of grid
-        points along the x-, y-, and z-axis, respectively. These are each equal to the
-        corresponding input `npts` value, plus 1 (due to center point). The array is ordered in
-        the same way that the grid points are ordered in space, and thus the individual grid
-        points can be indexed using their actual coordinates (in unit vectors), assuming the
-        origin is at the edge of the grid with smallest x, y, and z values. That is, indexing
-        grid[i, j, k] gives the point located at position (i, j, k) on the actual grid.
+        For an n-dimensional grid, this is an (n+1)-dimensional array,
+        where the first n dimensions have the same shape as the grid,
+        and the last dimension has size n, containing the coordinates of each grid point.
+        The array is ordered in the same way as the grid points,
+        and thus the individual grid points can be indexed
+        using their coordinates in unit vectors.
+        That is, coordinates [i, j, k] gives the coordinates of the point
+        located at position (i, j, k) on the grid.
         """
         return self._coordinates
 
     @property
-    def coordinates_2d(self):
+    def coordinates_2d(self) -> jnp.ndarray:
+        """Coordinates of all grid points as a 2D array.
+
+        For an n-dimensional grid of shape (x, y, z),
+        this is a 2D array of shape (x * y * z, n),
+        where each row contains the coordinates of a grid point.
+        This is a flattened version of the `coordinates` property,
+        where the first n dimensions are flattened into a single dimension.
+        """
         return self.points.points[0]
 
     @property
+    def dimension(self) -> int:
+        """Mumber of axes in the grid."""
+        return self._shape.size
+
+    @property
+    def indices(self) -> np.ndarray:
+        """Indices of all grid points.
+
+        This is similar to the `coordinates` property, but instead of coordinates,
+        it contains the indices of each grid point in the grid.
+        That is, indices [i, j, k] returns (i, j, k).
+        This is useful, for example, to quickly obtain the indices of
+        some grid points using a boolean mask.
+        """
+        return self._indices
+
+    @property
+    def lower_bounds(self) -> np.ndarray:
+        """Coordinates of the origin point of the grid.
+
+        This is the point where all indices are zero.
+        """
+        return np.array(self._lower_bounds)
+
+    @property
+    def point_count(self) -> int:
+        """Total number of points in the grid."""
+        return self._point_count
+
+    @property
     def points(self):
+        """DynamicPointCloud object representing the grid points."""
         return self._pointcloud
 
     @property
-    def unit_vectors(self):
+    def shape(self) -> np.ndarray:
+        """Number of grid points in each dimension."""
+        return np.array(self._shape)
+
+    @property
+    def size(self) -> np.ndarray:
+        """Length of the grid in each dimension."""
+        return np.array(self._size)
+
+    @property
+    def spacings(self) -> np.ndarray:
+        """Distance between two adjacent points along each dimension."""
+        return np.array(self._spacings)
+
+    @property
+    def unit_vectors(self) -> np.ndarray:
+        """Unit vectors along each dimension.
+
+        For an n-dimensional grid, this is a 2D array of shape (n, n),
+        where i-th row contains the unit vector along the i-th dimension.
+        It corresponds to a diagonal matrix with `spacings` as diagonal elements.
+        """
         return self.coordinates[tuple(np.eye(self.dimension, dtype=int))] - self.coordinates_2d[0]
 
+    @property
+    def upper_bounds(self) -> np.ndarray:
+        """Coordinates of the point with maximum index values in all dimensions."""
+        return np.array(self._upper_bounds)
+
     def direction_vectors(self, dimensions: Sequence[int] | None = None) -> np.ndarray:
+        """Get (a subset of) direction vectors in the grid.
+
+        These vectors represent possible relative movement directions
+        in the n-dimensional discrete grid,
+        from one grid point to an adjacent grid point.
+
+        For example, in a 2D grid, the full set of direction vectors and
+        their corresponding 'dimension' values are:
+
+        - Dimension 0:
+            - `[0, 0]` (no movement)
+        - Dimension 1:
+            - `[-1, 0]` (left)
+            - `[0, -1]` (down)
+            - `[0, 1]` (up)
+            - `[1, 0]` (right)
+        - Dimension 2:
+            - `[-1, -1]` (left-down)
+            - `[-1, 1]` (left-up)
+            - `[1, -1]` (right-down)
+            - `[1, 1]` (right-up)
+
+        Parameters
+        ----------
+        dimensions
+            Desired counts of non-zero components
+            in the direction vectors to include.
+            This filters direction vectors from the set {-1, 0, 1}^d
+            by their discrete L₀ norm.
+            If None, defaults to the range [1, n],
+            which includes all directions with at least one non-zero component and
+            at most n non-zero components (i.e., all non-zero directions).
+
+        Returns
+        -------
+        An array of shape (a, n), where each row is an n-dimensional vector
+        from the set {-1, 0, 1}^d that has a number of non-zero components
+        in the given set `dimensions`.
+        """
         if dimensions is None:
             dimensions = np.arange(1, self.dimension + 1)
         return self._direction_vectors[np.isin(self._direction_vectors_dimension, dimensions)]
