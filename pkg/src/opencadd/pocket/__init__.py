@@ -29,7 +29,7 @@ def from_dogsite(
 
 
 # def by_ligsite(
-#         receptor: oc.chem.system.ChemicalEnsemble,
+#         receptor: oc.chem.system.ChemicalSystem,
 #         resolution_or_grid: Union[float, Sequence[float], oc.spacetime.grid.Grid],
 # ):
 #     return ligsite.LigSiteDetector(receptor=receptor, resolution_or_grid=resolution_or_grid)
