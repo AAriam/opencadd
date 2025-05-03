@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 import numpy as np
 
+import scids
 from scids import exception
 from scids.typing import ArrayLike
-from scids.grid import Grid
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from typing import Any, Literal
     import numpy.typing as npt
+    from pathlib import Path
+    from scids.grid import Grid
 
 
 class ToxelField:
@@ -45,6 +47,7 @@ class ToxelField:
         tensor: ArrayLike,
         grid: Grid,
         names: Sequence[Any] | None = None,
+        autodock_map_file_headers: Sequence[Sequence[scids.file.autodock_map.AutodockMapFileOptionalHeader]] | None = None,
     ):
         # Check for errors in input arguments.
         # _exceptions.raise_for_type(self.__class__.__name__, ("grid", grid, Grid))
@@ -85,6 +88,7 @@ class ToxelField:
         self._tensor: jnp.ndarray = jnp.asarray(tensor)
         self._grid: Grid = grid
         self._field_names = names
+        self._autodock_map_file_headers = autodock_map_file_headers
         return
 
     @property
@@ -200,6 +204,96 @@ class ToxelField:
 
     def visualize(self):
         pass
+
+
+def from_autodock_map(
+    files: list[list[str | bytes | Path]],
+    field_dtype: np.dtype = np.single,
+    field_names: Sequence[Any] | None = None,
+    strict: bool = True,
+    file_labels: list[list[str]] | None = None,
+) -> ToxelField:
+    """Create a ToxelField from one or several AutoDock MAP files.
+
+    Parameters
+    ----------
+    files
+        MAP file contents or paths.
+    field_dtype
+        Numpy datatype of the output array.
+        Default is 32-bit float (numpy.single).
+    field_names
+        Labels for the fields.
+    strict
+        Treat any parsing problems as errors.
+        If False, only critical problems are raised as errors,
+        and all other problems are reported as warnings.
+    filepath
+        Path to the MAP file.
+        This is used for error reporting only.
+    """
+    # Parse the first file to get the grid shape first
+    first_map = scids.file.autodock_map.parse(
+        file=files[0][0],
+        field_dtype=field_dtype,
+        strict=strict,
+        file_label=file_labels[0][0] if file_labels else None,
+    )
+
+    # Create the grid
+    grid_shape = first_map.nelements + 1
+    grid = scids.grid.from_center_spacing_shape(
+        center=first_map.center,
+        spacings=first_map.spacing,
+        shape=grid_shape
+    )
+
+    # Create the field tensor
+    time_point_count = len(files)
+    field_count = len(files[0])
+    toxel_field_shape = (time_point_count, *grid_shape, field_count)
+    fields = np.empty(shape=toxel_field_shape, dtype=field_dtype)
+    fields[0, ..., 0] = first_map.field
+
+    # Create array for unique headers
+    headers_shape = (time_point_count, field_count)
+    headers = np.empty(shape=headers_shape, dtype=object)
+
+    # Parse the rest of the files
+    for idx_instance, instance in enumerate(files):
+        for idx_map, file in enumerate(instance[1:], start=1):
+            file_label = file_labels[idx_instance][idx_map] if file_labels else f"[{idx_instance}, {idx_map}]"
+            mapfile = scids.file.autodock_map.parse(
+                file=file,
+                field_dtype=field_dtype,
+                strict=strict,
+                file_label=file_label,
+            )
+            fields[idx_instance, ..., idx_map] = mapfile.field
+            headers[idx_instance, idx_map] = scids.file.autodock_map.AutodockMapFileOptionalHeader(
+                grid_parameter_file=mapfile.grid_parameter_file,
+                grid_data_file=mapfile.grid_data_file,
+                macromolecule=mapfile.macromolecule,
+            )
+            # Check for consistency in the header values
+            for key in ("center", "nelements", "spacing"):
+                if getattr(mapfile, key) != getattr(first_map, key):
+                    err_msg = (
+                        f"Header '{key.upper()}' values do not match across MAP files. "
+                        f"Expected {getattr(first_map, key)}, but got {getattr(mapfile, key)} "
+                        f"for MAP file {file_label}."
+                    )
+                    exception.ScidsReadError(
+                        file_type="autodock_map",
+                        message=err_msg,
+                        filepath=file_label,
+                        content=mapfile,
+                    )
+    return ToxelField(
+        tensor=fields,
+        grid=grid,
+        names=field_names,
+    )
 
 
 def from_tensor_grid(

@@ -34,81 +34,67 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-
-import scids
 from scids import exception
 
 if TYPE_CHECKING:
-    from typing import Any, Sequence, Literal
     from scids.typing import PathLike
 
 
 __all__ = [
     "AutodockMapFile",
-    "AutodockMapFileHeader",
-    "from_filepath",
-    "from_content",
     "parse",
 ]
 
 
-@dataclass
-class AutodockMapFile:
-    """AutoDock MAP file.
+@dataclass(kw_only=True)
+class AutodockMapFileOptionalHeader:
+    """AutoDock MAP file header attributes.
+
+    These are only the optional attributes.
+    They can be unique to each MAP file,
+    even when the same grid is used.
 
     Attributes
     ----------
-    field
-        Numpy array of shape (nelements_x + 1, nelements_y + 1, nelements_z + 1)
-        containing the grid point values.
-    grid_parameter_files
-        Path to the grid parameter file (GPF)
-        used to generate this MAP file.
-    grid_data_files
-        Path to the grid data file (FLD).
-    macromolecules
-        Path to the macromolecule file (PDBQT)
-        used to generate this MAP file.
-    """
-    field: scids.field.ToxelField
-    grid_parameter_files: list[list[Path]] | str = None
-    grid_data_files: list[list[Path]] | str = None
-    macromolecules: list[list[Path]] | str = None
-
-    def __str__(self) -> str:
-        lines = []
-        return
-
-
-@dataclass
-class AutodockMapFileHeader:
-    """AutoDock MAP file header.
-
-    Attributes
-    ----------
-    center
-        Coordinates of the center of the grid in (x, y, z) format.
-    nelements
-        The `npts` input parameter used in the GPF,
-        i.e., the number of grid points (minus 1)
-        in each dimension (x, y, z) in the MAP file.
-    spacing
-        Spacing between grid points in the MAP file.
-    grid_data_file
-        Path to the grid data file (FLD).
     grid_parameter_file
         Path to the grid parameter file (GPF)
         used to generate this MAP file.
+    grid_data_file
+        Path to the grid data file (FLD).
     macromolecule
         Path to the macromolecule file (PDBQT)
         used to generate this MAP file.
     """
-    center: np.ndarray
-    nelements: np.ndarray
-    spacing: float
-    grid_data_file: Path | None = None
     grid_parameter_file: Path | None = None
+    grid_data_file: Path | None = None
     macromolecule: Path | None = None
+
+
+@dataclass(kw_only=True)
+class AutodockMapFile(AutodockMapFileOptionalHeader):
+    """AutoDock MAP file.
+
+    Attributes
+    ----------
+    spacing
+        The grid-point spacing, i.e.,
+        distance between two grid points, in angstroms (Å).
+        Grid points are orthogonal and uniformly spaced in AutoDock,
+        i.e. this value is for all three dimensions.
+    nelements
+        Number of grid points (minus 1; for the center point)
+        in each dimension (x, y, z).
+        This is the same as the `npts` input parameter used in the GPF file.
+    center
+        Coordinates of the center of the grid in (x, y, z) format.
+    field
+        Array of shape (nelements_x + 1, nelements_y + 1, nelements_z + 1)
+        containing the grid point values.
+    """
+    spacing: float
+    nelements: np.ndarray
+    center: np.ndarray
+    field: np.ndarray
 
     def __str__(self) -> str:
         lines = []
@@ -119,86 +105,25 @@ class AutodockMapFileHeader:
         lines.append(f"SPACING {self.spacing}")
         lines.append(f"NELEMENTS {' '.join(map(str, self.nelements))}")
         lines.append(f"CENTER {' '.join(map(str, self.center))}")
-        return "\n".join(lines)
-
-
-def from_filepath(
-    filepaths: list[list[PathLike]],
-    field_dtype: np.dtype = np.single,
-    field_names: Sequence[Any] | None = None,
-    strict: bool = True,
-) -> AutodockMapFile:
-    """Read AutoDock MAP files from their filepaths.
-
-    Parameters
-    ----------
-    filepaths
-        Paths to the MAP file.
-    field_dtype
-        Numpy datatype of the output array.
-        Default is 32-bit float (numpy.single).
-    strict
-        Treat any parsing problems as errors.
-        If False, only critical problems are raised as errors,
-        and all other problems are reported as warnings.
-    """
-    return _from_file_or_content(
-        mode="file",
-        entries=filepaths,
-        field_dtype=field_dtype,
-        field_names=field_names,
-        strict=strict,
-    )
-
-
-def from_content(
-    contents: list[list[str]],
-    field_dtype: np.dtype = np.single,
-    field_names: Sequence[Any] | None = None,
-    strict: bool = True,
-    filepath: list[list[PathLike]] | None = None,
-) -> AutodockMapFile:
-    """Read an AutoDock MAP file from its content.
-
-    Parameters
-    ----------
-    contents
-        String content of the MAP file.
-    field_dtype
-        Numpy datatype of the output array.
-        Default is 32-bit float (numpy.single).
-    field_names
-        Labels for the fields.
-    strict
-        Treat any parsing problems as errors.
-        If False, only critical problems are raised as errors,
-        and all other problems are reported as warnings.
-    filepath
-        Path to the MAP file.
-        This is used for error reporting only.
-    """
-    return _from_file_or_content(
-        mode="content",
-        entries=contents,
-        field_dtype=field_dtype,
-        field_names=field_names,
-        strict=strict,
-        filepath=filepath,
-    )
+        lines.extend(self.field.flatten(order='F').astype(str))
+        return f"{"\n".join(lines)}\n"
 
 
 def parse(
-    content: str,
+    file: str | bytes | Path,
     field_dtype: np.dtype = np.single,
     strict: bool = True,
-    filepath: PathLike | None = None,
-) -> tuple[np.ndarray, AutodockMapFileHeader]:
-    """Read an AutoDock MAP file from its content.
+    file_label: str | None = None,
+) -> AutodockMapFile:
+    """Read an AutoDock MAP file.
 
     Parameters
     ----------
-    content
-        String content of the MAP file.
+    file
+        MAP file content or path.
+        If a string, it is treated as the content of the file.
+        If bytes, it is decoded to UTF-8.
+        If a Path, the file is read as text.
     field_dtype
         Numpy datatype of the output array.
         Default is 32-bit float (numpy.single).
@@ -206,11 +131,10 @@ def parse(
         Treat any parsing problems as errors.
         If False, only critical problems are raised as errors,
         and all other problems are reported as warnings.
-    filepath
-        Path to the MAP file.
+    file_label
+        Path or similar identifier for the MAP file.
         This is used for error reporting only.
     """
-
     # Mapping of metadata keys to their value parsing functions
     token_parser = {
         "grid_parameter_file": lambda x: Path(" ".join(x[1:])),
@@ -220,7 +144,17 @@ def parse(
         "nelements": lambda x: np.array(x[1:4], dtype=np.short),
         "center": lambda x: np.array(x[1:4], dtype=field_dtype),
     }
-
+    if isinstance(file, Path):
+        content = file.read_text()
+    elif isinstance(file, bytes):
+        content = content.decode("utf-8")
+    elif isinstance(file, str):
+        content = file
+    else:
+        raise TypeError(
+            f"Expected a string, bytes, or Path object, "
+            f"but got {type(file).__name__}."
+        )
     lines = content.splitlines()
     metadata = {}
     for line_idx, line in enumerate(lines):
@@ -233,7 +167,7 @@ def parse(
                 _raise_or_warn(
                     f"Line is empty or contains only one token.",
                     strict=strict,
-                    filepath=filepath,
+                    filepath=file_label,
                     content=content,
                     line_idx=line_idx,
                     token=line,
@@ -247,7 +181,7 @@ def parse(
                 _raise_or_warn(
                     f"Header contains unknown metadata key '{metadata_id}'.",
                     strict=strict,
-                    filepath=filepath,
+                    filepath=file_label,
                     content=content,
                     line_idx=line_idx,
                     token=line,
@@ -260,7 +194,7 @@ def parse(
         _raise_or_warn(
             "No grid point values found in the file.",
             critical=True,
-            filepath=filepath,
+            filepath=file_label,
             content=content,
         )
     for metadata_id in ("center", "nelements", "spacing"):
@@ -268,7 +202,7 @@ def parse(
             _raise_or_warn(
                 f"Missing required header metadata key '{metadata_id.upper()}'.",
                 critical=True,
-                filepath=filepath,
+                filepath=file_label,
                 content=content,
             )
     grid_shape = metadata["nelements"] + 1
@@ -278,107 +212,10 @@ def parse(
             f"Grid point values array has size {grid_point_values.size}, "
             f"but expected {grid_point_count}.",
             critical=True,
-            filepath=filepath,
+            filepath=file_label,
             content=content,
         )
-    return grid_point_values.reshape(grid_shape, order="F"), AutodockMapFileHeader(**metadata)
-
-
-def _from_file_or_content(
-    mode: Literal["file", "content"],
-    entries: list[list[str | PathLike]],
-    field_dtype: np.dtype = np.single,
-    field_names: Sequence[Any] | None = None,
-    strict: bool = True,
-    filepath: list[list[PathLike]] | None = None,
-) -> AutodockMapFile:
-    """Read a series of AutoDock MAP files.
-
-    Parameters
-    ----------
-    mode
-        Whether `entries` are filepaths or file contents.
-    entries
-        List of lists of filepaths or file contents.
-    field_dtype
-        Numpy datatype of the output array.
-        Default is 32-bit float (numpy.single).
-    field_names
-        Labels for the fields.
-    strict
-        Treat any parsing problems as errors.
-        If False, only critical problems are raised as errors,
-        and all other problems are reported as warnings.
-    filepath
-        Path to the MAP file.
-        This is used for error reporting only.
-    """
-    # Parse the first file to get the grid shape first
-    first_entry = entries[0][0]
-    first_map_content = first_entry if mode == "content" else Path(first_entry).read_text()
-    first_map, first_header = parse(
-        first_map_content,
-        field_dtype=field_dtype,
-        strict=strict,
-        filepath=filepath[0][0] if filepath else None,
-    )
-
-    # Create the grid
-    grid_shape = first_header.nelements + 1
-    grid = scids.grid.from_center_spacing_shape(
-        center=first_header.center,
-        spacings=first_header.spacing,
-        shape=grid_shape
-    )
-
-    # Create the field tensor
-    time_point_count = len(entries)
-    field_count = len(entries[0])
-    toxel_field_shape = (time_point_count, *grid_shape, field_count)
-    fields = np.empty(shape=toxel_field_shape, dtype=field_dtype)
-    fields[0, ..., 0] = first_map
-
-    # Create filepath arrays
-    filepaths_shape = (time_point_count, field_count)
-    paths_gpf = np.empty(shape=filepaths_shape, dtype=object)
-    paths_fld = np.empty(shape=filepaths_shape, dtype=object)
-    paths_pdbqt = np.empty(shape=filepaths_shape, dtype=object)
-
-    # Parse the rest of the files
-    for idx_instance, instance in enumerate(entries):
-        for idx_map, map_entry in enumerate(instance[1:], start=1):
-            map_filepath = (
-                Path(filepath[idx_instance][idx_map]) if filepath else None
-            ) if mode == "content" else Path(map_entry)
-            map_content = map_entry if mode == "content" else map_filepath.read_text()
-            field, header = parse(
-                content=map_content,
-                field_dtype=field_dtype,
-                strict=strict,
-                filepath=filepath[idx_instance][idx_map] if filepath else None,
-            )
-            fields[idx_instance, ..., idx_map] = field
-            paths_gpf[idx_instance, idx_map] = header.grid_parameter_file
-            paths_fld[idx_instance, idx_map] = header.grid_data_file
-            paths_pdbqt[idx_instance, idx_map] = header.macromolecule
-            # Check for consistency in the header values
-            for key in ("center", "nelements", "spacing"):
-                if getattr(header, key) != getattr(first_header, key):
-                    _raise_or_warn(
-                        f"Header '{key.upper()}' values do not match across MAP files. "
-                        f"Expected {getattr(first_header, key)}, but got {getattr(header, key)} "
-                        f"for MAP file {idx_instance + 1} map {idx_map + 1}.",
-                        critical=True,
-                        filepath=map_filepath,
-                        content=map_content,
-                    )
-    toxel_field = scids.field.from_tensor_grid(tensor=fields, grid=grid, names=field_names)
-    return AutodockMapFile(
-        field=toxel_field,
-        grid_parameter_file=paths_gpf,
-        grid_data_file=paths_fld,
-        macromolecule=paths_pdbqt,
-    )
+    return AutodockMapFile(field=grid_point_values.reshape(grid_shape, order="F"), **metadata)
 
 
 def _raise_or_warn(
