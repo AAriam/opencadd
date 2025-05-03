@@ -14,7 +14,7 @@ import pandas as pd
 
 from scids import exception, typing, util
 
-from scids.file.pdb import _fields, _records, records
+from scids.file.pdb import _records, fields, records
 
 if TYPE_CHECKING:
     from typing import Any, Literal, NoReturn
@@ -486,7 +486,7 @@ class PDBParser:
                 ("pdb_id", "ver_num", "ver_date"), ((11, 15), (40, 44), (46, 55)), strict=False
             )
         }
-        data["ver_date"] = _fields.Date.from_pdb(data["ver_date"])
+        data["ver_date"] = fields.Date.from_pdb(data["ver_date"])
         return data
 
     def dbref(self) -> pd.DataFrame | None:

@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from scids import typing
-from . import _fields
+from . import fields
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -87,13 +87,13 @@ class RecordHeader:
 
     @pdb_id.setter
     def pdb_id(self, value):
-        _fields.IDcode.verify(value)
+        fields.IDcode.verify(value)
         self._pdb_id = value
         return
 
     @dep_date.setter
     def dep_date(self, value):
-        _fields.Date.verify(value)
+        fields.Date.verify(value)
         self._dep_date = value
         return
 
@@ -181,19 +181,19 @@ class RecordObslte:
 
     @pdb_id.setter
     def pdb_id(self, value):
-        _fields.IDcode.verify(value)
+        fields.IDcode.verify(value)
         self._pdb_id = value
         return
 
     @rep_date.setter
     def rep_date(self, value):
-        _fields.Date.verify(value)
+        fields.Date.verify(value)
         self._rep_date = value
         return
 
     @rep_pdb_id.setter
     def rep_pdb_id(self, value):
-        _fields.IDcode.verify(value)
+        fields.IDcode.verify(value)
         self._rep_pdb_id = np.asarray(value)
         return
 
@@ -250,7 +250,7 @@ class RecordCaveat:
 
     @pdb_id.setter
     def pdb_id(self, value):
-        _fields.IDcode.verify(value)
+        fields.IDcode.verify(value)
         self._pdb_id = value
         return
 

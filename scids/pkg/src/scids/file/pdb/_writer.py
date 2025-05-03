@@ -1,3 +1,5 @@
+"""PDB file writers."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -9,11 +11,12 @@ from scids import typing
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from scids.file.pdb import PDBFile
+    from scids.chemsys import PDBFile
 
 
 class PDBWriter:
-    def __init__(self, pdb: PDBFile):
-        self._struct = pdb
+    def __init__(self, pdb_file: PDBFile):
+        self._pdbfile = pdb_file
         self._pre_coord_records_str = None
         self._models_str = None
         self._post_coord_records_str = None
@@ -30,14 +33,14 @@ class PDBWriter:
             self._post_coord_records_str = self.post_coord_str()
 
         if models is None:
-            selected_models = self._struct.atom.model_num.unique()
+            selected_models = self._pdbfile.atom.model_num.unique()
         elif np.issubdtype(type(models), np.integer):
             selected_models = [models]
         else:
             selected_models = models
 
         models_str = self.section_coordinate(models=selected_models)
-        if separate_models:
+        if len(selected_models) > 1 and separate_models:
             pdb_strings = [
                 f"{self._pre_coord_records_str}{model_str}{self._post_coord_records_str}"
                 for model_str in models_str
@@ -45,9 +48,7 @@ class PDBWriter:
             return pdb_strings
 
         coordinate_section = "\n".join(models_str)
-        pdb_string = (
-            f"{self._pre_coord_records_str}{coordinate_section}{self._post_coord_records_str}"
-        )
+        pdb_string = f"{self._pre_coord_records_str}{coordinate_section}{self._post_coord_records_str}"
         return pdb_string
 
     def pre_coord_str(self):
@@ -61,9 +62,11 @@ class PDBWriter:
         models: Sequence[int],
     ):
         models_str = []
-        atom_df = self._struct.atom
+        atom_df = self._pdbfile.atom
         for model_num in models:
-            pdb_lines = [f"MODEL{'':5}{model_num:>4}{'':66}"]
+            pdb_lines = []
+            if len(models) > 1:
+                pdb_lines.append(f"MODEL{'':5}{model_num:>4}{'':66}")
             model = atom_df[atom_df.model_num == model_num]
             for chain_id in model.chain_id.unique():
                 chain = model[model.chain_id == chain_id]
@@ -115,7 +118,8 @@ class PDBWriter:
                         charge=row.charge,
                     )
                 )
-            pdb_lines.append(f"{'ENDMDL':<80}")
+            if len(models) > 1:
+                pdb_lines.append(f"{'ENDMDL':<80}")
             models_str.append("\n".join(pdb_lines))
         return models_str
 
@@ -123,7 +127,7 @@ class PDBWriter:
         """
         PDB-formatted string representation of the record.
         """
-        header = self._struct.header
+        header = self._pdbfile.header
         classification = "/".join(", ".join(entry) for entry in header.classification)
         dep_date = _fields.Date.to_pdb(header.dep_date)
         return f"HEADER{'':4}{classification:<40}{dep_date}{'':3}{header.pdb_id}{'':14}"
@@ -197,8 +201,8 @@ class PDBWriter:
 
 
 class EnsemblePDBWriter:
-    def __init__(self, ensemble):
-        self._ensemble: oc.chem.ensemble.ChemicalSystem = ensemble
+    def __init__(self, pdb_file: PDBFile):
+        self._pdbfile = pdb_file
         self._char_tab = None
         self._idx_coord_lines = None
         return
@@ -222,7 +226,7 @@ class EnsemblePDBWriter:
             dtype=(str, 1)
         )
         self._char_tab[self._idx_coord_lines, 30:54] = (
-            np.char.mod("%8.3f", self._ensemble.conformation.points[model_num])
+            np.char.mod("%8.3f",  self._pdbfile.atom[self._pdbfile.atom["model_num"] == model_num][["x", "y", "z"]])
             .view(dtype=(str, 1))
             .reshape(-1, 24)
         )
@@ -230,7 +234,7 @@ class EnsemblePDBWriter:
         return "\n".join(final_tab.view(dtype=(str, 80)).reshape(-1))
 
     def _create_template(self):
-        atoms = self._ensemble.composition.reset_index(drop=True)
+        atoms = self._pdbfile.atom.reset_index(drop=True)
         num_polymer_chains = atoms.chain_id[atoms.res_poly].nunique()
         num_lines = atoms.shape[0] + num_polymer_chains + 3
         char_tab = np.full(shape=(num_lines, 80), fill_value=" ", dtype=(str, 1))

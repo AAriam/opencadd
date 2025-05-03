@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 import numpy as np
 import pandas as pd
 
-from . import _fields as fields
+from . import fields as fields
 
 
 class Record:

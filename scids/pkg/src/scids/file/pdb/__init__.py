@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from . import _parser, parts, write
+from . import parser, _writer
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -926,14 +927,17 @@ class PDBFile:
         return self._conect
 
     def to_file(
+        self,
         models: int | Sequence[int] | None = None,
         separate_models: bool = False,
-    ):
-        writer = _writer.PDBWriter(pdb_structure=pdb_structure)
-        return writer.write(
+    ) -> str | tuple[str, ...]:
+        return _writer.PDBWriter(self).write(
             models=models,
             separate_models=separate_models,
         )
+
+    def __str__(self):
+        return self.to_file(separate_models=False)
 
     @property
     def edit_state(self):
@@ -986,9 +990,70 @@ class PDBFile:
         return
 
 
+class PDBFileSections(Enum):
+    """Enumeration of Sections in a PDB file."""
+    Title = (
+        "header",
+        "obslte",
+        "title",
+        "split",
+        "caveat",
+        "compnd",
+        "source",
+        "keywds",
+        "expdta",
+        "nummdl",
+        "mdltyp",
+        "author",
+        "revdat",
+        "sprsde",
+        "jrnl",
+    )
+
+
+class PDBFileRecords(Enum):
+    """Enumeration of records in a PDB File."""
+    HEADER = "header"
+    OBSLTE = "obslte"
+    TITLE = "title"
+    SPLIT = "split"
+    CAVEAT = "caveat"
+    COMPND = "compnd"
+    SOURCE = "source"
+    KEYWDS = "keywds"
+    EXPDTA = "expdta"
+    NUMMDL = "nummdl"
+    MDLTYP = "mdltyp"
+    AUTHOR = "author"
+    REVDAT = "revdat"
+    SPRSDE = "sprsde"
+    JRNL = "jrnl"
+    REMARK = "remark"
+    DBREF = "dbref"
+    SEQADV = "seqadv"
+    SEQRES = "seqres"
+    MODRES = "modres"
+    HET = "het"
+    HETNAM = "hetnam"
+    HELIX = "helix"
+    SHEET = "sheet"
+    SSBOND = "ssbond"
+    LINK = "link"
+    CISPEP = "cispep"
+    SITE = "site"
+    CRYST1 = "cryst1"
+    ORIGX = "origx"
+    SCALE = "scale"
+    MTRIX = "mtrix"
+    ATOM = "atom"
+    ANISOU = "anisou"
+    TER = "ter"
+    CONECT = "conect"
+
+
 def parse(
     file: str | bytes | Path,
-    parse_only: Sequence[parts.Records | parts.Sections | str] | None = None,
+    parse_only: Sequence[PDBFileRecords | PDBFileSections | str] | None = None,
     strictness: Literal[0, 1, 2, 3] = 0,
 ) -> PDBFile:
     """Read a PDB file.
@@ -1024,13 +1089,13 @@ def parse(
             f"was: {type(content)}. Input was: {content}."
         )
     if parse_only is None:
-        records = (record.value for record in parts.Records)
+        records = (record.value for record in PDBFileRecords)
     else:
         records = []
         for record_or_section in parse_only:
-            if isinstance(record_or_section, parts.Records):
+            if isinstance(record_or_section, PDBFileRecords):
                 records.append(record_or_section.value)
-            elif isinstance(record_or_section, parts.Sections):
+            elif isinstance(record_or_section, PDBFileSections):
                 records.extend(record_or_section.value)
             elif isinstance(record_or_section, str):
                 records.append(record_or_section)
@@ -1040,5 +1105,5 @@ def parse(
                     f"but the type of input argument was: {type(record_or_section)}. Input was: {record_or_section}."
                 )
     return PDBFile(
-        **_parser.PDBParser(content=content, strictness=strictness).parse(records=records)
+        **parser.PDBParser(content=content, strictness=strictness).parse(records=records)
     )
