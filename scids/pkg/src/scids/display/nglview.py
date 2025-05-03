@@ -1,44 +1,16 @@
+"""Extended NGLWidget with additional representations and features."""
+
 from collections.abc import Sequence
 from typing import Literal, NoReturn
 
 import nglview as nv
 import numpy as np
 
-# class RepresentationParameters(NamedTuple):
-#     opacity: float = 1,
-#     wireframe: bool = False,
-#     color_value: str = "rgb(128, 128, 128)"
-#
-#     def __str__(self):
-#
-#         inputs = [f"{param}: "]
-#
-#         ", ".join([])
-#
-# class SurfaceRepresentationParameters(NamedTuple):
-#     """
-#
-#     """
-#     isolevel_type: Literal["value", "sigma"] = "value"
-#     isolevel: float = 1.0
-#     smooth: int = 0
-#     background: bool
-#     opaque_back: bool
-#     box_size: int
-#     use_worker: bool
-#     wrap: bool
 
-
-
-
-class NGLViewer:
-    def __init__(self):
-        self._widget = nv.NGLWidget()
+class NGLWidget(nv.NGLWidget):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         return
-
-    @property
-    def widget(self):
-        return self._widget
 
     def add_points(
         self,
@@ -46,7 +18,7 @@ class NGLViewer:
         colors: list[float],
         opacity: float = 0.7,
     ):
-        self._widget._js(
+        self._js(
             f"""
             var point_buffer = new NGL.PointBuffer(
                 {{
@@ -107,7 +79,7 @@ class NGLViewer:
         elif num_radii != num_points:
             raise ValueError("Size of `radii` and `coords` do not match.")
 
-        self._widget._js(
+        self._js(
             f"""
             var params = {
                 dict(
@@ -149,7 +121,7 @@ class NGLViewer:
         -------
         None
         """
-        self._widget._execute_js_code(
+        self._execute_js_code(
             f"""
             var component = this.stage.compList[{component_id}];
             var selection = new NGL.Selection("{selection}");
@@ -173,7 +145,7 @@ class NGLViewer:
         scale: float = 1,
         multiple_bond: bool = True,
     ):
-        self._widget._execute_js_code(
+        self._execute_js_code(
             f"""
             // Get the component
             var component = this.stage.compList[{component_id}];
@@ -208,7 +180,7 @@ class NGLViewer:
         -------
         None
         """
-        self._widget._execute_js_code(
+        self._execute_js_code(
             f"""this.stage.removeComponent(this.stage.getComponentsByName("{name}").first)"""
         )
         return
@@ -235,7 +207,7 @@ class NGLViewer:
         var comp = this.stage.addComponentFromObject(vol)
         comp.addRepresentation("{representation}", {{isolevelType: 'value', isolevel: 1, wireframe: true, colorValue: "{color}"}})
         """
-        self._widget._js(command)
+        self._js(command)
         return
 
     def add_axes(self):
@@ -253,3 +225,28 @@ class NGLViewer:
             """
         )
         return
+
+
+# class RepresentationParameters(NamedTuple):
+#     opacity: float = 1,
+#     wireframe: bool = False,
+#     color_value: str = "rgb(128, 128, 128)"
+#
+#     def __str__(self):
+#
+#         inputs = [f"{param}: "]
+#
+#         ", ".join([])
+#
+# class SurfaceRepresentationParameters(NamedTuple):
+#     """
+#
+#     """
+#     isolevel_type: Literal["value", "sigma"] = "value"
+#     isolevel: float = 1.0
+#     smooth: int = 0
+#     background: bool
+#     opaque_back: bool
+#     box_size: int
+#     use_worker: bool
+#     wrap: bool
