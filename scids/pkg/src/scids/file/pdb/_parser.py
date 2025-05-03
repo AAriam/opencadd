@@ -1085,7 +1085,7 @@ class PDBParser:
 
     def _model_num_of_lines(self, idx_lines: np.ndarray):
         if not self.has_record(_records.MODEL):
-            return np.ones(shape=idx_lines.size, dtype=np.uintc)
+            return np.zeros(shape=idx_lines.size, dtype=np.uintc)
         idx_lines = np.expand_dims(idx_lines, axis=-1)
         indices_model_start = self.indices_record_lines(_records.MODEL)
         indices_model_end = self.indices_record_lines(_records.ENDMDL)
