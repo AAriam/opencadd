@@ -1,24 +1,29 @@
-from collections.abc import Sequence
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-import opencadd as oc
-from opencadd import _typing
+from scids import typing
 
-from . import struct
-
-__author__ = "Armin Ariamajd"
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from scids.file.pdb import PDBFile
 
 
 class PDBWriter:
-    def __init__(self, pdb_structure: struct.PDBStructure):
-        self._struct = pdb_structure
+    def __init__(self, pdb: PDBFile):
+        self._struct = pdb
         self._pre_coord_records_str = None
         self._models_str = None
         self._post_coord_records_str = None
         return
 
-    def write(self, models, separate_models):
+    def write(
+        self,
+        models: int | Sequence[int] | None = None,
+        separate_models: bool = False
+    ) -> str | tuple[str, ...]:
         if self._pre_coord_records_str is None:
             self._pre_coord_records_str = self.pre_coord_str()
         if self._post_coord_records_str is None:
@@ -193,7 +198,7 @@ class PDBWriter:
 
 class EnsemblePDBWriter:
     def __init__(self, ensemble):
-        self._ensemble: oc.chem.ensemble.ChemicalEnsemble = ensemble
+        self._ensemble: oc.chem.ensemble.ChemicalSystem = ensemble
         self._char_tab = None
         self._idx_coord_lines = None
         return
@@ -202,10 +207,10 @@ class EnsemblePDBWriter:
         if self._char_tab is None:
             self._create_template()
         if separate_models:
-            if isinstance(models, _typing.ArrayLike):
+            if isinstance(models, typing.ArrayLike):
                 return tuple(self._write_model(model) for model in models)
             return self._write_model(models)
-        if isinstance(models, _typing.ArrayLike):
+        if isinstance(models, typing.ArrayLike):
             return "\n".join(
                 [self._write_model(model, end=False) for model in models[:-1]]
                 + [self._write_model(models[-1])]

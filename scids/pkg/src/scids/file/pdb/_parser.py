@@ -1,20 +1,23 @@
-"""
-Parser for PDB files.
-"""
+"""Parser for PDB files."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import datetime
 import re
 import warnings
-from typing import Any, Literal, NoReturn
+
 
 import numpy as np
 import pandas as pd
 
-from opencadd import _exceptions, _typing
+from scids import exception, typing, util
 
-from . import _fields, _records, struct
+from scids.file.pdb import _fields, _records, records
 
-__author__ = "Armin Ariamajd"
+if TYPE_CHECKING:
+    from typing import Any, Literal, NoReturn
 
 
 class PDBParsingError(Exception):
@@ -22,9 +25,7 @@ class PDBParsingError(Exception):
 
 
 class PDBParser:
-    """
-    Parser for PDB files.
-    """
+    """Parser for PDB files."""
 
     def __init__(self, content: str, strictness: Literal[0, 1, 2, 3] = 0):
         """
@@ -106,7 +107,7 @@ class PDBParser:
         self._idx__record_lines = dict()
         self._count_records: np.ndarray = np.empty(
             shape=_records.count,
-            dtype=_typing.smallest_np_integer_dtype_for_range(0, self._lines.size),
+            dtype=util.smallest_np_integer_dtype_for_range(0, self._lines.size),
         )
         self._has_record: np.ndarray = np.empty(shape=_records.count, dtype=np.bool_)
         for record_idx in range(_records.count):
@@ -121,10 +122,20 @@ class PDBParser:
         self._remark_args: dict = None
         return
 
-    def parse(self, records) -> struct.PDBStructure:
-        return struct.PDBStructure(**{record: getattr(self, record)() for record in records})
+    def parse(self, records: str) -> dict[str, Any]:
+        out = {}
+        for record in records:
+            try:
+                out[record] = getattr(self, record)()
+            except Exception as e:
+                if self.strictness:
+                    raise e
+                warnings.warn(
+                    f"Error parsing record {record}: {e}",
+                )
+        return out
 
-    def header(self) -> struct.RecordHeader | None:
+    def header(self) -> records.RecordHeader | None:
         """
         Parse the HEADER record of the PDB file.
         """
@@ -148,16 +159,16 @@ class PDBParser:
         data = _records.HEADER.extract(record_char_table=self.record_lines(_records.HEADER))
         # Parse the classification string
         data["classification"] = parse_classification(data["classification"])
-        return struct.RecordHeader(**data)
+        return records.RecordHeader(**data)
 
-    def obslte(self) -> struct.RecordObslte | None:
+    def obslte(self) -> records.RecordObslte | None:
         """
         Parse the OBSLTE records of the PDB file.
         """
         data = self._extract_record(_records.OBSLTE)
         if data is None:
             return None
-        return struct.RecordObslte(**data)
+        return records.RecordObslte(**data)
 
     def title(self) -> str | None:
         """
@@ -171,7 +182,7 @@ class PDBParser:
         """
         return self._extract_record(_records.SPLIT)
 
-    def caveat(self) -> struct.RecordCaveat | None:
+    def caveat(self) -> records.RecordCaveat | None:
         """
         Parse the CAVEAT records of the PDB file.
         """
@@ -304,14 +315,14 @@ class PDBParser:
         df["is_init"] = df["is_init"] == 0
         return df
 
-    def sprsde(self) -> struct.RecordSPRSDE | None:
+    def sprsde(self) -> records.RecordSPRSDE | None:
         """
         Parse the SPRSDE records of the PDB file.
         """
         data = self._extract_record(_records.SPRSDE)
         if data is None:
             return None
-        return struct.RecordSPRSDE(**data)
+        return records.RecordSPRSDE(**data)
 
     def jrnl(self):
         """
@@ -365,9 +376,9 @@ class PDBParser:
             elif issn_essn == "ESSN":
                 refn_dict["essn"] = refn_dict.pop("issn")
                 ref = ref | refn_dict
-        return struct.RecordJRNL(**ref)
+        return records.RecordJRNL(**ref)
 
-    def remark(self) -> struct.RecordREMARK | None:
+    def remark(self) -> records.RecordREMARK | None:
         """
 
         Returns
@@ -377,7 +388,7 @@ class PDBParser:
         if not self.has_record(_records.REMARK):
             return None
         if self._remark_args is not None:
-            return struct.RecordREMARK(**self._remark_args)
+            return records.RecordREMARK(**self._remark_args)
         remark_lines = self.record_lines(_records.REMARK)
         is_not_empty = np.any(remark_lines[:, 11:] != " ", axis=1)
         non_empty_lines = remark_lines[is_not_empty]
@@ -400,7 +411,7 @@ class PDBParser:
         self._remarks = remarks
         self._remark_line_indices = remark_line_indices
         self._remark_args = args
-        return struct.RecordREMARK(**args)
+        return records.RecordREMARK(**args)
 
     # def _parse_remark_records(self):
     #     remark_lines = self.record_lines(_records.REMARK)
@@ -638,15 +649,15 @@ class PDBParser:
         data = self._extract_record(_records.SITE)
         return data.explode(["res_name", "chain_id", "res_num"]) if data is not None else None
 
-    def cryst1(self) -> struct.RecordCRYST1:
+    def cryst1(self) -> records.RecordCRYST1:
         data = self._extract_record(_records.CRYST1)
         lengths = np.array([data["a"], data["b"], data["c"]])
         angles = np.array([data["alpha"], data["beta"], data["gamma"]])
-        return struct.RecordCRYST1(
+        return records.RecordCRYST1(
             lengths=lengths, angles=angles, z=data["z"], space_group=data["space_group"]
         )
 
-    def origx(self) -> struct.RecordXForm | None:
+    def origx(self) -> records.RecordXForm | None:
         o1 = self._extract_record(_records.ORIGX1)
         o2 = self._extract_record(_records.ORIGX2)
         o3 = self._extract_record(_records.ORIGX3)
@@ -654,9 +665,9 @@ class PDBParser:
             return None
         transformation_matrix = np.vstack([o["m"] for o in (o1, o2, o3)])
         translation_vector = np.array([o["v"] for o in (o1, o2, o3)])
-        return struct.RecordXForm(matrix=transformation_matrix, vector=translation_vector)
+        return records.RecordXForm(matrix=transformation_matrix, vector=translation_vector)
 
-    def scale(self) -> struct.RecordXForm | None:
+    def scale(self) -> records.RecordXForm | None:
         s1 = self._extract_record(_records.SCALE1)
         s2 = self._extract_record(_records.SCALE2)
         s3 = self._extract_record(_records.SCALE3)
@@ -664,7 +675,7 @@ class PDBParser:
             return None
         transformation_matrix = np.vstack([o["m"] for o in (s1, s2, s3)])
         translation_vector = np.array([s1["v"], s2["v"], s3["v"]])
-        return struct.RecordXForm(matrix=transformation_matrix, vector=translation_vector)
+        return records.RecordXForm(matrix=transformation_matrix, vector=translation_vector)
 
     def mtrix(self):
         ms = [

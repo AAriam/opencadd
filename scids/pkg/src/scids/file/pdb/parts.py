@@ -2,10 +2,7 @@ from enum import Enum
 
 
 class Records(Enum):
-    """
-    Enumeration of records in a PDB File.
-    """
-
+    """Enumeration of records in a PDB File."""
     HEADER = "header"
     OBSLTE = "obslte"
     TITLE = "title"
@@ -45,10 +42,7 @@ class Records(Enum):
 
 
 class Sections(Enum):
-    """
-    Enumeration of Sections in a PDB file.
-    """
-
+    """Enumeration of Sections in a PDB file."""
     Title = (
         "header",
         "obslte",

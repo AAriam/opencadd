@@ -1,18 +1,20 @@
+from __future__ import annotations
+
 from collections.abc import Sequence
 
-from opencadd import _typing
+from scids import typing
 
-from . import _writer, struct
+from . import _writer, records
 
 
 def from_chemsys(
     system,
     output_filename: str | None = None,
-    output_path: _typing.PathLike = None,
+    output_path: typing.PathLike = None,
     models: int | Sequence[int] | None = None,
     separate_models: bool = False,
 ):
-    pdb_struct = struct.PDBStructure(atom=system.composition)
+    pdb_struct = records.PDBFile(atom=system.composition)
     return from_structure(
         pdb_structure=pdb_struct,
         output_filename=output_filename,
@@ -23,9 +25,9 @@ def from_chemsys(
 
 
 def from_structure(
-    pdb_structure: struct.PDBStructure,
+    pdb_structure: records.PDBFile,
     output_filename: str | None = None,
-    output_path: _typing.PathLike = None,
+    output_path: typing.PathLike = None,
     models: int | Sequence[int] | None = None,
     separate_models: bool = False,
 ):
