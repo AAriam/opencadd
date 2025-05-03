@@ -87,7 +87,8 @@ class AutodockGpfFile:
         there will be an odd number of points in each dimension.
         The number of x-, y and z-grid points need not be equal.
     spacing
-        The grid-point spacing, i.e., distance between two grid points, in angstroms (Å).
+        The grid-point spacing, i.e.,
+        distance between two grid points, in angstroms (Å).
         Grid points are orthogonal and uniformly spaced in AutoDock,
         i.e. this value is used for all three dimensions.
     receptor_types
