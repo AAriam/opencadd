@@ -1,0 +1,5 @@
+schema:
+  title:
+  summary: Van der Waals radii of atoms.
+  $comment: |
+    For reference, see: https://github.com/rdkit/rdkit/issues/1831

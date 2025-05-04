@@ -50,9 +50,9 @@ from pathlib import Path
 
 import numpy as np
 
+import scids
 from scids import exception
 from scids.typing import PathLike
-from scids.data import Autodock4AtomType
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -121,23 +121,8 @@ class AutodockGpfFile:
         parameter_file: PathLike | None = None,
         npts: tuple[int, int, int] = (40, 40, 40),
         spacing: float = 0.375,
-        receptor_types: Sequence[Autodock4AtomType | str] = (
-            Autodock4AtomType.A,
-            Autodock4AtomType.C,
-            Autodock4AtomType.HD,
-            Autodock4AtomType.N,
-            Autodock4AtomType.OA,
-            Autodock4AtomType.SA,
-        ),
-        ligand_types: Sequence[Autodock4AtomType | str] = (
-            Autodock4AtomType.A,
-            Autodock4AtomType.C,
-            Autodock4AtomType.HD,
-            Autodock4AtomType.N,
-            Autodock4AtomType.NA,
-            Autodock4AtomType.OA,
-            Autodock4AtomType.SA,
-        ),
+        receptor_types: Sequence[str] = ("A", "C", "HD", "N", "OA", "SA"),
+        ligand_types: Sequence[str] = ("A", "C", "HD", "N", "NA", "OA", "SA"),
         gridcenter: tuple[float, float, float] | Literal["auto"] = "auto",
         smooth: float = 0.5,
         dielectric: float = -0.1465,
@@ -155,6 +140,7 @@ class AutodockGpfFile:
         self.gridcenter = gridcenter
         self.smooth = smooth
         self.dielectric = dielectric
+        self._autodock_atom_types = scids.data.autodock_atom_types
         return
 
     @property
@@ -244,11 +230,11 @@ class AutodockGpfFile:
         return
 
     @property
-    def receptor_types(self) -> tuple[Autodock4AtomType, ...]:
+    def receptor_types(self) -> tuple[str, ...]:
         return self._receptor_types
 
     @receptor_types.setter
-    def receptor_types(self, value: Sequence[Autodock4AtomType]):
+    def receptor_types(self, value: Sequence[str]):
         self._receptor_types = self._verify_atom_types(value)
         return
 
@@ -257,7 +243,7 @@ class AutodockGpfFile:
         return self._ligand_types
 
     @ligand_types.setter
-    def ligand_types(self, value: Sequence[Autodock4AtomType]):
+    def ligand_types(self, value: Sequence[str]):
         self._ligand_types = self._verify_atom_types(value)
         return
 
@@ -348,19 +334,15 @@ class AutodockGpfFile:
             raise ValueError("Path contains non-ASCII characters.")
         return Path(filepath)
 
-    @staticmethod
-    def _verify_atom_types(atom_types: Sequence[Autodock4AtomType | str]) -> tuple[Autodock4AtomType, ...]:
+    def _verify_atom_types(self, atom_types: Sequence[str]) -> tuple[str, ...]:
         types = []
         for atom_type in atom_types:
-            if isinstance(atom_type, Autodock4AtomType):
-                types.append(atom_type)
-                continue
             if not isinstance(atom_type, str):
-                raise exceptions.InvalidAtomType(f"Invalid atom type: {atom_type}")
-            try:
-                types.append(Autodock4AtomType[atom_type])
-            except KeyError:
-                raise exceptions.InvalidAtomType(f"Invalid atom type: {atom_type}")
+                raise exception.InvalidAtomType(f"Invalid atom type: {atom_type}")
+            atom_type = atom_type.upper()
+            if atom_type not in self._autodock_atom_types["type"]:
+                raise exception.InvalidAtomType(f"Invalid atom type: {atom_type}")
+            types.append(atom_type)
         return tuple(types)
 
 
@@ -373,23 +355,8 @@ def from_spec(
     dsolvmap: PathLike | None = None,
     npts: tuple[int, int, int] = (40, 40, 40),
     spacing: float = 0.375,
-    receptor_types: Sequence[Autodock4AtomType | str] = (
-        Autodock4AtomType.A,
-        Autodock4AtomType.C,
-        Autodock4AtomType.HD,
-        Autodock4AtomType.N,
-        Autodock4AtomType.OA,
-        Autodock4AtomType.SA,
-    ),
-    ligand_types: Sequence[Autodock4AtomType | str] = (
-        Autodock4AtomType.A,
-        Autodock4AtomType.C,
-        Autodock4AtomType.HD,
-        Autodock4AtomType.N,
-        Autodock4AtomType.NA,
-        Autodock4AtomType.OA,
-        Autodock4AtomType.SA,
-    ),
+    receptor_types: Sequence[str] = ("A", "C", "HD", "N", "OA", "SA"),
+    ligand_types: Sequence[str] = ("A", "C", "HD", "N", "NA", "OA", "SA"),
     gridcenter: tuple[float, float, float] | Literal["auto"] = "auto",
     smooth: float = 0.5,
     dielectric: float = -0.1465,
