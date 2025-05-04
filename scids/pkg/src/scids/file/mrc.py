@@ -70,10 +70,10 @@ def parse(file: bytes | Path):
     content_int32 = np.frombuffer(buffer=content, dtype=np.int32, count=256, offset=0)
     content_float32 = content_int32.view(dtype=np.float32)
     content_uint8 = content_int32.view(dtype=np.uint8)
+
     word_map = content_uint8[208:212].view("S4")[0].decode()
     if word_map != "MAP ":
         raise ValueError(f"Invalid MRC file: missing MAP marker, got {word_map}")
-    word_machst = content_uint8[212:216]
 
     grid_shape = content_int32[0:3]
     word_mode = content_int32[3]
@@ -85,7 +85,7 @@ def parse(file: bytes | Path):
     words_dmin_dmax_dmean = content_float32[19:22]
     word_ispg = content_int32[22]
     word_nsymbt = content_int32[23]
-
+    word_machst = content_uint8[212:216]
     map_values = np.frombuffer(
         buffer=content, dtype=MODE[word_mode], count=np.prod(grid_shape), offset=HEADER_LEN + word_nsymbt
     ).reshape((1, *grid_shape), order="F")
