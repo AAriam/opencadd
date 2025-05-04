@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 import nglview as ngl
+import scicoda
 
 import scids
 import scids.file.pdb._writer
@@ -88,7 +89,7 @@ class ChemicalComposition:
     def autodock_atom_type_indices(self) -> np.ndarray:
         if self._autodock_atom_type_indices:
             return self._autodock_atom_type_indices
-        self._data_autodock_atom_types = scids.data.autodock_atom_types
+        self._data_autodock_atom_types = scicoda.data.autodock_atom_types
         self._autodock_atom_type_indices = np.where(
             self.autodock_atom_type[..., np.newaxis] == self._data_autodock_atom_types["type"].values
         )[1]

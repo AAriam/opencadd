@@ -5,7 +5,7 @@ import pandas as pd
 
 class Data:
     def __init__(self):
-        self._data_dir = pkgdata.get_package_path_from_caller(top_level=True) / "_data"
+        self._data_dir = pkgdata.get_package_path_from_caller(top_level=True) / "data"
         self._serialized_data: dict[str, dict] = {}
         return
 

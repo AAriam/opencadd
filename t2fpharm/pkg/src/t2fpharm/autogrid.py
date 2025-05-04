@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Literal
     import numpy.typing as npt
-    from scids.data.autodock import Autodock4AtomType
 
 
 def from_pdbqt_contents(
