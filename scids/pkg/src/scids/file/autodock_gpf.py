@@ -1,4 +1,4 @@
-"""Read and write AutoDock Grid Parameter Files (GPF).
+"""Read and write [AutoDock](https://autodock.scripps.edu/) Grid Parameter Files (GPF).
 
 The grid parameter file specifies an AutoGrid calculation,
 including the size and location of the grid,
