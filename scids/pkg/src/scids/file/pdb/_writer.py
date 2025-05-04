@@ -11,7 +11,6 @@ from scids import typing
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from scids.file.pdb import PDBFile
-    from scids.chemsys import PDBFile
 
 
 class PDBWriter:

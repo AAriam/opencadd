@@ -1059,6 +1059,36 @@ ATOM = Record(
 )
 
 
+# Ref: AutoDock Version 4.2.6 User Guide
+#      Appendix I: AutoDock File Formats
+#      Page 27: PDBQT format for coordinate files
+#      https://autodock.scripps.edu/wp-content/uploads/sites/56/2021/10/AutoDock4.2.6_UserGuide.pdf
+ATOM_PDBQT = Record(
+    index=43,
+    name="ATOM",
+    is_mandatory=False,
+    is_one_time=False,
+    is_one_line=True,
+    field_data={
+        "serial": fields.Column((6, 11), fields.Integer),
+        "atom_name": fields.Column((12, 16), fields.Atom),
+        "alt_loc": fields.Column((16, 17), fields.Character),
+        "res_name": fields.Column((17, 20), fields.ResidueName),
+        "chain_id": fields.Column((21, 22), fields.Character),
+        "res_num": fields.Column((22, 26), fields.Integer),
+        "res_icode": fields.Column((26, 27), fields.AChar),
+        "x": fields.Column((30, 38), fields.Real),
+        "y": fields.Column((38, 46), fields.Real),
+        "z": fields.Column((46, 54), fields.Real),
+        "occupancy": fields.Column((54, 60), fields.Real),
+        "temp_factor": fields.Column((60, 66), fields.Real),
+        "footnote": fields.Column((66, 70), fields.LString),
+        "partial_charge": fields.Column((70, 76), fields.Real),
+        "autodock_atom_type": fields.Column((77, 79), fields.AutoDockAtomType),
+    },
+)
+
+
 ANISOU = Record(
     index=44,
     name="ANISOU",
@@ -1115,12 +1145,11 @@ HETATM = Record(
         "chain_id": fields.Column((21, 22), fields.Character),
         "res_num": fields.Column((22, 26), fields.Integer),
         "res_icode": fields.Column((26, 27), fields.AChar),
-        "u00": fields.Column((28, 35), fields.Integer),
-        "u11": fields.Column((35, 42), fields.Integer),
-        "u22": fields.Column((42, 49), fields.Integer),
-        "u01": fields.Column((49, 56), fields.Integer),
-        "u02": fields.Column((56, 63), fields.Integer),
-        "u12": fields.Column((63, 70), fields.Integer),
+        "x": fields.Column((30, 38), fields.Real),
+        "y": fields.Column((38, 46), fields.Real),
+        "z": fields.Column((46, 54), fields.Real),
+        "occupancy": fields.Column((54, 60), fields.Real),
+        "temp_factor": fields.Column((60, 66), fields.Real),
         "element": fields.Column((76, 78), fields.Element),
         "charge": fields.Column(((79, 80), (78, 79)), fields.LString),
     },

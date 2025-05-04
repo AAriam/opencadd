@@ -1059,6 +1059,7 @@ class PDBFileRecords(Enum):
 
 def parse(
     file: str | bytes | Path,
+    variant: Literal["pdb", "pdbqt"] = "pdb",
     parse_only: Sequence[PDBFileRecords | PDBFileSections | str] | None = None,
     strictness: Literal[0, 1, 2, 3] = 0,
 ) -> PDBFile:
@@ -1110,6 +1111,7 @@ def parse(
                     "Parameter `parse_only` expects either a list of Records or Sections, "
                     f"but the type of input argument was: {type(record_or_section)}. Input was: {record_or_section}."
                 )
-    return PDBFile(
-        **parser.PDBParser(content=content, strictness=strictness).parse(records=records)
-    )
+    records = parser.PDBParser(
+        content=content, variant=variant, strictness=strictness
+    ).parse(records=records)
+    return PDBFile(**records)

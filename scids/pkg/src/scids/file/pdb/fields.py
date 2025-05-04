@@ -128,6 +128,17 @@ class Element(RecordFieldDataType):
         return np.char.capitalize(np.char.strip(fields))
 
 
+class AutoDockAtomType(RecordFieldDataType):
+    """
+    The AutoDock atom type. This is a 2-character field
+    containing the first letter of the atom name and the
+    number of hydrogens attached to the atom.
+    """
+
+    @staticmethod
+    def from_pdb(fields: str | Sequence[str]):
+        return np.char.strip(fields)
+
 class IDcode(RecordFieldDataType):
     """
     A PDB identification code which consists of 4 characters,

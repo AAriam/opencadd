@@ -12,6 +12,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
+import scids
 from scids import exception, typing, util
 
 from scids.file.pdb import _records, fields, records
@@ -42,12 +43,17 @@ class PDBParser:
         - 3: completely validate the PDB file and raise all errors.
     """
 
-    def __init__(self, content: str, strictness: Literal[0, 1, 2, 3] = 0):
+    def __init__(
+        self,
+        content: str,
+        variant: Literal["pdb", "pdbqt"] = "pdb",
+        strictness: Literal[0, 1, 2, 3] = 0
+    ):
         if not isinstance(content, str):
             _exceptions.raise_for_type(
                 param_name="content", parent_name="PDBParser", expected_type=str, param_arg=content
             )
-
+        self._variant = variant
         self.strictness: Literal[0, 1, 2, 3] = strictness
         self._lines: np.ndarray = np.array(content.splitlines())
         """Lines of the PDB file, as a 1D array of strings"""
@@ -757,10 +763,13 @@ class PDBParser:
         )
         idx_lines = np.argwhere(mask_lines).reshape(-1)
         lines = self._lines_chars[mask_lines]
-        data = _records.ATOM.extract(record_char_table=lines)
+
+        record = _records.ATOM_PDBQT if self._variant == "pdbqt" else _records.ATOM
+        data = record.extract(record_char_table=lines)
         data["res_std"] = self._lines_rec_names[mask_lines] == "ATOM"
         data["model_num"] = self._model_num_of_lines(idx_lines)
-        data["charge"] = self._parse_field_charge(data["charge"])
+        if self._variant == "pdb":
+            data["charge"] = self._parse_field_charge(data["charge"])
 
         if self.has_record(_records.TER):
             idx_ter_lines = self.indices_record_lines(_records.TER)
@@ -783,29 +792,23 @@ class PDBParser:
             data["res_poly"] = data["res_std"]
         else:
             data["res_poly"] = False
-
-        df = pd.DataFrame(data).set_index("serial", drop=False)[
-            [
-                "model_num",
-                "chain_id",
-                "res_name",
-                "res_num",
-                "res_icode",
-                "res_poly",
-                "res_std",
-                "serial",
-                "atom_name",
-                "alt_loc",
-                "occupancy",
-                "element",
-                "charge",
-                "x",
-                "y",
-                "z",
-                "temp_factor",
-            ]
-        ]
-        return df
+        fields = [
+            "model_num",
+            "chain_id",
+            "res_name",
+            "res_num",
+            "res_icode",
+            "res_poly",
+            "res_std",
+            "serial",
+            "atom_name",
+            "alt_loc",
+            "occupancy",
+            "temp_factor",
+        ] + ["element", "charge"] if self._variant == "pdb" else [
+            "autodock_atom_type", "partial_charge"
+        ] + ["x", "y", "z"]
+        return pd.DataFrame(data).set_index("serial", drop=False)[fields]
 
     def anisou(self) -> pd.DataFrame | None:
         """
