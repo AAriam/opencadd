@@ -34,6 +34,8 @@ class Data:
         """
         data = self._get_serialized("autodock_atom_types")
         dataframe = pd.DataFrame(data)
+        # Convert the "hbond_count" column to nullable integer type
+        # so that None values are represented as pandas.NA
         dataframe["hbond_count"] = dataframe["hbond_count"].astype("Int64")
         return dataframe
 
