@@ -1,4 +1,4 @@
-"""Read and write AutoDock MAP files.
+"""Read and write [AutoDock](https://autodock.scripps.edu/) MAP files.
 
 Notes
 -----
