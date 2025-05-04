@@ -8,9 +8,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-
-
-
 class ScidsError(Exception):
     """Base class for all SciDS exceptions."""
     def __init__(
