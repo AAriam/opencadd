@@ -2,6 +2,9 @@
 
 References
 ----------
+Python interface for RCSB PDB API:
+- https://github.com/rcsb/py-rcsb-api
+
 Programmatic access to RCSB:
 - https://www.rcsb.org/docs/programmatic-access
 
