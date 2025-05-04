@@ -20,6 +20,7 @@ dependencies:
   - ipympl
   - IPython
   - openbabel
+  - autogrid
   - pip:
       - -e sciapi/pkg
       - -e scids/pkg
