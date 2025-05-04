@@ -9,6 +9,7 @@ import numpy as np
 from scids import typing
 
 if TYPE_CHECKING:
+    from typing import Literal
     from collections.abc import Sequence
     from scids.file.pdb import PDBFile
 
@@ -23,8 +24,9 @@ class PDBWriter:
 
     def write(
         self,
+        variant: Literal["pdb", "pdbqt"] = "pdb",
         models: int | Sequence[int] | None = None,
-        separate_models: bool = False
+        multimodel: bool = True
     ) -> str | tuple[str, ...]:
         if self._pre_coord_records_str is None:
             self._pre_coord_records_str = self.pre_coord_str()
@@ -32,23 +34,21 @@ class PDBWriter:
             self._post_coord_records_str = self.post_coord_str()
 
         if models is None:
-            selected_models = self._pdbfile.atom.model_num.unique()
+            selected_models = self._pdbfile.atom["model_num"].unique()
         elif np.issubdtype(type(models), np.integer):
             selected_models = [models]
         else:
             selected_models = models
 
-        models_str = self.section_coordinate(models=selected_models)
-        if len(selected_models) > 1 and separate_models:
-            pdb_strings = [
-                f"{self._pre_coord_records_str}{model_str}{self._post_coord_records_str}"
-                for model_str in models_str
-            ]
-            return pdb_strings
-
-        coordinate_section = "\n".join(models_str)
-        pdb_string = f"{self._pre_coord_records_str}{coordinate_section}{self._post_coord_records_str}"
-        return pdb_string
+        models_str = self.section_coordinate(variant=variant, models=selected_models)
+        if multimodel and variant == "pdb":
+            coordinate_section = "\n".join(models_str)
+            pdb_string = f"{self._pre_coord_records_str}{coordinate_section}{self._post_coord_records_str}"
+            return pdb_string
+        return tuple(
+            f"{self._pre_coord_records_str}{model_str}{self._post_coord_records_str}"
+            for model_str in models_str
+        )
 
     def pre_coord_str(self):
         return ""
@@ -58,13 +58,16 @@ class PDBWriter:
 
     def section_coordinate(
         self,
+        variant: Literal["pdb", "pdbqt"],
         models: Sequence[int],
+        multimodel: bool = True,
     ):
         models_str = []
         atom_df = self._pdbfile.atom
+        model_count = len(models)
         for model_num in models:
             pdb_lines = []
-            if len(models) > 1:
+            if multimodel and model_count > 1:
                 pdb_lines.append(f"MODEL{'':5}{model_num:>4}{'':66}")
             model = atom_df[atom_df.model_num == model_num]
             for chain_id in model.chain_id.unique():
@@ -74,6 +77,7 @@ class PDBWriter:
                     row = poly.loc[i]
                     pdb_lines.append(
                         self.line_coordinates(
+                            variant=variant,
                             is_std=row.res_std,
                             serial=row.serial,
                             atom_name=row.atom_name,
@@ -87,8 +91,11 @@ class PDBWriter:
                             z=row.z,
                             occupancy=row.occupancy,
                             temp_factor=row.temp_factor,
-                            element=row.element,
-                            charge=row.charge,
+                            element=row.get("element"),
+                            charge=row.get("charge"),
+                            footnote=row.get("footnote", ""),
+                            partial_charge=row.get("partial_charge"),
+                            atom_type=row.get("autodock_atom_type"),
                         )
                     )
                 pdb_lines.append(
@@ -100,6 +107,7 @@ class PDBWriter:
                 row = hets.loc[i]
                 pdb_lines.append(
                     self.line_coordinates(
+                        variant=variant,
                         is_std=False,
                         serial=row.serial,
                         atom_name=row.atom_name,
@@ -113,11 +121,14 @@ class PDBWriter:
                         z=row.z,
                         occupancy=row.occupancy,
                         temp_factor=row.temp_factor,
-                        element=row.element,
-                        charge=row.charge,
+                        element=row.get("element"),
+                        charge=row.get("charge"),
+                        footnote=row.get("footnote", ""),
+                        partial_charge=row.get("partial_charge"),
+                        atom_type=row.get("autodock_atom_type"),
                     )
                 )
-            if len(models) > 1:
+            if multimodel and len(models) > 1:
                 pdb_lines.append(f"{'ENDMDL':<80}")
             models_str.append("\n".join(pdb_lines))
         return models_str
@@ -171,6 +182,7 @@ class PDBWriter:
 
     @staticmethod
     def line_coordinates(
+        variant: Literal["pdb", "pdbqt"],
         is_std: bool,
         serial: int,
         atom_name: str,
@@ -186,17 +198,26 @@ class PDBWriter:
         temp_factor,
         element,
         charge,
+        partial_charge: float,
+        autodock_atom_type: str,
+        footnote: str = "",
     ):
         record_name = "ATOM  " if is_std else "HETATM"
         charge = "  " if np.isnan(charge) else charge
 
         atom_name = f" {atom_name:<3}" if len(atom_name) < 4 else f"{atom_name:<4}"
-
-        return (
+        common_part = (
             f"{record_name}{serial:>5} {atom_name}{alt_loc:1}"
             f"{res_name:>3} {chain_id:1}{res_num:>4}{res_icode:1}{'':3}{x:>8.3f}{y:>8.3f}{z:>8.3f}"
-            f"{occupancy:>6.2f}{temp_factor:>6.2f}{'':10}{element.upper():>2}{charge:<2}"
+            f"{occupancy:>6.2f}{temp_factor:>6.2f}"
         )
+        if variant == "pdb":
+            if not element or not charge:
+                raise ValueError("PDB format requires element and charge to be provided.")
+            return f"{common_part}{'':10}{element.upper():>2}{charge:<2}"
+        if not partial_charge or not autodock_atom_type:
+            raise ValueError("PDBQT format requires partial charge and autodock atom type to be provided.")
+        return f"{common_part}{footnote:>4}{partial_charge:6.3f} {autodock_atom_type:>2}\n"
 
 
 class EnsemblePDBWriter:

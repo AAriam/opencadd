@@ -99,8 +99,6 @@ class PDBFile:
         self._anisou = anisou
         self._ter = ter
         self._conect = conect
-
-        self._edit_state = None
         return
 
     @property
@@ -934,28 +932,42 @@ class PDBFile:
 
     def to_file(
         self,
+        variant: Literal["pdb", "pdbqt"] = "pdb",
         models: int | Sequence[int] | None = None,
-        separate_models: bool = False,
+        multimodel: bool = True,
     ) -> str | tuple[str, ...]:
+        """Write the PDB file to string(s).
+
+        Parameters
+        ----------
+        variant
+            Variant of the PDB file to write.
+            Can be either 'pdb' or 'pdbqt'.
+        models
+            Model(s) to write.
+            Can be a single model number or a list of numbers.
+            If None, all models are written.
+        multimodel
+            Write all models in a single PDB file
+            using the MODEL and ENDMDL records.
+            If False, each model is written to a separate file.
+            Multimodel is only supported for the 'pdb' variant.
+
+        Returns
+        -------
+        If multimodel is True, a single PDB file string is returned.
+        Otherwise, a tuple of strings each representing a single-model PDB file.
+        """
         return _writer.PDBWriter(self).write(
+            variant=variant,
             models=models,
-            separate_models=separate_models,
+            multimodel=multimodel,
         )
 
     def __str__(self):
-        return self.to_file(separate_models=False)
-
-    @property
-    def edit_state(self):
-        return self._edit_state
-
-    def reset_edits(self):
-        self._edit_state = None
-        return
+        return self.to_file(multimodel=True)
 
     def remove_water(self):
-        if self._edit_state is None:
-            self._edit_state = self.atom.copy()
         if self.hetnam is not None:
             water_res_names = self.hetnam.het_id[self.hetnam.is_water].tolist()
             if "HOH" not in water_res_names:
