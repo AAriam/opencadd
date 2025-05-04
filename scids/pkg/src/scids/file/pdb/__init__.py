@@ -1,4 +1,10 @@
-"""Read and write Protein Data Bank (PDB) files."""
+"""Read and write Protein Data Bank (PDB) files.
+
+References
+----------
+- [Protein Data Bank File Format Documentation](https://www.wwpdb.org/documentation/file-format)
+- [Legacy PDB File Format Guide - v3.30](https://files.wwpdb.org/pub/pdb/doc/format_descriptions/Format_v33_A4.pdf)
+"""
 
 from __future__ import annotations
 
