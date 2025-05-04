@@ -14,3 +14,5 @@ __all__ = [
     "rectangular_cuboid",
     "volume",
 ]
+
+data = data.Data()

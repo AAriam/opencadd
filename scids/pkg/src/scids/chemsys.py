@@ -57,6 +57,44 @@ class ChemicalSystem:
         separate_models: bool = True,
     ) -> str | tuple[str, ...]:
         return self._pdb_writer.write(models=model, separate_models=separate_models)
+class ChemicalComposition:
+    def __init__(self, atoms: pd.DataFrame):
+        self._atoms = atoms
+
+        self._data_autodock_atom_types: pd.DataFrame = None
+        self._autodock_atom_type_indices: np.ndarray = None
+        return
+
+    @property
+    def atoms(self) -> pd.DataFrame:
+        return self._atoms
+
+    def autodock_atom_type(self) -> pd.DataFrame:
+        return self._atoms["autodock_atom_type"].values
+
+    def hbond_acceptor(self) -> np.ndarray:
+        indices = self.autodock_atom_type_indices
+        return self._data_autodock_atom_types["hbond_acceptor"][indices]
+
+    def hbond_donor(self) -> np.ndarray:
+        indices = self.autodock_atom_type_indices
+        return self._data_autodock_atom_types["hbond_donor"][indices]
+
+    def hbond_count(self) -> np.ndarray:
+        indices = self.autodock_atom_type_indices
+        return self._data_autodock_atom_types["hbond_count"][indices]
+
+    @property
+    def autodock_atom_type_indices(self) -> np.ndarray:
+        if self._autodock_atom_type_indices:
+            return self._autodock_atom_type_indices
+        self._data_autodock_atom_types = scids.data.autodock_atom_types
+        self._autodock_atom_type_indices = np.where(
+            self.autodock_atom_type[..., np.newaxis] == self._data_autodock_atom_types["type"].values
+        )[1]
+        return self._autodock_atom_type_indices
+
+
 
 
 class _ChemicalSystemNGLViewAdaptor(ngl.Structure, ngl.Trajectory):

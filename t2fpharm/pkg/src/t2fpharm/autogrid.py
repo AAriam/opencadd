@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Literal
     import numpy.typing as npt
-    from scids.data import Autodock4AtomType
+    from scids.data.autodock import Autodock4AtomType
 
 
 def from_pdbqt_contents(
@@ -34,23 +34,8 @@ def from_pdbqt_contents(
     parameter_file: PathLike | None = None,
     npts: tuple[int, int, int] = (40, 40, 40),
     spacing: float = 0.375,
-    receptor_types: Sequence[Autodock4AtomType | str] = (
-        Autodock4AtomType.A,
-        Autodock4AtomType.C,
-        Autodock4AtomType.HD,
-        Autodock4AtomType.N,
-        Autodock4AtomType.OA,
-        Autodock4AtomType.SA,
-    ),
-    ligand_types: Sequence[Autodock4AtomType | str] = (
-        Autodock4AtomType.A,
-        Autodock4AtomType.C,
-        Autodock4AtomType.HD,
-        Autodock4AtomType.N,
-        Autodock4AtomType.NA,
-        Autodock4AtomType.OA,
-        Autodock4AtomType.SA,
-    ),
+    receptor_types: Sequence[str] = ("A", "C", "HD", "N", "OA", "SA"),
+    ligand_types: Sequence[str] = ("A", "C", "HD", "N", "NA", "OA", "SA"),
     gridcenter: tuple[float, float, float] | Literal["auto"] = "auto",
     smooth: float = 0.5,
     dielectric: float = -0.1465,
