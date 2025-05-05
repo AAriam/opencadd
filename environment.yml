@@ -1,6 +1,7 @@
 name: opencadd
 channels:
   - conda-forge
+  - bioconda
 dependencies:
   - python
   - pip
@@ -22,8 +23,10 @@ dependencies:
   - openbabel
   - autogrid
   - pip:
+      - -e caddpy/pkg
       - -e sciapi/pkg
       - -e scicoda/pkg
       - -e scids/pkg
       - -e scifile/pkg
+      - -e scishow/pkg
       - -e t2fpharm/pkg
