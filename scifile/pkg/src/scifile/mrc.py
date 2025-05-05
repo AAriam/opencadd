@@ -1,5 +1,9 @@
 """Read and write [MRC/CCP4](https://www.ccpem.ac.uk/mrc-format) map files.
 
+MRC/CCP4 is a file format used for storing 3D volumetric data,
+such as electron density maps and tomograms.
+The format is widely used in structural biology and electron microscopy.
+
 References
 ----------
 - [MRC/CCP4 2014 file format specification](https://www.ccpem.ac.uk/mrc-format/mrc2014)
@@ -51,10 +55,15 @@ MODE = {
     0: np.int8,
     1: np.int16,
     2: np.float32,
+    3: "complex-int16",
+    4: np.complex64,
     6: np.uint16,
     12: np.float16,
+    101: "packed-4bit",
 }
 
+MACHINE_STAMP_LITTLE_ENDIAN = [0x44, 0x41, 0x00, 0x00]
+MACHINE_STAMP_BIG_ENDIAN = [0x11, 0x11, 0x00, 0x00]
 
 
 @dataclass
@@ -117,14 +126,13 @@ class MrcFile:
     nstart_xyz: tuple[int, int, int] | np.ndarray
     m_xyz: tuple[int, int, int] | np.ndarray
     cell_a: tuple[float, float, float] | np.ndarray
-    cell_b: tuple[float | float | float] | np.ndarray
-    map_xyz: tuple[Literal[1, 2, 3], Literal[1, 2, 3], Literal[1, 2, 3]]
+    cell_b: tuple[float, float, float] | np.ndarray
     ispg: int = 0
     extra: bytes = b"\x00" * 8
     exttyp: str = ""
     nversion: int = 0
     extra2: bytes = b"\x00" * 84
-    origin: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float32))
+    origin: tuple[float, float, float] | np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float32))
     labels: list[str] = field(default_factory=list)
     extended_header: bytes = b""
     endian: Literal["little", "big"] = "little"
@@ -140,6 +148,25 @@ class MrcFile:
             raise ValueError("Maximum of 10 labels allowed")
         # ensure origin is ndarray
         self.origin = np.array(self.origin, dtype=np.float32)
+        if self.origin.shape != (3,):
+            raise ValueError("origin must be a 3-element float32 array")
+        self.cell_a = np.array(self.cell_a, dtype=np.float32)
+        self.cell_b = np.array(self.cell_b, dtype=np.float32)
+        if self.cell_a.shape != (3,) or self.cell_b.shape != (3,):
+            raise ValueError("cell_a and cell_b must be 3-element float32 vectors")
+        if len(self.extra) != 8:
+            raise ValueError("extra must be exactly 8 bytes")
+        if len(self.extra2) != 84:
+            raise ValueError("extra2 must be exactly 84 bytes")
+        if not self.exttyp.isascii() or not self.exttyp.isprintable():
+            raise ValueError("exttyp must be ASCII printable")
+        if self.mode == 3 and not np.issubdtype(self.data.dtype, np.complexfloating):
+            raise TypeError("MODE 3 requires complex-valued data")
+        if self.mode == 4 and self.data.dtype != np.complex64:
+            raise TypeError("MODE 4 requires complex64 dtype")
+        if self.mode == 101 and not np.all((self.data >= 0) & (self.data <= 15)):
+            raise ValueError("MODE 101 data must be integers in [0, 15]")
+        return
 
     @property
     def n_xyz(self) -> np.ndarray:
@@ -200,6 +227,7 @@ class MrcFile:
 
     def __bytes__(self) -> bytes:
         """Serialize the MRC/CCP4 file to bytes."""
+        # Write header
         header = np.zeros((), dtype=self.endian + HEADER_DTYPE.str)
         header["n_xyz"] = self.n_xyz
         header["mode"] = self.mode
@@ -212,32 +240,49 @@ class MrcFile:
         header["dmax"] = self.dmax
         header["dmean"] = self.dmean
         header["ispg"] = self.ispg
-        header["extra"] = self.extra
         header["nsymbt"] = self.nsymbt
-        header["exttyp"] = self.exttyp.encode("ascii")
+        header["extra"] = self.extra
+        header["exttyp"] = self.exttyp.encode("ascii").ljust(4, b"\x00")[:4]
         header["nversion"] = self.nversion
         header["origin"] = self.origin
         header["map"] = b"MAP "
-        header["machst"] = np.array([0x44, 0x41, 0x00, 0x00], dtype=np.uint8)
+        header["machst"] = np.array(
+            MACHINE_STAMP_LITTLE_ENDIAN if self.endian == "little" else MACHINE_STAMP_BIG_ENDIAN,
+            dtype=np.uint8
+        )
         header["rms"] = self.rms
         header["nlabl"] = self.nlabl
-
+        header["extra2"] = self.extra2
         # Encode up to 10 labels, each 80 bytes
         padded_labels = np.zeros((10,), dtype="S80")
         for i, label in enumerate(self.labels[:10]):
-            padded_labels[i] = label.encode("ascii", errors="replace")[:80]
+            padded_labels[i] = label.encode("ascii", errors="replace")[:80].ljust(80, b"\x00")
         header["label"] = padded_labels
-        # Pack header
-        header_bytes = header.tobytes()
-        # Pad or truncate extended header to match nsymbt
-        extended = self.extended_header
-        if len(extended) < self.nsymbt:
-            extended += b"\x00" * (self.nsymbt - len(extended))
-        elif len(extended) > self.nsymbt:
-            extended = extended[:self.nsymbt]
-        # Serialize volume data in Fortran order with correct dtype and endian
-        data_bytes = self.data.astype(self.endian + MODE[self.mode].dtype.str).tobytes(order="F")
-        return header_bytes + extended + data_bytes
+
+        # Write data to bytes
+        endian = "<" if self.endian == "little" else ">"
+        if self.mode in (0, 1, 2, 6, 12):
+            dtype = MODE[self.mode]
+            data_bytes = self.data.astype(np.dtype(dtype).newbyteorder(endian)).tobytes(order="F")
+        elif self.mode == 3:
+            # Complex int16: pack as interleaved int16 (real, imag)
+            arr = np.empty(self.data.size * 2, dtype=endian + "i2")
+            arr[0::2] = np.real(self.data).astype(endian + "i2").ravel(order="F")
+            arr[1::2] = np.imag(self.data).astype(endian + "i2").ravel(order="F")
+            data_bytes = arr.tobytes()
+        elif self.mode == 4:
+            # Complex float32: write as np.complex64
+            data_bytes = self.data.astype(endian + "c8").tobytes(order="F")
+        elif self.mode == 101:
+            # 4-bit packed: two voxels per byte
+            flat = self.data.astype(np.uint8).ravel(order="F")
+            if flat.size % 2 != 0:
+                flat = np.append(flat, 0)  # pad
+            packed = ((flat[::2] & 0x0F) << 4) | (flat[1::2] & 0x0F)
+            data_bytes = packed.astype(np.uint8).tobytes()
+        else:
+            raise ValueError(f"Unsupported MODE {self.mode} during serialization")
+        return header.tobytes() + self.extended_header + data_bytes
 
 
 def parse(file: bytes | Path):
@@ -257,9 +302,9 @@ def parse(file: bytes | Path):
 
     # Read MACHST bytes directly to determine byte order of the file.
     machst = np.frombuffer(content[212:216], dtype=np.uint8)
-    if (machst == [0x44, 0x41, 0x00, 0x00]).all():
+    if (machst == MACHINE_STAMP_LITTLE_ENDIAN).all():
         endian = "<"  # Little-endian (Intel)
-    elif (machst == [0x11, 0x11, 0x00, 0x00]).all():
+    elif (machst == MACHINE_STAMP_BIG_ENDIAN).all():
         endian = ">"  # Big-endian (old SGI format)
     else:
         raise ValueError(f"Unrecognized MACHST field: {machst.tolist()}")
