@@ -1,12 +1,17 @@
-"""Read and write [MRC/CCP4](https://www.ccpem.ac.uk/mrc-format/mrc2014) map files.
+"""Read and write [MRC/CCP4](https://www.ccpem.ac.uk/mrc-format) map files.
 
-
+References
+----------
+- [MRC/CCP4 2014 file format specification](https://www.ccpem.ac.uk/mrc-format/mrc2014)
+- [MRC2014: Extensions to the MRC format header for electron cryo-microscopy and tomography](https://www.sciencedirect.com/science/article/pii/S104784771500074X)
+- [MRC2020: improvements to Ximdisp and the MRC image-processing programs](https://journals.iucr.org/m/issues/2023/05/00/eh5017/index.html)
+- [mrcfile Python package](https://github.com/ccpem/mrcfile)
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -59,11 +64,11 @@ class MrcFile:
     Attributes
     ----------
     data
-        Voxel data with shape `n_xyz` and `mode` data type.
-    n_xyz
-        Number of voxels in each dimension.
-        This corresponds to [NX, NY, NZ],
+        Voxel data with shape (NC, NR, NS) and `mode` data type.
+        Note that the axes must always be ordered as XYZ,
         i.e., columns, rows, and sections (fastest to slowest axis).
+        This means that MAPC, MAPR, and MAPS header variables
+        are always set to 1, 2, and 3, respectively.
     mode
         Data type of voxel values:
         - 0:   8-bit signed integer (range -128 to 127)
@@ -79,28 +84,14 @@ class MrcFile:
         This corresponds to [NXSTART, NYSTART, NZSTART],
         i.e., columns, rows, and sections (fastest to slowest axis).
     m_xyz
-        Number of intervals (samples - 1) along each axis in the unit cell.
+        Number of intervals (samples - 1)
+        along each axis in the full unit cell.
         This corresponds to [MX, MY, MZ],
         i.e., columns, rows, and sections (fastest to slowest axis).
     cell_a
         Physical dimensions of the unit cell in Ångströms (X, Y, Z).
     cell_b
         Angles between unit cell axes in degrees (alpha, beta, gamma).
-    map_xyz
-        Axis corresponding to each dimension of the voxel grid.
-        This corresponds to [MAPC, MAPR, MAPS],
-        i.e., columns, rows, and sections (fastest to slowest axis).
-        Each value can be:
-        - 1: X axis
-        - 2: Y axis
-        - 3: Z axis
-        For example, [3, 2, 1] means the voxel grid is ordered as ZYX.
-    dmin
-        Minimum voxel value (for informational use).
-    dmax
-        Maximum voxel value (for informational use).
-    dmean
-        Mean voxel value (for informational use).
     ispg
         Space group number (usually 0 or 1; not commonly used).
     extra
@@ -113,47 +104,102 @@ class MrcFile:
         Extra space for application-specific data.
     origin
         Real-space coordinates (in Ångströms) of the origin voxel (0, 0, 0).
-    rms
-        RMS deviation of voxel values from the mean. Informational only.
-    nlabl
-        Number of non-empty labels (0-10).
     labels
         List of up to 10 textual labels, each up to 80 characters.
     extended_header
         Optional binary block immediately following the 1024-byte header.
         Length must equal `nsymbt`.
     endian
-        Byte order of the file ("<" = little-endian, ">" = big-endian).
-
-    Methods
-    -------
-    __bytes__() -> bytes
-        Serialize the header, extended header, and voxel data back into valid MRC binary format.
+        Byte order of the file.
     """
     data: np.ndarray
-    n_xyz: tuple[int, int, int] | np.ndarray
-    mode: Literal[0, 1, 2, 6, 12]
+    mode: Literal[0, 1, 2, 3, 4, 6, 12, 101]
     nstart_xyz: tuple[int, int, int] | np.ndarray
     m_xyz: tuple[int, int, int] | np.ndarray
     cell_a: tuple[float, float, float] | np.ndarray
     cell_b: tuple[float | float | float] | np.ndarray
     map_xyz: tuple[Literal[1, 2, 3], Literal[1, 2, 3], Literal[1, 2, 3]]
-    dmin: float
-    dmax: float
-    dmean: float
-    ispg: int
-    extra: bytes
-    exttyp: str
-    nversion: int
-    extra2: bytes
-    origin: np.ndarray
-    rms: float
-    nlabl: int
-    labels: list[str]
-    extended_header: bytes
+    ispg: int = 0
+    extra: bytes = b"\x00" * 8
+    exttyp: str = ""
+    nversion: int = 0
+    extra2: bytes = b"\x00" * 84
+    origin: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float32))
+    labels: list[str] = field(default_factory=list)
+    extended_header: bytes = b""
     endian: Literal["little", "big"] = "little"
 
+    def __post_init__(self):
+        if not isinstance(self.data, np.ndarray):
+            raise TypeError("data must be a NumPy array")
+        if self.mode not in MODE:
+            raise ValueError(f"Unsupported mode: {self.mode}")
+        if self.data.ndim != 3:
+            raise ValueError("data must be 3D")
+        if len(self.labels) > 10:
+            raise ValueError("Maximum of 10 labels allowed")
+        # ensure origin is ndarray
+        self.origin = np.array(self.origin, dtype=np.float32)
+
+    @property
+    def n_xyz(self) -> np.ndarray:
+        """Number of voxels in each dimension.
+
+        This corresponds to the header variables [NX, NY, NZ],
+        i.e., for columns, rows, and sections,
+        respectively (fastest to slowest axis).
+        """
+        return np.array(self.data.shape, dtype=np.int32)
+
+    @property
+    def map_xyz(self) -> tuple[int, int, int]:
+        """Axis corresponding to each dimension of the voxel grid.
+
+        This corresponds to the header variables [MAPC, MAPR, MAPS],
+        i.e., for columns, rows, and sections (fastest to slowest axis).
+
+        Each value can be:
+        - 1: X axis
+        - 2: Y axis
+        - 3: Z axis
+
+        For example, [3, 2, 1] means the voxel grid is ordered as ZYX.
+        This class assumes the voxel grid is always ordered as XYZ.
+        """
+        return (1, 2, 3)
+
+    @property
+    def dmin(self) -> float:
+        """Minimum voxel value."""
+        return float(self.data.min())
+
+    @property
+    def dmax(self) -> float:
+        """Maximum voxel value."""
+        return float(self.data.max())
+
+    @property
+    def dmean(self) -> float:
+        """Mean voxel value."""
+        return float(self.data.mean())
+
+    @property
+    def rms(self) -> float:
+        """Root mean square deviation of voxel values from the mean."""
+        return float(np.sqrt(np.mean((self.data - self.dmean) ** 2)))
+
+    @property
+    def nsymbt(self) -> int:
+        """Number of bytes in the extended header."""
+        return len(self.extended_header)
+
+    @property
+    def nlabl(self) -> int:
+        """Number of labels in the header."""
+        return len(self.labels)
+
     def __bytes__(self) -> bytes:
+        """Serialize the MRC/CCP4 file to bytes."""
         header = np.zeros((), dtype=self.endian + HEADER_DTYPE.str)
         header["n_xyz"] = self.n_xyz
         header["mode"] = self.mode
