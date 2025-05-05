@@ -51,6 +51,8 @@ HEADER_DTYPE = np.dtype(
         ("label", "S80", (10,)),
     ]
 )
+MACHINE_STAMP_BIG_ENDIAN = [0x11, 0x11, 0x00, 0x00]
+MACHINE_STAMP_LITTLE_ENDIAN = [0x44, 0x41, 0x00, 0x00]
 MODE = {
     0: np.int8,
     1: np.int16,
@@ -61,9 +63,6 @@ MODE = {
     12: np.float16,
     101: "packed-4bit",
 }
-
-MACHINE_STAMP_LITTLE_ENDIAN = [0x44, 0x41, 0x00, 0x00]
-MACHINE_STAMP_BIG_ENDIAN = [0x11, 0x11, 0x00, 0x00]
 
 
 @dataclass
@@ -285,7 +284,7 @@ class MrcFile:
         return header.tobytes() + self.extended_header + data_bytes
 
 
-def parse(file: bytes | Path):
+def parse(file: bytes | Path) -> MrcFile:
     """Read an MRC/CCP4 file.
 
     Parameters
@@ -366,6 +365,12 @@ def parse(file: bytes | Path):
         data = unpacked[:count].reshape(shape, order="F")
     else:
         raise ValueError(f"MODE {mode} is recognized but not implemented")
+
+    # Make sure voxel axes (MAPC, MAPR, MAPS) are in XYZ order
+    axis_map = header["map_xyz"] - 1  # convert to 0-based
+    if not np.all(axis_map == [0, 1, 2]):
+        inverse = np.argsort(axis_map)
+        data = np.transpose(data, inverse)
 
     return MrcFile(
         data=data,
