@@ -3,47 +3,45 @@
 
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
-import scids
+if TYPE_CHECKING:
+    from typing import Literal
 
+
+HEADER_BYTES_COUNT = 1024
 HEADER_DTYPE = np.dtype(
     [
-        ("N", ("i4", 3)),
-        ("MODE", "i4"),  # Mode; indicates type of values stored in data block
-        ("NSTART", ("i4", 3)),
-        ("M", ("i4", 3)),
-        ("CELLA", ("f4", 3)),
-        ("CELLB", ("f4", 3)),
-        ("MAPCRS", ("i4", 3)),  # map section 1=x,2=y,3=z.
-        ("dmin", "f4"),  # Minimum pixel value
-        ("dmax", "f4"),  # Maximum pixel value
-        ("dmean", "f4"),  # Mean pixel value
-        ("ispg", "i4"),  # space group number
-        ("nsymbt", "i4"),  # number of bytes in extended header
-        ("extra1", "V8"),  # extra space, usage varies by application
-        ("exttyp", "S4"),  # code for the type of extended header
-        ("nversion", "i4"),  # version of the MRC format
-        ("extra2", "V84"),  # extra space, usage varies by application
-        (
-            "origin",
-            [  # Origin of image
-                ("x", "f4"),
-                ("y", "f4"),
-                ("z", "f4"),
-            ],
-        ),
-        ("map", "S4"),  # Contains 'MAP ' to identify file type
-        ("machst", "u1", 4),  # Machine stamp; identifies byte order
-        ("rms", "f4"),  # RMS deviation of densities from mean density
-        ("nlabl", "i4"),  # Number of labels with useful data
-        ("label", "S80", 10),  # 10 labels of 80 characters
+        ("n_xyz", ("i4", 3)),
+        ("mode", "i4"),
+        ("nstart_xyz", ("i4", 3)),
+        ("m_xyz", ("i4", 3)),
+        ("cell_a", ("f4", 3)),
+        ("cell_b", ("f4", 3)),
+        ("map_xyz", ("i4", 3)),
+        ("dmin", "f4"),
+        ("dmax", "f4"),
+        ("dmean", "f4"),
+        ("ispg", "i4"),
+        ("nsymbt", "i4"),
+        ("extra", "V8"),
+        ("exttyp", "S4"),
+        ("nversion", "i4"),
+        ("extra2", "V84"),
+        ("origin", ("f4", 3)),
+        ("map", "S4"),
+        ("machst", "u1", 4),
+        ("rms", "f4"),
+        ("nlabl", "i4"),
+        ("label", "S80", 10),
     ]
 )
-
-
 MODE = {
     0: np.int8,
     1: np.int16,
@@ -52,7 +50,148 @@ MODE = {
     12: np.float16,
 }
 
-HEADER_LEN = 1024  # Bytes.
+
+
+@dataclass
+class MrcFile:
+    """MRC/CCP4 map file (MRC2014 format).
+
+    Attributes
+    ----------
+    data
+        Voxel data with shape `n_xyz` and `mode` data type.
+    n_xyz
+        Number of voxels in each dimension.
+        This corresponds to [NX, NY, NZ],
+        i.e., columns, rows, and sections (fastest to slowest axis).
+    mode
+        Data type of voxel values:
+        - 0:   8-bit signed integer (range -128 to 127)
+        - 1:   16-bit signed integer
+        - 2:   32-bit signed real
+        - 3:   transform : complex 16-bit integers
+        - 4:   transform : complex 32-bit reals
+        - 6:   16-bit unsigned integer
+        - 12:  16-bit float (IEEE754)
+        - 101: 4-bit data packed two per byte
+    nstart_xyz
+        Index of the first voxel in each axis of the full unit cell.
+        This corresponds to [NXSTART, NYSTART, NZSTART],
+        i.e., columns, rows, and sections (fastest to slowest axis).
+    m_xyz
+        Number of intervals (samples - 1) along each axis in the unit cell.
+        This corresponds to [MX, MY, MZ],
+        i.e., columns, rows, and sections (fastest to slowest axis).
+    cell_a
+        Physical dimensions of the unit cell in Ångströms (X, Y, Z).
+    cell_b
+        Angles between unit cell axes in degrees (alpha, beta, gamma).
+    map_xyz
+        Axis corresponding to each dimension of the voxel grid.
+        This corresponds to [MAPC, MAPR, MAPS],
+        i.e., columns, rows, and sections (fastest to slowest axis).
+        Each value can be:
+        - 1: X axis
+        - 2: Y axis
+        - 3: Z axis
+        For example, [3, 2, 1] means the voxel grid is ordered as ZYX.
+    dmin
+        Minimum voxel value (for informational use).
+    dmax
+        Maximum voxel value (for informational use).
+    dmean
+        Mean voxel value (for informational use).
+    ispg
+        Space group number (usually 0 or 1; not commonly used).
+    extra
+        Extra space for application-specific data.
+    exttyp
+        4-character code for the extended header type:
+    nversion
+        MRC format version. Use `origin` field only if `nversion > 0`.
+    extra2
+        Extra space for application-specific data.
+    origin
+        Real-space coordinates (in Ångströms) of the origin voxel (0, 0, 0).
+    rms
+        RMS deviation of voxel values from the mean. Informational only.
+    nlabl
+        Number of non-empty labels (0-10).
+    labels
+        List of up to 10 textual labels, each up to 80 characters.
+    extended_header
+        Optional binary block immediately following the 1024-byte header.
+        Length must equal `nsymbt`.
+    endian
+        Byte order of the file ("<" = little-endian, ">" = big-endian).
+
+    Methods
+    -------
+    __bytes__() -> bytes
+        Serialize the header, extended header, and voxel data back into valid MRC binary format.
+    """
+    data: np.ndarray
+    n_xyz: tuple[int, int, int] | np.ndarray
+    mode: Literal[0, 1, 2, 6, 12]
+    nstart_xyz: tuple[int, int, int] | np.ndarray
+    m_xyz: tuple[int, int, int] | np.ndarray
+    cell_a: tuple[float, float, float] | np.ndarray
+    cell_b: tuple[float | float | float] | np.ndarray
+    map_xyz: tuple[Literal[1, 2, 3], Literal[1, 2, 3], Literal[1, 2, 3]]
+    dmin: float
+    dmax: float
+    dmean: float
+    ispg: int
+    extra: bytes
+    exttyp: str
+    nversion: int
+    extra2: bytes
+    origin: np.ndarray
+    rms: float
+    nlabl: int
+    labels: list[str]
+    extended_header: bytes
+    endian: Literal["little", "big"] = "little"
+
+    def __bytes__(self) -> bytes:
+        header = np.zeros((), dtype=self.endian + HEADER_DTYPE.str)
+        header["n_xyz"] = self.n_xyz
+        header["mode"] = self.mode
+        header["nstart_xyz"] = self.nstart_xyz
+        header["m_xyz"] = self.m_xyz
+        header["cell_a"] = self.cell_a
+        header["cell_b"] = self.cell_b
+        header["map_xyz"] = self.map_xyz
+        header["dmin"] = self.dmin
+        header["dmax"] = self.dmax
+        header["dmean"] = self.dmean
+        header["ispg"] = self.ispg
+        header["extra"] = self.extra
+        header["nsymbt"] = self.nsymbt
+        header["exttyp"] = self.exttyp.encode("ascii")
+        header["nversion"] = self.nversion
+        header["origin"] = self.origin
+        header["map"] = b"MAP "
+        header["machst"] = np.array([0x44, 0x41, 0x00, 0x00], dtype=np.uint8)
+        header["rms"] = self.rms
+        header["nlabl"] = self.nlabl
+
+        # Encode up to 10 labels, each 80 bytes
+        padded_labels = np.zeros((10,), dtype="S80")
+        for i, label in enumerate(self.labels[:10]):
+            padded_labels[i] = label.encode("ascii", errors="replace")[:80]
+        header["label"] = padded_labels
+        # Pack header
+        header_bytes = header.tobytes()
+        # Pad or truncate extended header to match nsymbt
+        extended = self.extended_header
+        if len(extended) < self.nsymbt:
+            extended += b"\x00" * (self.nsymbt - len(extended))
+        elif len(extended) > self.nsymbt:
+            extended = extended[:self.nsymbt]
+        # Serialize volume data in Fortran order with correct dtype and endian
+        data_bytes = self.data.astype(self.endian + MODE[self.mode].dtype.str).tobytes(order="F")
+        return header_bytes + extended + data_bytes
 
 
 def parse(file: bytes | Path):
