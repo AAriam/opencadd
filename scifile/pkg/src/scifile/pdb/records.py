@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from scids import typing
-from . import fields
+from scifile import typing
+from scifile.pdb import fields
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

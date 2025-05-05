@@ -14,13 +14,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from . import parser, _writer
+from scifile.pdb import parser, _writer
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Literal
     from pandas import DataFrame
-    from scids.file.pdb.records import *
+    from scifile.pdb.records import *
 
 
 class PDBFile:

@@ -12,10 +12,8 @@ import warnings
 import numpy as np
 import pandas as pd
 
-import scids
-from scids import exception, typing, util
-
-from scids.file.pdb import _records, fields, records
+from scifile import util
+from scifile.pdb import _records, fields, records
 
 if TYPE_CHECKING:
     from typing import Any, Literal, NoReturn

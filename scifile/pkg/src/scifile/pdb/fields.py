@@ -7,7 +7,7 @@ from collections.abc import Sequence
 import numpy as np
 import numpy.typing as npt
 
-from scids.file import _parsing
+from scifile import _parsing
 
 
 class RecordFieldDataType(ABC):

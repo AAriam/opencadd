@@ -34,16 +34,19 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from scids import exception
+from scifile import exception
 
 if TYPE_CHECKING:
-    from scids.typing import PathLike
+    from scifile.typing import PathLike
 
 
 __all__ = [
     "AutodockMapFile",
+    "AutodockMapFileOptionalHeader",
     "parse",
 ]
+
+FILETYPE = "autodock_map"
 
 
 @dataclass(kw_only=True)
@@ -226,8 +229,8 @@ def _raise_or_warn(
     filepath: PathLike | None = None,
     content: str | bytes | None = None,
 ) -> None:
-    error = exception.ScidsReadError(
-        file_type="autodock_map",
+    error = exception.SciFileReadError(
+        file_type=FILETYPE,
         message=message,
         filepath=filepath,
         content=content,

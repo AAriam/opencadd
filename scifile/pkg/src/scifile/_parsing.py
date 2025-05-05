@@ -1,6 +1,4 @@
-"""
-General functions and routines for data parsing.
-"""
+"""General functions and routines for data parsing."""
 
 from collections.abc import Sequence
 

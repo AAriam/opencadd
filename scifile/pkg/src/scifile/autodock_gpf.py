@@ -49,14 +49,17 @@ from typing import TYPE_CHECKING
 from pathlib import Path
 
 import numpy as np
+import scicoda
 
-import scids
-from scids import exception
-from scids.typing import PathLike
+from scifile import exception
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Literal
+    from scifile.typing import PathLike
+
+
+FILETYPE = "autodock_gpf"
 
 
 @dataclass
@@ -140,7 +143,7 @@ class AutodockGpfFile:
         self.gridcenter = gridcenter
         self.smooth = smooth
         self.dielectric = dielectric
-        self._autodock_atom_types = scids.data.autodock_atom_types
+        self._autodock_atom_types = scicoda.data.autodock_atom_types
         return
 
     @property
@@ -338,10 +341,16 @@ class AutodockGpfFile:
         types = []
         for atom_type in atom_types:
             if not isinstance(atom_type, str):
-                raise exception.InvalidAtomType(f"Invalid atom type: {atom_type}")
+                raise exception.SciFileValidationError(
+                    filetype=FILETYPE,
+                    message=f"Invalid atom type: {atom_type}"
+                )
             atom_type = atom_type.upper()
             if atom_type not in self._autodock_atom_types["type"]:
-                raise exception.InvalidAtomType(f"Invalid atom type: {atom_type}")
+                raise exception.SciFileValidationError(
+                    filetype=FILETYPE,
+                    message=f"Invalid atom type: {atom_type}"
+                )
             types.append(atom_type)
         return tuple(types)
 

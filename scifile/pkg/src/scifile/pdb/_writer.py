@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from scids import typing
+from scifile import typing
 
 if TYPE_CHECKING:
     from typing import Literal
     from collections.abc import Sequence
-    from scids.file.pdb import PDBFile
+    from scifile.pdb import PDBFile
 
 
 class PDBWriter:

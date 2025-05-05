@@ -1,4 +1,7 @@
-"""Read and write MRC/CCP4 files."""
+"""Read and write [MRC/CCP4](https://www.ccpem.ac.uk/mrc-format/mrc2014) map files.
+
+
+"""
 
 from pathlib import Path
 
@@ -76,24 +79,24 @@ def parse(file: bytes | Path):
         raise ValueError(f"Invalid MRC file: missing MAP marker, got {word_map}")
 
     grid_shape = content_int32[0:3]
-    word_mode = content_int32[3]
-    words_nxstart_nystart_nzstart = content_int32[4:7]
+    mode = content_int32[3]
+    nxstart_nystart_nzstart = content_int32[4:7]
     num_spacings = content_int32[7:10]
-    word_cella = content_float32[10:13]
-    word_cellb = content_float32[13:16]
-    words_mapc_mapr_maps = content_int32[16:19]
-    words_dmin_dmax_dmean = content_float32[19:22]
-    word_ispg = content_int32[22]
-    word_nsymbt = content_int32[23]
+    cella = content_float32[10:13]
+    cellb = content_float32[13:16]
+    mapc_mapr_maps = content_int32[16:19]
+    dmin_dmax_dmean = content_float32[19:22]
+    ispg = content_int32[22]
+    nsymbt = content_int32[23]
     word_machst = content_uint8[212:216]
     map_values = np.frombuffer(
-        buffer=content, dtype=MODE[word_mode], count=np.prod(grid_shape), offset=HEADER_LEN + word_nsymbt
+        buffer=content, dtype=MODE[mode], count=np.prod(grid_shape), offset=HEADER_LEN + nsymbt
     ).reshape((1, *grid_shape), order="F")
 
     grid = scids.grid.from_shape_size_anchor(
         shape=grid_shape,
-        size=word_cella,
-        anchor_coord=words_nxstart_nystart_nzstart * word_cella / num_spacings,
+        size=cella,
+        anchor_coord=nxstart_nystart_nzstart * cella / num_spacings,
         anchor="lower",
     )
 
