@@ -27,13 +27,13 @@ if TYPE_CHECKING:
 HEADER_BYTES_COUNT = 1024
 HEADER_DTYPE = np.dtype(
     [
-        ("n_xyz", ("i4", 3)),
+        ("n_xyz", "i4", (3,)),
         ("mode", "i4"),
-        ("nstart_xyz", ("i4", 3)),
-        ("m_xyz", ("i4", 3)),
-        ("cell_a", ("f4", 3)),
-        ("cell_b", ("f4", 3)),
-        ("map_xyz", ("i4", 3)),
+        ("nstart_xyz", "i4", (3,)),
+        ("m_xyz", "i4", (3,)),
+        ("cell_a", "f4", (3,)),
+        ("cell_b", "f4", (3,)),
+        ("map_xyz", "i4", (3,)),
         ("dmin", "f4"),
         ("dmax", "f4"),
         ("dmean", "f4"),
@@ -43,12 +43,12 @@ HEADER_DTYPE = np.dtype(
         ("exttyp", "S4"),
         ("nversion", "i4"),
         ("extra2", "V84"),
-        ("origin", ("f4", 3)),
+        ("origin", "f4", (3,)),
         ("map", "S4"),
-        ("machst", "u1", 4),
+        ("machst", "u1", (4,)),
         ("rms", "f4"),
         ("nlabl", "i4"),
-        ("label", "S80", 10),
+        ("label", "S80", (10,)),
     ]
 )
 MODE = {
@@ -159,7 +159,7 @@ class MrcFile:
         if len(self.extra2) != 84:
             raise ValueError("extra2 must be exactly 84 bytes")
         if not self.exttyp.isascii() or not self.exttyp.isprintable():
-            raise ValueError("exttyp must be ASCII printable")
+            raise ValueError(f"exttyp must be ASCII printable, but got: {self.exttyp}")
         if self.mode == 3 and not np.issubdtype(self.data.dtype, np.complexfloating):
             raise TypeError("MODE 3 requires complex-valued data")
         if self.mode == 4 and self.data.dtype != np.complex64:
@@ -228,7 +228,7 @@ class MrcFile:
     def __bytes__(self) -> bytes:
         """Serialize the MRC/CCP4 file to bytes."""
         # Write header
-        header = np.zeros((), dtype=self.endian + HEADER_DTYPE.str)
+        header = np.zeros((), dtype=HEADER_DTYPE.newbyteorder("<" if self.endian == "little" else ">"))
         header["n_xyz"] = self.n_xyz
         header["mode"] = self.mode
         header["nstart_xyz"] = self.nstart_xyz
@@ -304,20 +304,20 @@ def parse(file: bytes | Path):
         raise ValueError("File too small to contain valid MRC data.")
 
     # Read MACHST bytes directly to determine byte order of the file.
-    machst = np.frombuffer(content[212:216], dtype=np.uint8)
-    if (machst == np.array(MACHINE_STAMP_LITTLE_ENDIAN, dtype=np.uint8)).all():
+    machst = content[212:216]
+    if machst == bytes(MACHINE_STAMP_LITTLE_ENDIAN):
         endian = "little"
         np_endian = "<"
-    elif (machst == np.array(MACHINE_STAMP_BIG_ENDIAN, dtype=np.uint8)).all():
+    elif machst == bytes(MACHINE_STAMP_BIG_ENDIAN):
         endian = "big"
         np_endian = ">"
     else:
-        raise ValueError(f"Unrecognized MACHST field: {machst.tolist()}")
+        raise ValueError(f"Unrecognized MACHST field: {machst}")
 
     header = np.frombuffer(
         content[:HEADER_BYTES_COUNT],
         dtype=HEADER_DTYPE.newbyteorder(np_endian),
-    )[()]  # Unwrap the 0-dimensional structured array into a plain structured scalar.
+    )[0]
 
     if header["map"].tobytes() != b"MAP ":
         raise ValueError(f"Invalid MRC file: missing MAP marker, got {header['map'].tobytes()}")
@@ -326,7 +326,7 @@ def parse(file: bytes | Path):
         raise ValueError(f"Unsupported MODE {mode}")
 
     shape = header["n_xyz"]
-    offset = HEADER_BYTES_COUNT + int(header["nsymbt"])
+    offset = HEADER_BYTES_COUNT + header["nsymbt"]
     count = np.prod(shape)
 
     # Extract voxel data
@@ -376,7 +376,7 @@ def parse(file: bytes | Path):
         cell_b=header["cell_b"],
         ispg=header["ispg"],
         extra=bytes(header["extra"]),
-        exttyp=header["exttyp"].tobytes().decode("ascii", errors="replace").strip(),
+        exttyp=header["exttyp"].tobytes().decode("ascii", errors="replace").rstrip("\x00"),
         nversion=header["nversion"],
         extra2=bytes(header["extra2"]),
         origin=(
