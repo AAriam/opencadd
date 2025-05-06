@@ -178,7 +178,7 @@ class ProteinsPlusAPI:
         with io.BytesIO(content) as file:
             base_response = self.submit_job(
                 endpoint="pdb_files_rest",
-                json={"pdb_file[pathvar]": ("dummy_name.pdb", file)},
+                files={"pdb_file[pathvar]": ("dummy_name.pdb", file)},
                 headers=None,
             )
         return PDBUploadResponse(base_response.job_url, retry_config=self._retry_config)
@@ -239,9 +239,15 @@ class ProteinsPlusResponse:
         URL of the job.
     """
 
-    def __init__(self, job_url: str, retry_config: pl.http.HTTPRequestRetryConfig):
+    def __init__(
+        self,
+        job_url: str,
+        retry_config: pl.http.HTTPRequestRetryConfig,
+        response_verifier: callable = lambda response_dict: response_dict["status_code"] == 200,
+    ):
         self._job_url = job_url
         self._retry_config = retry_config
+        self._response_verifier = response_verifier
         self._job_results: dict[str, Any] = {}
         return
 
@@ -266,7 +272,7 @@ class ProteinsPlusResponse:
             url=self._job_url,
             verb="GET",
             response_type="json",
-            response_verifier=lambda response_dict: response_dict["status_code"] == 200,
+            response_verifier=self._response_verifier,
             retry_config=self._retry_config,
         )
         return self._job_results
@@ -644,10 +650,14 @@ class PDBUploadResponse(ProteinsPlusResponse):
     """ProteinsPlus PDB upload response."""
 
     def __init__(self, job_url: str, retry_config: pl.http.HTTPRequestRetryConfig):
-        super().__init__(job_url, retry_config)
+        super().__init__(
+            job_url,
+            retry_config=retry_config,
+            response_verifier=lambda response_dict: bool(response_dict.get("id")),
+        )
         return
 
     @property
     def dummy_pdb_id(self) -> str:
         """Dummy PDB ID assigned to the uploaded PDB file."""
-        return self.job_results["dummy_pdb_id"]
+        return self.job_results["id"]
