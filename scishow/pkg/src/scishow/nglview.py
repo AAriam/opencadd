@@ -103,9 +103,9 @@ class NGLWidget(nv.NGLWidget):
             f"""
             var params = {
                 dict(
-                    position=coords.flatten().tolist(),
-                    color=colors.flatten().tolist(),
-                    radius=radii.flatten().tolist(),
+                    position=coords.ravel().tolist(),
+                    color=colors.ravel().tolist(),
+                    radius=radii.ravel().tolist(),
                 )
             };
             var shape = new NGL.Shape('{name}');
