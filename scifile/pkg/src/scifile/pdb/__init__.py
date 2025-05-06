@@ -1069,7 +1069,7 @@ class PDBFileRecords(Enum):
     CONECT = "conect"
 
 
-def parse(
+def read(
     file: str | bytes | Path,
     variant: Literal["pdb", "pdbqt"] = "pdb",
     parse_only: Sequence[PDBFileRecords | PDBFileSections | str] | None = None,
