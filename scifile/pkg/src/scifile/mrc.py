@@ -304,10 +304,11 @@ def parse(file: bytes | Path) -> MrcFile:
 
     # Read MACHST bytes directly to determine byte order of the file.
     machst = content[212:216]
-    if machst == bytes(MACHINE_STAMP_LITTLE_ENDIAN):
+    # Some sources (e.g. DoGSiteScorer) mistakenly write the MACHST in reversed order.
+    if machst == bytes(MACHINE_STAMP_LITTLE_ENDIAN) or machst == bytes(reversed(MACHINE_STAMP_LITTLE_ENDIAN)):
         endian = "little"
         np_endian = "<"
-    elif machst == bytes(MACHINE_STAMP_BIG_ENDIAN):
+    elif machst == bytes(MACHINE_STAMP_BIG_ENDIAN) or machst == bytes(reversed(MACHINE_STAMP_BIG_ENDIAN)):
         endian = "big"
         np_endian = ">"
     else:
