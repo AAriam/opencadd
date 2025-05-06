@@ -44,7 +44,7 @@ def read(
              Inconsequential mistakes are reported as warnings.
         - 3: Completely validate the PDB file and raise all errors.
     """
-    return scifile.pdb.parse(
+    return scifile.pdb.read(
         file=file,
         variant="pdbqt",
         parse_only=parse_only,
