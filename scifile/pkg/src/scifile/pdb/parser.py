@@ -63,6 +63,13 @@ class PDBParser:
         empty characters from the right, so that the shape of the array is (num_lines, max_num_chars_per_line).
         In a standard PDB file, all lines are 80 characters, so the shape will be (num_lines, 80).
         """
+        if self._lines_chars.shape[1] != 80:
+            self._raise_or_warn(
+                    "Input file contains lines longer than 80 characters. ",
+                    raise_level=1,
+                )
+            self._lines_chars = self._lines_chars[:, :80]
+
         self._lines_rec_names = np.char.strip(
             self._lines_chars[:, :6].view(dtype=(str, 6)).reshape(-1)
         )
