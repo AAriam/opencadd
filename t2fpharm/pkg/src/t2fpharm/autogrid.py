@@ -28,6 +28,50 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
 
+
+def autogrid(
+    ensemble,                         # Hydrophobic, aromatic, H-bond donor, and acceptor
+    ligand_types: Sequence[Autodock4AtomType] = (Autodock4AtomType.C, Autodock4AtomType.A, Autodock4AtomType.HD, Autodock4AtomType.OA),
+    smooth: float = 0.5,
+    dielectric: float = -0.1465,
+    confine: pocket.BindingPocket
+    | spacetime.grid.Grid
+    | spacetime.volume.ToxelVolume
+    | None = None,
+    param_filepath: Path | None = None,
+    field_datatype: npt.DTypeLike = np.single,
+):
+    pdbqt_files = oc.io.autodock.pdbqt.write.from_ensemble(ensemble)
+    # Receptor types are stored in the last column of ATOM records
+    atom_types = [
+        line.split()[-1] for line in pdbqt_files[0].splitlines() if line[:6] in ("ATOM  ", "HETATM")
+    ]
+    unique_atom_types = set(atom_types)
+    receptor_types = tuple(Autodock4AtomType[atom_type] for atom_type in unique_atom_types)
+
+    if isinstance(confine, oc.spacetime.grid.Grid):
+        grid = confine
+    elif isinstance(confine, oc.spacetime.volume.ToxelVolume):
+        grid = confine.grid
+    elif isinstance(confine, oc.pocket.BindingPocket):
+        grid = confine.volume.grid
+    else:
+        raise TypeError
+
+    toxel_field = from_pdbqt_content(
+        content=pdbqt_files,
+        receptor_types=receptor_types,
+        ligand_types=ligand_types,
+        grid=grid,
+        smooth=smooth,
+        dielectric=dielectric,
+        param_filepath=param_filepath,
+        field_dtype=field_datatype,
+    )
+
+    return toxel_field
+
+
 def from_pdbqt_contents(
     contents: Sequence[str],
     parameter_file: PathLike | None = None,
@@ -154,12 +198,14 @@ def run(
         and error message of the process.
     """
     # _PATH_EXECUTABLE = Path(oc.__file__).parent.resolve() / "_exec" / "autogrid4"
-    cmd = ["autogrid4", "-p", str(Path(gpf_filepath).resolve())]
+    gpg_filepath = Path(gpf_filepath).resolve()
+    cmd = ["autogrid4", "-p", gpg_filepath]
     if glg_filepath:
-        cmd.extend(["-l", str(Path(glg_filepath).resolve())])
+        cmd.extend(["-l", Path(glg_filepath).resolve()])
     process = subprocess.run(
         args=cmd,
         check=True,
+        cwd=gpg_filepath.parent,
     )
     return process
 
