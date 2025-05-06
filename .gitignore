@@ -104,3 +104,6 @@ ENV/
 
 # VSCode
 .vscode/
+
+# Temporary files
+.tmp/
