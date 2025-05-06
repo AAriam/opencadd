@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from scifile.pdb import PDBFileRecords, PDBFileSections, PDBFile
 
 
-def parse(
+def read(
     file: str | bytes | Path,
     parse_only: Sequence[PDBFileRecords | PDBFileSections | str] | None = None,
     strictness: Literal[0, 1, 2, 3] = 0,
