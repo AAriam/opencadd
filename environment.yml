@@ -22,6 +22,8 @@ dependencies:
   - IPython
   - openbabel
   - autogrid
+  - pdbfixer
+  - openmm
   - pip:
       - -e caddpy/pkg
       - -e sciapi/pkg
