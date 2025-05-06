@@ -62,7 +62,6 @@ if TYPE_CHECKING:
 FILETYPE = "autodock_gpf"
 
 
-@dataclass
 class AutodockGpfFile:
     """AutoDock Grid Parameter File (GPF).
 
