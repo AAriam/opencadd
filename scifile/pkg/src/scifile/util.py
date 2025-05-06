@@ -1,4 +1,11 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import numpy as np
+
+if TYPE_CHECKING:
+    from typing import Any
 
 
 def smallest_np_integer_dtype_for_range(min_val: int | float, max_val: int | float) -> type[np.integer]:
@@ -35,3 +42,10 @@ def smallest_np_integer_dtype_for_range(min_val: int | float, max_val: int | flo
         f"Bit overflow. Bounds for largest type ({[signed_types[-1]]}) is "
         f"[{signed_mins[-1]}, {signed_maxes[-1]}]. Given interval was [{min_val}, {max_val}]."
     )
+
+
+def elements_are_equal(a: Any, b: Any) -> bool:
+    """Check if two elements are equal."""
+    if isinstance(a, np.ndarray) and isinstance(b, np.ndarray):
+        return np.array_equal(a, b)
+    return a == b
