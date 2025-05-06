@@ -1,10 +1,17 @@
 """Extended NGLWidget with additional representations and features."""
 
-from collections.abc import Sequence
-from typing import Literal, NoReturn
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+from dataclasses import dataclass, field, asdict, fields
 
 import nglview as nv
 import numpy as np
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence, Any
+    from typing import Literal, NoReturn
+    from scishow.typing import Vector3, Matrix3x3
 
 
 class NGLWidget(nv.NGLWidget):
@@ -185,30 +192,70 @@ class NGLWidget(nv.NGLWidget):
         )
         return
 
-    def add_grid(
+    def add_volume(
         self,
-        values,
-        shape,
-        basis_vectors,
-        origin=(0, 0, 0),
-        representation: Literal["surface", "dot", "slice"] = "surface",
-        name: str = "Grid",
-        color: str = "rgb(100,0,0)",
+        data: np.ndarray,
+        basis: Matrix3x3 | np.ndarray = np.eye(3),
+        origin: Vector3 | np.ndarray = np.zeros(3),
+        representation_type: Literal["surface", "dot", "slice"] = "surface",
+        representation_params: SurfaceRepresentationParameters | None = None,
+        name: str = "Volume",
+        path: str = "memory",
     ):
+        """Add a volume to the NGLWidget.
+
+        A volume is a 3D grid of values,
+        which can be visualized in different ways.
+
+        Parameters
+        ----------
+        data
+            A 3D array of values.
+        basis
+            Basis vectors (a.k.a. grid spacing matrix) for the volume.
+            This is a 3x3 array where each row (i.e. basis[i])
+            is a vector from one point to the next point in the i-th dimension.
+            For example, for an orthogonal grid, the basis is a diagonal matrix
+            where the diagonal elements are the grid spacing in each dimension.
+        origin
+            Coordinates of the first grid point.
+        representation_type
+            The representation type for the volume.
+            Can be one of "surface", "dot", or "slice".
+            This can also be changed later through the GUI.
+        representation_params
+            Represenation parameters for the volume representation type.
+        name
+            Name of the volume component.
+            This is used to identify the component in the GUI or programmatically.
+        path
+            Path of the volume file.
+            This is used to identify the component in the GUI or programmatically.
+
+        References
+        ----------
+        - [NGL documentation](https://nglviewer.org/ngl/api/classes/volume.html)
+        """
+        shape = data.shape
+        nx_ny_nz = ", ".join(map(str, shape))
+        data_flat = data.ravel("F").tolist()
+        affine_map = np.eye(4)
+        affine_map[:3, :3] = basis
+        affine_map[:3, 3] = origin
+        matrix_args = ", ".join(map(str, affine_map.flat))
+        add_repr_args = [f'"{representation_type}"']
+        if representation_params:
+            add_repr_args.append(str(representation_params))
         command = f"""
-        var vol = new NGL.Volume("{name}", " ", {values.tolist()}, {shape[0]}, {shape[1]}, {shape[2]})
+        var vol = new NGL.Volume("{name}", "{path}", {data_flat}, {nx_ny_nz})
         var m = new NGL.Matrix4()
-        m.set({basis_vectors[0][0]}, {basis_vectors[1][0]}, {basis_vectors[2][0]}, {origin[0]},
-              {basis_vectors[0][1]}, {basis_vectors[1][1]}, {basis_vectors[2][1]}, {origin[1]},
-              {basis_vectors[0][2]}, {basis_vectors[1][2]}, {basis_vectors[2][2]}, {origin[2]},
-              0, 0, 0, 1
-        )
+        m.set({matrix_args})
         vol.setMatrix(m)
         var comp = this.stage.addComponentFromObject(vol)
-        comp.addRepresentation("{representation}", {{isolevelType: 'value', isolevel: 1, wireframe: true, colorValue: "{color}"}})
+        comp.addRepresentation({", ".join(add_repr_args)})
         """
         self._js(command)
-        return
+        return self
 
     def add_axes(self):
         self._widget._js(
@@ -227,26 +274,224 @@ class NGLWidget(nv.NGLWidget):
         return
 
 
-# class RepresentationParameters(NamedTuple):
-#     opacity: float = 1,
-#     wireframe: bool = False,
-#     color_value: str = "rgb(128, 128, 128)"
-#
-#     def __str__(self):
-#
-#         inputs = [f"{param}: "]
-#
-#         ", ".join([])
-#
-# class SurfaceRepresentationParameters(NamedTuple):
-#     """
-#
-#     """
-#     isolevel_type: Literal["value", "sigma"] = "value"
-#     isolevel: float = 1.0
-#     smooth: int = 0
-#     background: bool
-#     opaque_back: bool
-#     box_size: int
-#     use_worker: bool
-#     wrap: bool
+@dataclass(kw_only=True)
+class RepresentationParameters:
+    """General representation parameters for NGLWidget.
+
+    Attributes
+    ----------
+    name
+        Name of the representation.
+    lazy
+        Only build and update the representation when visible.
+    clip_near
+        Position of camera near/front clipping plane in percent of scene bounding box.
+    clip_radius
+        Radius of the clipping sphere.
+    clip_center
+        Position for spherical clipping.
+    flat_shaded
+        Render with flat shading.
+    opacity
+        Translucency: 1 is fully opaque, 0 is fully transparent.
+    depth_write
+        Whether depth writing is enabled.
+    side
+        Which triangle sides to render. One of "front", "back", "double".
+    wireframe
+        Render as wireframe.
+    color_data
+        Atom or bond indexed data for coloring.
+    color_scheme
+        Color scheme identifier.
+    color_scale
+        Color scale, either a predefined name or array of colors.
+    color_reverse
+        Whether to reverse the color scale.
+    color_value
+        Static color value to use.
+    color_domain
+        Value range for the color scale, must have two integers [min, max].
+    color_mode
+        Color mode, one of 'rgb', 'hsv', 'hsl', 'hsi', 'lab', or 'hcl'.
+    roughness
+        Material roughness between 0 and 1.
+    metalness
+        Material metalness between 0 and 1.
+    diffuse
+        Diffuse color for lighting.
+    diffuse_interior
+        Ignore normal when rendering interior surfaces.
+    use_interior_color
+        Whether to use a different interior color.
+    interior_color
+        Color to apply to interior surfaces.
+    interior_darkening
+        How much to darken interior surfaces, from 0 to 1.
+    disable_picking
+        Disable object picking (e.g., for interactivity).
+
+    References
+    ----------
+    - [NGL source code](https://github.com/nglviewer/ngl/blob/60be69b5fe0e9c43cb3a06fe1cb691fa9478c790/src/representation/representation.ts#L18-L88)
+    - [NGL source code](https://github.com/nglviewer/ngl/blob/60be69b5fe0e9c43cb3a06fe1cb691fa9478c790/src/representation/representation.ts#L155-L249)
+    """
+    name: str | None = None
+    lazy: bool | None = None
+    clip_near: int | None = None
+    clip_radius: int | None = None
+    clip_center: Vector3 | None = None
+    flat_shaded: bool | None = None
+    opacity: float | None = None
+    depth_write: bool | None = None
+    side: str | None = None
+    wireframe: bool | None = None
+    color_data: str | None = None
+    color_scheme: str | None = None
+    color_scale: str | list[str | Color] | None = None
+    color_reverse: bool | None = None
+    color_value: Color | str | int | None = None
+    color_domain: list[int] | None = None
+    color_mode: str | None = None
+    color_space: Literal["sRGB", "linear"] = None
+    roughness: float | None = None
+    metalness: float | None = None
+    diffuse: Color | str | int | None = None
+    diffuse_interior: bool | None = None
+    use_interior_color: bool | None = None
+    interior_color: Color | str | int | None = None
+    interior_darkening: float | None = None
+    disable_picking: bool | None = None
+    matrix: Matrix4 | None = None
+    quality: str | None = None
+    visible: bool | None = None
+    color: Color | str | int | None = None
+    sphere_detail: int | None = None
+    radial_segments: int | None = None
+    open_ended: bool | None = None
+    disable_impostor: bool | None = None
+
+    def __str__(self) -> str:
+        js_fields = []
+        for f in fields(self):
+            val = getattr(self, f.name)
+            if val is not None:
+                js_key = _to_camel_case(f.name)
+                js_val = _js_repr(Color(val) if f.name.endswith('color') and not isinstance(val, Color) and isinstance(val, (str, int)) else val)
+                js_fields.append(f"{js_key}: {js_val}")
+        return f"{{{', '.join(js_fields)}}}"
+
+
+@dataclass(kw_only=True)
+class SurfaceRepresentationParameters(RepresentationParameters):
+    """Surface representation parameters.
+
+    Attributes
+    ----------
+    isolevel_type
+        Meaning of the isolevel value.
+        Either 'value' for the literal value or
+        'sigma' as a factor of the sigma of the data.
+        Only applies to volume data.
+    isolevel
+        The value at which to create the isosurface.
+        Only applies to volume data.
+    negate_isolevel
+        Whether to negate the isolevel value.
+        Only applies to volume data.
+    isolevel_scroll
+        Whether to show a slider to change the isolevel value.
+        Only applies to volume data.
+    smooth
+        Number of laplacian smoothing iterations
+        after surface triangulation.
+        Only applies to volume data.
+    background
+        Whether to render the surface in the background, unlit.
+    opaque_back
+        Whether to render the back-faces (where normals point away from the camera)
+        of the surface opaque, ignoring the transparency parameter.
+    box_size
+        Size of the box to triangulate volume data in.
+        Set to zero to triangulate the whole volume.
+        Only applies to volume data.
+    contour
+        Whether to show the contour lines of the isosurface.
+        Only applies to volume data.
+    use_worker
+        Weather to triangulate the volume asynchronously in a Web Worker.
+        Only applies to volume data.
+    wrap
+        Whether to wrap volume data around the edges;
+        use in conjuction with `box_size`
+        but not larger than the volume dimension.
+        Only applies to volume data.
+
+    References
+    ----------
+    - [NGL source code](https://github.com/nglviewer/ngl/blob/60be69b5fe0e9c43cb3a06fe1cb691fa9478c790/src/representation/surface-representation.ts#L27-L36)
+    - [NGL source code](https://github.com/nglviewer/ngl/blob/60be69b5fe0e9c43cb3a06fe1cb691fa9478c790/src/representation/surface-representation.ts#L92-L134)
+    """
+    isolevel_type: Literal["value", "sigma"] | None = None
+    isolevel: float | None = None
+    negate_isolevel: bool | None = None
+    isolevel_scroll: bool | None = None
+    smooth: int | None = None
+    background: bool | None = None
+    opaque_back: bool | None = None
+    box_size: int | None = None
+    contour: bool | None = None
+    use_worker: bool | None = None
+    wrap: bool | None = None
+
+
+@dataclass
+class Color:
+    """A JavaScript `Color` object from three.js."""
+    value: int | str
+
+    def __str__(self):
+        if isinstance(self.value, int):
+            return f"new Color(0x{self.value:06x})"
+        return f"new Color('{self.value}')"
+
+
+@dataclass
+class Vector3:
+    """A JavaScript `Vector3` object from three.js."""
+    x: float
+    y: float
+    z: float
+
+    def __str__(self):
+        return f"new Vector3({self.x}, {self.y}, {self.z})"
+
+
+@dataclass
+class Matrix4:
+    """A JavaScript `Matrix4` object from three.js."""
+    elements: list[float]
+
+    def __str__(self):
+        return f"new Matrix4().fromArray({_js_repr(self.elements)})"
+
+
+def _to_camel_case(snake_str: str) -> str:
+    parts = snake_str.split('_')
+    return parts[0] + ''.join(word.capitalize() for word in parts[1:])
+
+
+def _js_repr(value: Any) -> str:
+    if isinstance(value, str):
+        return f"'{value}'"
+    elif isinstance(value, bool):
+        return 'true' if value else 'false'
+    elif isinstance(value, (int, float)):
+        return str(value)
+    elif isinstance(value, list):
+        return '[' + ', '.join(_js_repr(v) for v in value) + ']'
+    elif isinstance(value, dict):
+        return '{' + ', '.join(f"{k}: {_js_repr(v)}" for k, v in value.items()) + '}'
+    elif hasattr(value, '__str__'):
+        return str(value)
+    return 'null'
