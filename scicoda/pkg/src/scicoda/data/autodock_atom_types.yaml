@@ -14,7 +14,6 @@ schema:
     summary: An atom type used in AutoDock4.
     type: object
     additionalProperties: false
-    required: [ type, element, hbond_acceptor, hbond_donor, hbond_count ]
     properties:
       type:
         summary: Atom type as defined in AutoDock.
@@ -50,6 +49,7 @@ schema:
           0 for non H-bonding atoms,
           and null for spherically H-bonding atoms.
         default: null
+    required: [ type, element, hbond_acceptor, hbond_donor, hbond_count ]
     oneOf:
       - properties:
           hbond_acceptor:
