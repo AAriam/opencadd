@@ -143,7 +143,6 @@ class AutodockGpfFile:
         self.gridcenter = gridcenter
         self.smooth = smooth
         self.dielectric = dielectric
-        self._autodock_atom_types = scicoda.data.autodock_atom_types
         return
 
     @property
@@ -301,26 +300,43 @@ class AutodockGpfFile:
             lines.append(f"parameter_file {self.parameter_file}")
         lines.extend(
             [
-                f"npts {' '.join(self.npts.astype(str))}"
-                f"gridfld {self.gridfld}"
-                f"spacing {self.spacing}"
-                f"receptor_types {' '.join(receptor_type.name for receptor_type in self.receptor_types)}"
-                f"ligand_types {' '.join(ligand_type.name for ligand_type in self.ligand_types)}"
-                f"receptor {self.receptor}"
-                f"gridcenter {' '.join(self.gridcenter.astype(str))}"
-                f"smooth {self.smooth}"
+                f"npts {' '.join(self.npts.astype(str))}",
+                f"gridfld {self.gridfld}",
+                f"spacing {self.spacing}",
+                f"receptor_types {' '.join(self.receptor_types)}",
+                f"ligand_types {' '.join(self.ligand_types)}",
+                f"receptor {self.receptor}",
+                f"gridcenter {' '.join(self.gridcenter.astype(str))}",
+                f"smooth {self.smooth}",
             ]
         )
         for ligand_map in self.maps:
             lines.append(f"map {ligand_map}")
         lines.extend(
             [
-                f"elecmap {self.elecmap}"
-                f"dsolvmap {self.dsolvmap}"
-                f"dielectric {self.dielectric}"
+                f"elecmap {self.elecmap}",
+                f"dsolvmap {self.dsolvmap}",
+                f"dielectric {self.dielectric}",
             ]
         )
         return "\n".join(lines)
+
+    def _verify_atom_types(self, atom_types: Sequence[str]) -> tuple[str, ...]:
+        types = []
+        for atom_type in atom_types:
+            if not isinstance(atom_type, str):
+                raise exception.SciFileValidationError(
+                    filetype=FILETYPE,
+                    message=f"Invalid atom type: {atom_type}"
+                )
+            atom_type = atom_type.upper()
+            if atom_type not in scicoda.data.autodock_atom_types["type"].values:
+                raise exception.SciFileValidationError(
+                    filetype=FILETYPE,
+                    message=f"Invalid atom type: {atom_type}"
+                )
+            types.append(atom_type)
+        return tuple(types)
 
     @staticmethod
     def _verify_filepath(filepath: PathLike) -> Path:
@@ -337,22 +353,95 @@ class AutodockGpfFile:
             raise ValueError("Path contains non-ASCII characters.")
         return Path(filepath)
 
-    def _verify_atom_types(self, atom_types: Sequence[str]) -> tuple[str, ...]:
-        types = []
-        for atom_type in atom_types:
-            if not isinstance(atom_type, str):
-                raise exception.SciFileValidationError(
-                    filetype=FILETYPE,
-                    message=f"Invalid atom type: {atom_type}"
-                )
-            atom_type = atom_type.upper()
-            if atom_type not in self._autodock_atom_types["type"]:
-                raise exception.SciFileValidationError(
-                    filetype=FILETYPE,
-                    message=f"Invalid atom type: {atom_type}"
-                )
-            types.append(atom_type)
-        return tuple(types)
+
+def read(
+    file: str | bytes | Path,
+    strict: bool = True,
+    file_label: str | None = None
+) -> AutodockGpfFile:
+    """Read an AutoDock GPF file.
+
+    Parameters
+    ----------
+    file
+        GPF file content or path.
+        If a string, it is treated as the content of the file.
+        If bytes, it is decoded to UTF-8.
+        If a Path, the file is read as text.
+    strict
+        Treat any parsing problems as errors.
+        If False, only critical problems are raised as errors,
+        and all other problems are reported as warnings.
+    file_label
+        Identifier for the GPF file.
+        This is used for error reporting only.
+    """
+    token_parser = {
+        "parameter_file": lambda x: Path(x[1]),
+        "npts": lambda x: np.array(x[1:4], dtype=np.int64),
+        "gridfld": lambda x: Path(x[1]),
+        "spacing": lambda x: float(x[1]),
+        "receptor_types": lambda x: tuple(x[1:]),
+        "ligand_types": lambda x: tuple(x[1:]),
+        "receptor": lambda x: Path(x[1]),
+        "gridcenter": lambda x: np.array(x[1:4], dtype=np.float64),
+        "smooth": lambda x: float(x[1]),
+        "map": lambda x: Path(x[1]),
+        "elecmap": lambda x: Path(x[1]),
+        "dsolvmap": lambda x: Path(x[1]),
+        "dielectric": lambda x: float(x[1]),
+    }
+    if isinstance(file, Path):
+        content = file.read_text()
+        if not file_label:
+            file_label = str(file)
+    elif isinstance(file, bytes):
+        content = content.decode("utf-8")
+    elif isinstance(file, str):
+        content = file
+    else:
+        raise TypeError(
+            f"Expected a string, bytes, or Path object, "
+            f"but got {type(file).__name__}{f" for file {file_label}" if file_label else ""}."
+        )
+    lines = content.strip().splitlines()
+    metadata = {}
+    for line_idx, line in enumerate(lines):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            # Skip empty lines and comments
+            continue
+        tokens = line.split()
+        key = tokens[0].lower()
+        parser = token_parser.get(key)
+        if not parser:
+            _raise_or_warn(
+                f"File contains unknown key '{key}'.",
+                strict=strict,
+                filepath=file_label,
+                content=file,
+                line_idx=line_idx,
+                token=line,
+            )
+            continue
+        if len(tokens) == 1:
+            _raise_or_warn(
+                f"Line is contains only a token.",
+                strict=strict,
+                filepath=file_label,
+                content=file,
+                line_idx=line_idx,
+                token=line,
+            )
+            continue
+        if "#" in tokens:
+            tokens = tokens[:tokens.index("#")]
+        value = parser(tokens)
+        if key == "map":
+            metadata.setdefault("maps", []).append(value)
+        else:
+            metadata[key] = value
+    return AutodockGpfFile(**metadata)
 
 
 def from_spec(
@@ -388,7 +477,7 @@ def from_spec(
     return AutodockGpfFile(
         receptor=receptor,
         gridfld=gridfld or path_common.with_suffix(".maps.fld"),
-        maps=maps or tuple(path_common.with_suffix(f".{ligand_type.name}.map") for ligand_type in ligand_types),
+        maps=maps or tuple(path_common.with_suffix(f".{ligand_type}.map") for ligand_type in ligand_types),
         elecmap=elecmap or path_common.with_suffix(".e.map"),
         dsolvmap=dsolvmap or path_common.with_suffix(".d.map"),
         parameter_file=parameter_file,
@@ -430,3 +519,21 @@ def get_npts_from_size(
     """
     npts_min = np.ceil(np.array(size) / spacing)
     return tuple(np.where(npts_min % 2 == 0, npts_min, npts_min + 1).astype(int))
+
+
+def _raise_or_warn(
+    message: str,
+    *,
+    strict: bool = True,
+    critical: bool = False,
+    filepath: PathLike | None = None,
+    content: str | bytes | None = None,
+) -> None:
+    error = exception.SciFileReadError(
+        file_type=FILETYPE,
+        message=message,
+        filepath=filepath,
+        content=content,
+    )
+    exception.raise_or_warn(error, strict=strict, critical=critical)
+    return
