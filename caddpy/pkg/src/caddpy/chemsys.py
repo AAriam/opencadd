@@ -176,6 +176,12 @@ class ChemicalComposition:
 
 
 class _ChemicalSystemNGLViewAdaptor(ngl.Structure, ngl.Trajectory):
+    """NGLView adaptor for ChemicalSystem.
+
+    References
+    ----------
+    - [NGLView documentation:Extend NGLView classes](https://github.com/nglviewer/nglview/blob/master/docs/interface_classes.md)
+    """
     def __init__(self, chemsys: ChemicalSystem):
         self._chemsys = chemsys
         self.ext = "pdb"
