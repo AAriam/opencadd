@@ -97,7 +97,7 @@ class DoGSiteScorerDetector:
 
 
 def _from_ensemble(
-    ensemble: oc.chem.ensemble.ChemicalEnsemble,
+    ensemble: oc.chem.ensemble.ChemicalSystem,
     model: int | None = 0,
     chain_id: str | None = None,
     ligand_id_chain_num: tuple[str, str, int] | None = None,
