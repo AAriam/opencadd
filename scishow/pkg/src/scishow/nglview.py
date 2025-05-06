@@ -240,7 +240,7 @@ class NGLWidget(nv.NGLWidget):
         nx_ny_nz = ", ".join(map(str, shape))
         data_flat = data.ravel("F").tolist()
         affine_map = np.eye(4)
-        affine_map[:3, :3] = basis
+        affine_map[:3, :3] = basis.transpose()
         affine_map[:3, 3] = origin
         matrix_args = ", ".join(map(str, affine_map.flat))
         add_repr_args = [f'"{representation_type}"']
