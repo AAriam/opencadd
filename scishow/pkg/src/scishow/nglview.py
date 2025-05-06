@@ -1,4 +1,11 @@
-"""Extended NGLWidget with additional representations and features."""
+"""Extended NGLWidget with additional representations and features.
+
+References
+----------
+- [NGL documentation](https://nglviewer.org/ngl/api/index.html)
+- [NGL source code](https://github.com/nglviewer/ngl)
+- [NGLView source code](https://github.com/nglviewer/nglview)
+"""
 
 from __future__ import annotations
 
@@ -15,6 +22,12 @@ if TYPE_CHECKING:
 
 
 class NGLWidget(nv.NGLWidget):
+    """Extended nglview.NGLWidget with additional representations and features.
+
+    References
+    ----------
+    - [NGLWidget source code](https://github.com/nglviewer/nglview/blob/master/nglview/widget.py)
+    """
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         return
