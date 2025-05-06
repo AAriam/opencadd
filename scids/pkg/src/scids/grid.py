@@ -297,27 +297,27 @@ def from_bounds_shape(
 
 def from_shape_spacing_anchor(
     shape: Sequence[float],
-    spacings: Sequence[float],
+    spacing: Sequence[float] | float,
+    anchor_type: Literal["lower", "center", "upper"] | Sequence[int] = "center",
     anchor_coord: Sequence[float] = None,
-    anchor: Literal["lower", "center", "upper"] | Sequence[int] = "center",
 ):
     shape = np.asarray(shape)
-    spacings = np.asarray(spacings)
+    spacing = np.array([spacing] * shape.size) if np.isscalar(spacing) else np.asarray(spacing)
     num_spacings = shape - 1
-    size = num_spacings * spacings
+    size = num_spacings * spacing
     anchor_coord = np.zeros(shape=shape.size) if anchor_coord is None else np.asarray(anchor_coord)
-    if anchor == "center":
+    if anchor_type == "center":
         lower_bounds = anchor_coord - size / 2
         upper_bounds = anchor_coord + size / 2
-    elif anchor == "lower":
+    elif anchor_type == "lower":
         lower_bounds = anchor_coord
         upper_bounds = anchor_coord + size
-    elif anchor == "upper":
+    elif anchor_type == "upper":
         lower_bounds = anchor_coord - size
         upper_bounds = anchor_coord
     else:
-        anchor = np.asarray(anchor)
-        lower_bounds = anchor_coord - anchor * spacings
+        anchor_type = np.asarray(anchor_type)
+        lower_bounds = anchor_coord - anchor_type * spacing
         upper_bounds = lower_bounds + size
     return from_bounds_shape(lower_bounds=lower_bounds, upper_bounds=upper_bounds, shape=shape)
 
@@ -333,7 +333,7 @@ def from_shape_size_anchor(
     num_spacings = shape - 1
     spacings = size / num_spacings
     return from_shape_spacing_anchor(
-        shape=shape, spacings=spacings, anchor_coord=anchor_coord, anchor=anchor
+        shape=shape, spacing=spacings, anchor_coord=anchor_coord, anchor_type=anchor
     )
 
 
@@ -350,9 +350,9 @@ def from_size_spacing_anchor(
     fit_func = np.floor if shrink_to_fit else np.ceil
     return from_shape_spacing_anchor(
         shape=fit_func(num_spacings + 1).astype(int),
-        spacings=spacings,
+        spacing=spacings,
         anchor_coord=anchor_coord,
-        anchor=anchor,
+        anchor_type=anchor,
     )
 
 
