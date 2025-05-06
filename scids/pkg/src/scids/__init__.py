@@ -1,14 +1,11 @@
-"SciDS: Scientific Data Structures and file formats"
+"""SciDS: Scientific Data Structures and file formats"""
 
 
-from scids import chemsys, display, field, file, grid, pointcloud, rectangular_cuboid, volume
+from scids import field, grid, pointcloud, rectangular_cuboid, volume
 
 
 __all__ = [
-    "chemsys",
-    "display",
     "field",
-    "file",
     "grid",
     "pointcloud",
     "rectangular_cuboid",
