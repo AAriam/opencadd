@@ -1117,7 +1117,7 @@ def read(
             elif isinstance(record_or_section, PDBFileSections):
                 records.extend(record_or_section.value)
             elif isinstance(record_or_section, str):
-                records.append(record_or_section)
+                records.append(record_or_section.lower())
             else:
                 raise TypeError(
                     "Parameter `parse_only` expects either a list of Records or Sections, "
