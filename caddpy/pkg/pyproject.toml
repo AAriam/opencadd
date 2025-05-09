@@ -10,6 +10,8 @@ dependencies = [
     "scicoda",
     "scifile",
     "scids",
+    "loggerman",
+    "pyshellman",
     "jax",
     "numpy",
     "pandas",
