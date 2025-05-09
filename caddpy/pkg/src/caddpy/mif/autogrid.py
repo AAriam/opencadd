@@ -198,12 +198,12 @@ def from_pdbqt(
                     name=arg_name,
                     message="No files provided."
                 )
-            if file_ids:
+            if input_file_ids:
                 raise exception.InputError(
                     name=f"{arg_name}_ids",
                     message="File IDs were provided, but no files were given."
                 )
-            return [None], [None], True
+            return [None], [None], [None], True
         if isinstance(input_files, (str, bytes, Path)):
             input_files = [input_files]
             single_file = True
@@ -269,7 +269,7 @@ def from_pdbqt(
                     )
                 final_filepath.write_text(file) if isinstance(file, str) else final_filepath.write_bytes(file)
                 final_filepaths.append(final_filepath)
-        return final_filepaths, file_ids, single_file
+        return final_filepaths, input_files, file_ids, single_file
 
     if not output_dir:
         output_dir = tempfile.TemporaryDirectory().name
@@ -288,8 +288,8 @@ def from_pdbqt(
     else:
         output_dir.mkdir(parents=True, exist_ok=True)
 
-    filepaths, file_ids, single_file = process_file_inputs(files, file_ids, receptor=True)
-    parameter_filepaths, parameter_file_ids, single_parameter_file = process_file_inputs(
+    filepaths, files, file_ids, single_file = process_file_inputs(files, file_ids, receptor=True)
+    parameter_filepaths, parameter_files, parameter_file_ids, single_parameter_file = process_file_inputs(
         parameter_files, parameter_file_ids, receptor=False
     )
 
@@ -339,10 +339,11 @@ def from_pdbqt(
         spacing=grid.spacings[0],
         center=gridcenter,
     )
-    return scids.field.from_tensor_grid(
+    return scids.field.from_tensor(
         tensor=maps.field[..., *slices],
         grid=grid,
-        names=[lig_type.lower() for lig_type in ligand_types] + ["e", "d"]
+        field_dtype=field_dtype,
+        # names=[lig_type.lower() for lig_type in ligand_types] + ["e", "d"]
     )
 
 
@@ -391,11 +392,11 @@ def run(
     gpf_filepath = Path(gpf_filepath)
     cwd = Path(cwd).resolve() if cwd else Path.cwd()
     gpf_abspath = gpf_filepath if gpf_filepath.is_absolute() else cwd / gpf_filepath
-    cmd = [exec_name.lower(), "-p", gpf_abspath]
+    cmd = [exec_name.lower(), "-p", str(gpf_abspath)]
     if glg_filepath:
         glg_filepath = Path(glg_filepath)
         glg_abspath = glg_filepath if glg_filepath.is_absolute() else cwd / glg_filepath
-        cmd.extend(["-l", glg_abspath])
+        cmd.extend(["-l", str(glg_abspath)])
     try:
         process = pyshellman.run(
             command=cmd,
