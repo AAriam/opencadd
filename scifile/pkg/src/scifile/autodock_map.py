@@ -259,7 +259,7 @@ class AutodockMapFile:
 
 def read(
     files: str | bytes | Path | ArrayLike,
-    field_dtype: np.dtype = np.single,
+    field_dtype: np.dtype = np.float32,
     strict: bool = True,
     file_labels: Any = None,
     nelements: tuple[int, int, int] | np.ndarray | None = None,
@@ -350,7 +350,7 @@ def read(
         ("spacing", spacing, float),
         ("center", center, lambda x: np.array(x, dtype=np.float64)),
     ):
-        if input_value:
+        if input_value is not None:
             ref_values[metadata_id] = caster(input_value)
         elif metadata_id in first_metadata:
             ref_values[metadata_id] = first_metadata[metadata_id]
@@ -407,7 +407,7 @@ def read(
             ("spacing", spacing),
             ("center", center),
         ):
-            if input_value:
+            if input_value is not None:
                 continue
             if metadata_id not in metadata:
                 _raise_or_warn(
