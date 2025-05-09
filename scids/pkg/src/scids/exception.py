@@ -42,6 +42,15 @@ class ScidsReadError(ScidsError):
         return
 
 
+class InputError(ScidsError):
+    """Exception raised when an input is invalid."""
+
+    def __init__(self, name: str, message: str) -> None:
+        super().__init__(message)
+        self.name = name
+        return
+
+
 def raise_or_warn(
     exception: Exception,
     *,
