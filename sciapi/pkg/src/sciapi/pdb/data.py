@@ -34,8 +34,7 @@ def schema(
         "chem_comp",
     ],
 ) -> dict:
-    """
-    Get the data schema for a data type.
+    """Get the data schema for a data type.
 
     Parameters
     ----------
