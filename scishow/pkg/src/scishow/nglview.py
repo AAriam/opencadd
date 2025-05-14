@@ -70,8 +70,8 @@ class NGLWidget(nv.NGLWidget):
         coords: Sequence[float],
         colors: Sequence[float] = (0.5, 0.5, 0.5),
         radii: Sequence[float] | float = 0.2,
-        opacity: float = 0.7,
         name: str | None = "spheres",
+        representation_params: RepresentationParameters | None = None,
     ):
         if not isinstance(coords, np.ndarray):
             coords = np.array(coords, dtype=np.single)
@@ -98,7 +98,9 @@ class NGLWidget(nv.NGLWidget):
             radii = np.tile(radii, reps=num_points)
         elif num_radii != num_points:
             raise ValueError("Size of `radii` and `coords` do not match.")
-
+        add_repr_args = [f'"buffer"']
+        if representation_params:
+            add_repr_args.append(str(representation_params))
         self._js(
             f"""
             var params = {
@@ -113,7 +115,7 @@ class NGLWidget(nv.NGLWidget):
 
             shape.addBuffer(buffer);
             var shapeComp = this.stage.addComponentFromObject(shape);
-            shapeComp.addRepresentation("buffer", {{opacity:{opacity}}});
+            shapeComp.addRepresentation({", ".join(add_repr_args)});
             """
         )
         return
@@ -270,20 +272,143 @@ class NGLWidget(nv.NGLWidget):
         self._js(command)
         return self
 
-    def add_axes(self):
-        self._widget._js(
+    def add_origin(self):
+        self._js(
             """
             var shape = new NGL.Shape("axes", { disableImpostor: true });
-            shape.addArrow([ 0, 0, 0 ], [ 10, 0, 0 ], [ 1, 0, 0 ], 0.5);
-            shape.addArrow([ 0, 0, 0 ], [ 0, 10, 0 ], [ 0, 1, 0 ], 0.5);
-            shape.addArrow([ 0, 0, 0 ], [ 0, 0, 10 ], [ 0, 0, 1 ], 0.5);
+            shape.addArrow([ 0, 0, 0 ], [ 10, 0, 0 ], [ 1, 0, 0 ], 0.2);
+            shape.addArrow([ 0, 0, 0 ], [ 0, 10, 0 ], [ 0, 1, 0 ], 0.2);
+            shape.addArrow([ 0, 0, 0 ], [ 0, 0, 10 ], [ 0, 0, 1 ], 0.2);
             shape.addText([10, 0, 0], [0, 0, 0], 9, "x")
             shape.addText([0, 10, 0], [0, 0, 0], 9, "y")
             shape.addText([0, 0, 10], [0, 0, 0], 9, "z")
-            var shapeComp = this.stage.addComponentFromObject(shape, {visible: false});
+            var shapeComp = this.stage.addComponentFromObject(shape, {visible: true});
             shapeComp.addRepresentation("axes");
             """
         )
+        return
+
+    def add_bounding_box(
+        self,
+        component_id: int = 0,
+        selection: str | None = None,
+        color=(0, 0, 0),
+        radius=0.1,
+        name="bbox"
+    ):
+        """Draw an axis-aligned bounding box around a structure.
+
+        Parameters
+        ----------
+        component_id
+            ID of the component to draw the bounding box around.
+        selection
+            Selection string to specify the atoms to include in the bounding box.
+            If None, the entire structure is used.
+        color
+            RGB color of the box edges as a tuple (r, g, b).
+        radius
+            Radius of the box edges.
+        name
+            Name of the shape component.
+        """
+        r, g, b = map(repr, color)
+        js_code = f"""
+        const component = this.stage.compList[{component_id}];
+        if (!component || !component.structure) {{
+            console.error("No structure in component {component_id}");
+        }} else {{
+            const selection = {f"new NGL.Selection('{selection}')" if selection else "undefined"};
+            const box = component.structure.getBoundingBox(selection);
+            const min = [box.min.x, box.min.y, box.min.z];
+            const max = [box.max.x, box.max.y, box.max.z];
+
+            const corners = [
+                [min[0], min[1], min[2]],  // 0
+                [max[0], min[1], min[2]],  // 1
+                [min[0], max[1], min[2]],  // 2
+                [max[0], max[1], min[2]],  // 3
+                [min[0], min[1], max[2]],  // 4
+                [max[0], min[1], max[2]],  // 5
+                [min[0], max[1], max[2]],  // 6
+                [max[0], max[1], max[2]]   // 7
+            ];
+
+            const edges = [
+                [0, 1], [0, 2], [1, 3], [2, 3],  // bottom
+                [4, 5], [4, 6], [5, 7], [6, 7],  // top
+                [0, 4], [1, 5], [2, 6], [3, 7]   // verticals
+            ];
+
+            const shape = new NGL.Shape("{name}");
+            for (const [i, j] of edges) {{
+                shape.addCylinder(corners[i], corners[j], [{r}, {g}, {b}], {radius});
+            }}
+
+            const shapeComp = this.stage.addComponentFromObject(shape);
+            shapeComp.addRepresentation("buffer");
+        }}
+        """
+        self._js(js_code)
+        return
+
+    def add_box(
+        self,
+        lower_bounds,
+        upper_bounds,
+        color=(1, 0, 0),
+        radius=0.1,
+        name="box"
+    ):
+        """
+        Draw a 3D box defined by lower and upper bounds using 12 cylinders (edges).
+
+        Parameters:
+            view (nglview.NGLWidget): The NGL viewer instance.
+            lower_bounds (tuple or list of 3 floats): (x_min, y_min, z_min)
+            upper_bounds (tuple or list of 3 floats): (x_max, y_max, z_max)
+            color (tuple): RGB color as 3 floats (0–1)
+            radius (float): Radius of the cylinder edges
+            name (str): Name of the shape component
+        """
+        if not (len(lower_bounds) == len(upper_bounds) == 3):
+            raise ValueError("lower_bounds and upper_bounds must be 3-element tuples/lists.")
+
+        x0, y0, z0 = lower_bounds
+        x1, y1, z1 = upper_bounds
+        r, g, b = color
+
+        js_code = f"""
+        const min = [{x0}, {y0}, {z0}];
+        const max = [{x1}, {y1}, {z1}];
+
+        const corners = [
+            [min[0], min[1], min[2]],  // 0
+            [max[0], min[1], min[2]],  // 1
+            [min[0], max[1], min[2]],  // 2
+            [max[0], max[1], min[2]],  // 3
+            [min[0], min[1], max[2]],  // 4
+            [max[0], min[1], max[2]],  // 5
+            [min[0], max[1], max[2]],  // 6
+            [max[0], max[1], max[2]]   // 7
+        ];
+
+        const edges = [
+            [0, 1], [0, 2], [1, 3], [2, 3],  // bottom
+            [4, 5], [4, 6], [5, 7], [6, 7],  // top
+            [0, 4], [1, 5], [2, 6], [3, 7]   // verticals
+        ];
+
+        const shape = new NGL.Shape("{name}");
+        for (const [i, j] of edges) {{
+            shape.addCylinder(corners[i], corners[j], [{r}, {g}, {b}], {radius});
+        }}
+
+        const shapeComp = this.stage.addComponentFromObject(shape);
+        shapeComp.addRepresentation("buffer");
+        console.log("[SUCCESS] Box '{name}' rendered.");
+        """
+        self._js(js_code)
         return
 
 
