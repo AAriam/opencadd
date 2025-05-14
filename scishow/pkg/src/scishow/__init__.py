@@ -1,7 +1,8 @@
 """SciShow: Scientific data visualization."""
 
-from scishow import nglview
+from scishow import matplotlib, nglview
 
 __all__ = [
+    "matplotlib",
     "nglview",
 ]
