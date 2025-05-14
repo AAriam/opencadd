@@ -398,16 +398,3 @@ def from_array_like(
         grid_origin=grid_origin,
         grid_point_spacing=grid_point_spacing,
     )
-
-
-def empty(
-    self,
-    temporal_length: int,
-    grid_shape: tuple[int, int, int],
-    grid_spacing: float,
-    field_shape: tuple[int],
-    field_datatype: npt.DTypeLike = np.single,
-    field_names: Sequence[str] | None = None,
-    grid_origin: tuple[float, float, float] = (0, 0, 0),
-):
-    pass
