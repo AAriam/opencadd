@@ -4,11 +4,14 @@ from typing import TYPE_CHECKING
 
 from collections.abc import Sequence
 from typing import Literal
+from pathlib import Path
+import uuid
 
 import numpy as np
 import pandas as pd
 import nglview as ngl
 import scicoda
+import scifile
 
 import scids
 
@@ -103,7 +106,7 @@ class ChemicalSystem:
         for frame in frames:
             atoms = self.composition.atoms.assign(model_num=0)
             atoms[["x", "y", "z"]] = self.trajectory.points[frame, :, :]
-            pdbfile = scids.file.pdb.PDBFile(atom=atoms)
+            pdbfile = scifile.pdb.PDBFile(atom=atoms)
             pdbs.append(pdbfile.to_file(multimodel=False))
         return tuple(pdbs)
 
@@ -130,6 +133,13 @@ class ChemicalSystem:
             pdbqts.append(pdbfile.to_file(variant="pdbqt", multimodel=False))
         return tuple(pdbqts)
 
+    def new(self, composition: ChemicalComposition | None = None, trajectory: DynamicPointCloud | None = None):
+        """Create a new ChemicalSystem with the same class as this one."""
+        if composition is None:
+            composition = self._composition
+        if trajectory is None:
+            trajectory = self._trajectory
+        return ChemicalSystem(composition=composition, trajectory=trajectory)
 
 class ChemicalComposition:
     def __init__(self, atoms: pd.DataFrame):
@@ -142,6 +152,10 @@ class ChemicalComposition:
     @property
     def atoms(self) -> pd.DataFrame:
         return self._atoms
+
+    @property
+    def atom_count(self) -> int:
+        return len(self.atoms)
 
     def partial_charge(self) -> np.ndarray:
         return self._atoms["partial_charge"].values
@@ -175,6 +189,7 @@ class ChemicalComposition:
         return self._atoms[item]
 
 
+@ngl.register_backend("caddpy")
 class _ChemicalSystemNGLViewAdaptor(ngl.Structure, ngl.Trajectory):
     """NGLView adaptor for ChemicalSystem.
 
@@ -186,7 +201,7 @@ class _ChemicalSystemNGLViewAdaptor(ngl.Structure, ngl.Trajectory):
         self._chemsys = chemsys
         self.ext = "pdb"
         self.params = {}
-        self.id = 0
+        self.id = str(uuid.uuid4())
         return
 
     def get_structure_string(self):
@@ -201,46 +216,50 @@ class _ChemicalSystemNGLViewAdaptor(ngl.Structure, ngl.Trajectory):
 
 
 def from_pdb(
-    files: list[str | bytes | Path],
+    files: str | bytes | Path | list[str | bytes | Path],
     parse_only: Sequence[PDBFileSections | PDBFileRecords | str] | None = None,
     strictness: Literal[0, 1, 2, 3] = 0,
 ):
     """Create a ChemicalSystem from a PDB file."""
+    if isinstance(files, (str, bytes, Path)):
+        files = [files]
     # Parse the first file to get the composition first
-    first_file = scids.file.pdb.parse(
+    first_file = scifile.pdb.read(
         file=files[0],
         parse_only=parse_only,
         strictness=strictness,
     )
-    num_models = first_file.atom["model_num"].nunique()
-    if len(files) > 1 and num_models > 1:
+    model_count = first_file.atom["model_num"].nunique()
+    if len(files) > 1 and model_count > 1:
         raise ValueError(
             "Either provide a single multimodel PDB file or a list of PDB files with a single model each."
         )
 
     # Create the conformation tensor
-    num_instances = num_models if num_models > 1 else len(files)
-    conformation = np.zeros(
-        shape=(num_instances, len(first_file.atom), 3),
+    count_frames = model_count if model_count > 1 else len(files)
+    count_atoms = len(first_file.atom) // count_frames
+    trajectory = np.zeros(
+        shape=(count_frames, count_atoms, 3),
         dtype=np.float32,
     )
-    if num_models > 1:
-        for model_idx in range(num_models):
-            conformation[model_idx] = first_file.atom[first_file.atom["model_num"] == model_idx][["x", "y", "z"]]
+    if model_count > 1:
         composition = first_file.atom[first_file.atom["model_num"] == 1]
+        for model_idx in range(model_count):
+            trajectory[model_idx] = first_file.atom[first_file.atom["model_num"] == model_idx + 1][["x", "y", "z"]]
     else:
-        conformation[0] = first_file.atom[["x", "y", "z"]]
+        composition = first_file.atom[first_file.atom["model_num"] == 0]
+        trajectory[0] = first_file.atom[["x", "y", "z"]]
         for idx_instance, file in enumerate(files[1:], start=1):
-            pdbfile = scids.file.pdb.parse(
+            pdbfile = scifile.pdb.read(
                 file=file,
                 parse_only=parse_only,
                 strictness=strictness,
             )
-            conformation[idx_instance] = pdbfile.atom[["x", "y", "z"]]
+            trajectory[idx_instance] = pdbfile.atom[["x", "y", "z"]]
     composition = composition.drop(["model_num", "x", "y", "z"], axis=1)
     return ChemicalSystem(
         composition=ChemicalComposition(composition),
-        trajectory=scids.pointcloud.from_array(conformation)
+        trajectory=scids.pointcloud.from_array(trajectory)
     )
 
 
