@@ -1,13 +1,19 @@
 """An n-dimensional grid of points in euclidean space."""
 
+from __future__ import annotations
+
 import itertools
 from collections.abc import Sequence
-from typing import Any, Literal
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 import numpy as np
 
 import scids
+
+if TYPE_CHECKING:
+    from typing import Any, Literal
+    from np.typing import ArrayLike
 
 
 class Grid:
@@ -27,6 +33,7 @@ class Grid:
         Coordinates of the point with maximum values in all dimensions.
     spacings
         Spacing between grid points in each dimension.
+        grid delta, i.e. distance between two adjacent grid points
     mgrid
         Fleshed out meshgrid of grid point coordinates.
     """
@@ -55,7 +62,7 @@ class Grid:
             *self._shape, -1
         )
         self._pointcloud = scids.pointcloud.DynamicPointCloud(
-            data=self._coordinates.reshape(1, self._point_count, self.dimension)
+            points=self._coordinates.reshape(1, self._point_count, self.dimension)
         )
         # All possible combinations of -1, 0, and 1 in n dimensions
         self._direction_vectors = np.array(
@@ -161,6 +168,22 @@ class Grid:
     def upper_bounds(self) -> np.ndarray:
         """Coordinates of the point with maximum index values in all dimensions."""
         return np.array(self._upper_bounds)
+
+    def index_coordinates(self, indices: ArrayLike) -> jnp.ndarray:
+        """Get coordinates of grid points given their indices.
+
+        Parameters
+        ----------
+        indices
+            Indices of the grid points to get coordinates for.
+            This can be a single index or an array of indices.
+            The indices need not be integers.
+
+        Returns
+        -------
+        Coordinates of the grid points with the given indices.
+        """
+        return self.lower_bounds + indices * self.spacings
 
     def direction_vectors(self, dimensions: Sequence[int] | None = None) -> np.ndarray:
         """Get (a subset of) direction vectors in the grid.
