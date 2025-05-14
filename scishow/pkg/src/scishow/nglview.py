@@ -73,12 +73,9 @@ class NGLWidget(nv.NGLWidget):
         name: str | None = "spheres",
         representation_params: RepresentationParameters | None = None,
     ):
-        if not isinstance(coords, np.ndarray):
-            coords = np.array(coords, dtype=np.single)
-        if not isinstance(colors, np.ndarray):
-            colors = np.array(colors, dtype=np.half)
-        if not isinstance(radii, np.ndarray):
-            radii = np.array(radii, dtype=np.half)
+        coords = np.asarray(coords, dtype=np.single)
+        colors = np.asarray(colors, dtype=np.half)
+        radii = np.asarray(radii, dtype=np.half)
 
         num_coords = coords.size
         if num_coords % 3 != 0:
@@ -253,7 +250,6 @@ class NGLWidget(nv.NGLWidget):
         """
         shape = data.shape
         nx_ny_nz = ", ".join(map(str, shape))
-        data_flat = data.ravel("F").tolist()
         affine_map = np.eye(4)
         affine_map[:3, :3] = basis.transpose()
         affine_map[:3, 3] = origin
@@ -262,7 +258,7 @@ class NGLWidget(nv.NGLWidget):
         if representation_params:
             add_repr_args.append(str(representation_params))
         command = f"""
-        var vol = new NGL.Volume("{name}", "{path}", {data_flat}, {nx_ny_nz})
+        var vol = new NGL.Volume("{name}", "{path}", {self._to_js_array(data)}, {nx_ny_nz})
         var m = new NGL.Matrix4()
         m.set({matrix_args})
         vol.setMatrix(m)
@@ -411,6 +407,15 @@ class NGLWidget(nv.NGLWidget):
         self._js(js_code)
         return
 
+    @staticmethod
+    def _to_js_array(array: np.ndarray) -> str:
+        """Convert a numpy array to a JavaScript array."""
+        array_flat = array.ravel("F")
+        array_sanitized = array_flat.astype(str)
+        array_sanitized[np.isnan(array_flat)] = "NaN"
+        array_sanitized[np.isposinf(array_flat)] = "Infinity"
+        array_sanitized[np.isneginf(array_flat)] = "-Infinity"
+        return f"[{", ".join(array_sanitized)}]"
 
 @dataclass(kw_only=True)
 class RepresentationParameters:
