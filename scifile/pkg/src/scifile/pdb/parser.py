@@ -810,9 +810,9 @@ class PDBParser:
             "alt_loc",
             "occupancy",
             "temp_factor",
-        ] + ["element", "charge"] if self._variant == "pdb" else [
-            "autodock_atom_type", "partial_charge"
-        ] + ["x", "y", "z"]
+        ] + (
+            ["element", "charge"] if self._variant == "pdb" else ["autodock_atom_type", "partial_charge"]
+        ) + ["x", "y", "z"]
         return pd.DataFrame(data).set_index("serial", drop=False)[fields]
 
     def anisou(self) -> pd.DataFrame | None:
