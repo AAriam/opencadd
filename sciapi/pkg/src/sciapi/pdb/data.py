@@ -1,16 +1,12 @@
-"""
-Query the RESTful Data API and related endpoints of the RCSB Protein Data Bank (PDB) webservers.
+"""Query the RESTful Data API and related endpoints of the RCSB Protein Data Bank (PDB) webservers.
 """
 
-# Standard library
 from collections.abc import Sequence
 from typing import Literal
 
-# 3rd party
 import numpy as np
+import pylinks
 
-# Self
-from opencadd._http_request import response_http_request
 
 # General API endpoints
 _ROOT_DATA: str = "https://data.rcsb.org/rest/v1"
@@ -384,7 +380,7 @@ def holdings_without_pdb_file() -> np.ndarray:
     ----------
     * `RCSB Documentation: Structures Without Legacy PDB Format Files <https://www.rcsb.org/docs/general-help/structures-without-legacy-pdb-format-files>`_
     """
-    pdb_ids = response_http_request(
+    pdb_ids = pylinks.http.request(
         url="https://files.wwpdb.org/pub/pdb/compatible/pdb_bundle/pdb_bundle_index.txt",
         response_type="str",
     )
@@ -452,4 +448,4 @@ def _data_query(url: str) -> dict:
     -------
     dict
     """
-    return response_http_request(url=url, response_type="json")
+    return pylinks.http.request(url=url, response_type="json")
