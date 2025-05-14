@@ -304,97 +304,58 @@ def from_tensor_grid(
     return ToxelField(tensor=tensor, grid=grid, names=names)
 
 
-def from_array_like(
-    field_tensor: npt.ArrayLike,
-    order_axes: tuple[Literal[0, 1, 2, 3, 4]] = (0, 1, 2, 3, 4),
-    field_names: Sequence[str] | None = None,
-    field_datatype: npt.DTypeLike = np.single,
-    grid_origin: tuple[float, float, float] = (0, 0, 0),
-    grid_point_spacing: float = 1,
+def from_tensor(
+    tensor: ArrayLike,
+    grid: Grid,
+    prefix: int | Sequence[str | tuple[str, Sequence[str]]],
+    axis_order: Sequence[int] | None = None,
+    dtype: DTypeLike | None = None,
 ):
-    """
-    Instantiate from a 5-dimensional array-like object containing the field values.
+    """Create a field from an array-like object.
 
     Parameters
     ----------
-    field_tensor : array_like
-        A 5-dimensional array representing the field values for each grid point at different
-        times. The dimensions represent time, index along x, y, and z axes, and field values.
+    tensor
+        An `(n_prefix + n_dim + n_field)`-dimensional array containing the field values.
+        The first `n_prefix >= 0` dimensions represent prefix dimensions,
+        along which different instances of the field are sampled.
+        The next `n_dim >= 1` dimensions represent spatial dimensions of the field,
+        which must match the dimensions of the grid.
+        The last `n_field >= 0` dimensions represent the field values for each grid point.
         In each dimension, the elements should be ordered from the smallest index to largest.
-    order_axes : Tuple[Literal[0, 1, 2, 3, 4]], Optional, default: (0, 1, 2, 3, 4)
-        The axis index of time, x, y, and z axes, and field values, respectively.
-    field_datatype : numpy.dtype, Optional, default: numpy.single
-        The datatype of the field values.
-    grid_origin : Tuple[float, float, float]
-        Position (i.e. x, y, and z coordinates) of the origin grid point, i.e. the grid at
-        index (0, 0, 0).
-    grid_point_spacing : float
-        The grid delta, i.e. distance between two adjacent grid points along x, y,
-        and z axes. Since the grid is evenly spaced along all directions, this should be a
-        scalar value. The unit should be the same as `position_origin`.
-
-    grid_origin : Tuple[float, float, float]
-            Position (i.e. x, y, and z coordinates) of the origin grid point, i.e. the grid at
-            index (0, 0, 0).
-    grid_point_spacing : float
-        The grid delta, i.e. distance between two adjacent grid points along x, y,
-        and z axes. Since the grid is evenly spaced along all directions, this should be a
-        scalar value. The unit should be the same as `position_origin`.
-
-    Returns
-    -------
-    ToxelField
+    grid
+        The grid on which the field is sampled.
+    prefix
+        Information about the prefix dimensions.
+        This can either be the number of prefix dimensions as an integer,
+        or a sequence of dimension data for each prefix dimension.
+        If a sequence is provided, its length must match the number of prefix dimensions.
+        Each element of the sequence can be:
+        - A string representing the label of the dimension.
+        - A 2-tuple, where the first element is a string representing the label of the dimension,
+          and the second element is a sequence of strings
+          representing the labels of the prefix dimension's instances.
+    axis_order
+        Order of the axes in the input tensor.
+        This is a sequence of integers, where each integer
+        represents the index of the axis in the input tensor.
+        The order of the integers in the sequence determines
+        the new order of the axes in the output tensor.
+        The length of the sequence must be equal
+        to the number of dimensions in the input tensor.
+        If not provided, the axes will be ordered as they are in the input tensor.
+    dtype
+        Datatype of the field values.
+        If not provided, the datatype will be inferred from the input tensor.
     """
-    if not isinstance(field_tensor, ArrayLike):
-        raise ValueError("`field_values` must be array-like.")
-    if not isinstance(order_axes, tuple) or len(order_axes) != 5:
-        raise ValueError("`order_axes` must be array-like with length 5.")
-    for axis in order_axes:
-        if axis not in (0, 1, 2, 3, 4):
-            raise ValueError("`order_axes` can only have integer values between 0 and 4.")
-
-    if not isinstance(grid_origin, ArrayLike) or len(grid_origin) != 3:
-        raise ValueError("`position_origin` must be sequence of three integers.")
-    if not isinstance(grid_origin, np.ndarray):
-        for pos in grid_origin:
-            if not isinstance(pos, (int, float)):
-                raise ValueError("`position_origin` must be sequence of three integers.")
-    if not isinstance(grid_point_spacing, (float, int)) or grid_point_spacing <= 0:
-        raise ValueError("`spacing` must be a positive number.")
-
-    # Create the underlying data structure and fill with data
-    tensor: np.ndarray = np.array(field_tensor, dtype=field_datatype)
-    if order_axes != (0, 1, 2, 3, 4):
-        tensor = np.moveaxis(tensor, source=order_axes, destination=(0, 1, 2, 3, 4))
-    # len_field_values, len_field_names = len(field_values), len(field_names)
-    # if len_field_values == 0:
-    #     raise ValueError("`field_values` cannot be an empty array.")
-    # if field_names is not None:
-    #     if not isinstance(field_names, npt.ArrayLike):
-    #         raise ValueError("`field_names` should either be None or array-like.")
-    #     if len_field_names == 0:
-    #         raise ValueError("`field_names` cannot be an empty sequence.")
-    #     if len_field_names == 1:
-    #         self._is_vector_field: bool = len_field_values > 1
-    #     elif len_field_names != len_field_values:
-    #         raise ValueError("`field_values` and `field_names` should have the same length.")
-    #
-    # # Set field type and name
-    # self._field_names = field_names
-    # if field_names is None:
-    #     self._is_vector_field = True
-    # elif len_field_names == 1:
-    #     self._is_vector_field = len(field_values) > 1
-    #
-    # elif len(field_values) == len(field_names):
-    #     self._field_names = np.array(field_names)
-    # else:
-    #     raise ValueError(
-    #         "Number of provided field names does not match that of provided field values."
-    #     )
-    return cls(
-        field_tensor=tensor,
-        field_names=field_names,
-        grid_origin=grid_origin,
-        grid_point_spacing=grid_point_spacing,
-    )
+    tensor = jnp.asarray(tensor, dtype=dtype)
+    if axis_order:
+        if len(axis_order) > tensor.ndim:
+            raise exception.InputError(
+                name="order_axes",
+                message="Expected a sequence of integers with maximum length equal to the number of dimensions of the tensor, "
+                        f"but got {axis_order} with length {len(axis_order)} and tensor with {tensor.ndim} dimensions."
+            )
+        destination = tuple(range(len(axis_order)))
+        tensor = jnp.moveaxis(tensor, source=tuple(axis_order), destination=destination)
+    return Field(tensor=tensor, grid=grid, prefix=prefix)
