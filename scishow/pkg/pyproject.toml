@@ -9,6 +9,8 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "nglview",
+    "matplotlib",
+    "ipympl",
 ]
 
 [tool.setuptools]
