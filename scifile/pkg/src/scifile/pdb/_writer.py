@@ -95,7 +95,7 @@ class PDBWriter:
                             charge=row.get("charge"),
                             footnote=row.get("footnote", ""),
                             partial_charge=row.get("partial_charge"),
-                            atom_type=row.get("autodock_atom_type"),
+                            autodock_atom_type=row.get("autodock_atom_type"),
                         )
                     )
                 pdb_lines.append(
@@ -125,7 +125,7 @@ class PDBWriter:
                         charge=row.get("charge"),
                         footnote=row.get("footnote", ""),
                         partial_charge=row.get("partial_charge"),
-                        atom_type=row.get("autodock_atom_type"),
+                        autodock_atom_type=row.get("autodock_atom_type"),
                     )
                 )
             if multimodel and len(models) > 1:
