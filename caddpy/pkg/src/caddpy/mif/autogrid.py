@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from typing import Literal
     from caddpy.typing import PathLike
     from scids.grid import Grid
-    from scids.field import ToxelField
+    from scids.field import Field
     import numpy.typing as npt
     from caddpy.chemsys import ChemicalSystem
 
@@ -81,7 +81,7 @@ def from_pdbqt(
     field_dtype: npt.DTypeLike = np.single,
     output_dir: PathLike = None,
     allow_copy: bool = True,
-) -> ToxelField:
+) -> Field:
     """Run AutoGrid4 on a set of PDBQT files.
 
     This function can run AutoGrid4 on one or multiple
@@ -339,11 +339,17 @@ def from_pdbqt(
         spacing=grid.spacings[0],
         center=gridcenter,
     )
+    prefix = []
+    if not single_file:
+        prefix.append(("receptor", file_ids))
+    if not single_parameter_file:
+        prefix.append(("parameter_file", parameter_file_ids))
+    prefix.append(("ligand_type", (*ligand_types, "e", "d")))
     return scids.field.from_tensor(
         tensor=maps.field[..., *slices],
         grid=grid,
-        field_dtype=field_dtype,
-        # names=[lig_type.lower() for lig_type in ligand_types] + ["e", "d"]
+        dtype=field_dtype,
+        prefix=prefix,
     )
 
 
