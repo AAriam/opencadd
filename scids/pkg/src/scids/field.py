@@ -92,20 +92,12 @@ class Field:
 
     @property
     def grid(self) -> Grid:
+        """The grid on which the field is sampled."""
         return self._grid
 
     @property
-    def tensor(self):
-        """The 5-dimensional array representing the field values for each grid point at different times.
-
-        Returns
-        -------
-        numpy.ndarray
-            A 5-dimensional array of shape (n_t, n_x, n_y, n_z, n_f), with
-            n_t: temporal length of the field.
-            n_x, n_y, n_z: number of grid points along x, y, and z directions.
-            n_f: number of field values for each point.
-        """
+    def tensor(self) -> jnp.ndarray:
+        """The tensor containing the entire field values."""
         return self._tensor
 
     def spatial_direction_vectors(self, dimensions=None):
