@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import arrayer
 import numpy as np
 
 from scifile import exception, util
@@ -416,7 +417,7 @@ def read(
                     filepath=label,
                     content=content,
                 )
-            elif not util.elements_are_equal(metadata[metadata_id], ref_values[metadata_id]):
+            elif not arrayer.tensor.is_equal(metadata[metadata_id], ref_values[metadata_id]):
                 _raise_or_warn(
                     f"Header metadata key '{metadata_id.upper()}' has value {metadata[metadata_id]}, "
                     f"but expected {ref_values[metadata_id]}.",
