@@ -8,7 +8,7 @@ import datetime
 import re
 import warnings
 
-
+import arrayer
 import numpy as np
 import pandas as pd
 
@@ -118,7 +118,7 @@ class PDBParser:
         self._idx__record_lines = dict()
         self._count_records: np.ndarray = np.empty(
             shape=_records.count,
-            dtype=util.smallest_np_integer_dtype_for_range(0, self._lines.size),
+            dtype=arrayer.dtype.smallest_integer(minimum=0, maximum=self._lines.size),
         )
         self._has_record: np.ndarray = np.empty(shape=_records.count, dtype=np.bool_)
         for record_idx in range(_records.count):

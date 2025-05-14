@@ -11,6 +11,7 @@ dependencies = [
     "numpy",
     "pandas",
     "scipy",
+    "arrayer",
 ]
 
 [tool.setuptools]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import arrayer
 import jax.numpy as jnp
 import numpy as np
 import numpy.typing as npt
@@ -400,9 +401,7 @@ class DynamicPointCloud:
             distances = np.empty(shape=shape_distances, dtype=distance_dtype)
             indices = np.empty(
                 shape=shape_indices,
-                dtype=scids.util.smallest_np_integer_dtype_for_range(
-                    min_val=0, max_val=self.point_count_per_instance
-                ),
+                dtype=arrayer.dtype.smallest_integer(minimum=0, maximum=self.point_count_per_instance),
             )
             for idx_instance, kdtree in enumerate(kdtrees):
                 indices[idx_instance, ..., 0] = idx_instance

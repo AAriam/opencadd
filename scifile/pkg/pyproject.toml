@@ -10,6 +10,7 @@ dependencies = [
     "numpy",
     "pandas",
     "scicoda",
+    "arrayer",
 ]
 
 [tool.setuptools]
