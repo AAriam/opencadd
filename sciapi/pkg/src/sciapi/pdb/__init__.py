@@ -22,8 +22,9 @@ File services:
 - https://www.wwpdb.org/ftp/pdb-ftp-sites
 """
 
-from sciapi.pdb import file
+from sciapi.pdb import file, data
 
 __all__ = [
+    "data",
     "file",
 ]
