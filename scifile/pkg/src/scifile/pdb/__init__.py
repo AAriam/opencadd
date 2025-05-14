@@ -1104,8 +1104,8 @@ def read(
         content = file
     else:
         raise ValueError(
-            "Parameter `content` expects either str or bytes, but the type of input argument "
-            f"was: {type(content)}. Input was: {content}."
+            "Parameter `files` expects either a string, bytes, or Path, but the type of input argument "
+            f"was '{type(file)}'. Input was: {file}."
         )
     if parse_only is None:
         records = (record.value for record in PDBFileRecords)
