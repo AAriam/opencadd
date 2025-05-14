@@ -24,6 +24,8 @@ import gzip
 import csv
 import re
 import io
+from xml.etree import ElementTree as ET
+import re
 
 import pylinks as pl
 
@@ -66,7 +68,7 @@ class ProteinsPlusAPI:
         self,
         pdb_id: str,
         chain_id: str | None = None,
-        ligand_id_chain_num: tuple[str, str, int] | None = None,
+        ligand_id: str | tuple[str, str, int] | None = None,
         include_subpockets: bool = True,
         calculate_druggability: bool = True,
         algorithm: Literal["scorer", "3"] = "3",
@@ -83,9 +85,11 @@ class ProteinsPlusAPI:
             Chain ID of a polymer instance in the PDB file,
             so that binding pockets are only detected for that chain.
             if not provided (i.e. when set to `None`; default), pockets are detected for all chains.
-        ligand_id_chain_num
-            Identifiers for a ligand instance in the PDB file, to calculate its coverage for each pocket.
+        ligand_id
+            Identifier for a ligand instance in the PDB file, to calculate its coverage for each pocket.
             The identifiers are: ligand ID (het ID), chain ID, and residue number of the specific instance.
+            This can be given as either a tuple (e.g., `("w32", "A", 1101)`),
+            or a string where the three identifiers are joined by underscores (e.g., `"w32_A_1101"`).
             If not provided (i.e. when set to `None`; default), coverage data will not be calculated.
         include_subpockets
             Whether to divide detected pockets into sub-pockets and return both (True; default),
@@ -111,13 +115,12 @@ class ProteinsPlusAPI:
         ----------
         - [DoGSiteScorer API](https://proteins.plus/help/dogsite_rest)
         """
+
         params = {
             "pdbCode": pdb_id,
             "analysisDetail": str(int(include_subpockets)),
             "bindingSitePredictionGranularity": str(int(calculate_druggability)),
-            "ligand": "_".join([str(i) for i in ligand_id_chain_num])
-            if ligand_id_chain_num is not None
-            else "",
+            "ligand": self._convert_ligand_id(ligand_id),
             "chain": chain_id if chain_id is not None else "",
         }
         if algorithm == "3":
@@ -129,12 +132,38 @@ class ProteinsPlusAPI:
         )
         return DoGSiteResponse(base_response.job_url, retry_config=self._retry_config, algorithm=algorithm)
 
+    def poseedit(self, pdb_id: str, ligand: str | tuple[str, str, int]) -> PoseEditResponse:
+        """Calculate ligand interaction diagram.
+
+        Parameters
+        ----------
+        pdb_id
+            PDB ID of the protein; either valid 4-letter PDB ID,
+            or dummy ID issued by Proteins.Plus for an uploaded PDB file (see `upload_pdb`).
+        ligand
+            Identifier for a ligand instance in the PDB file.
+            The identifiers are: ligand ID (het ID), chain ID, and residue number of the specific instance.
+            This can be given as either a tuple (e.g., `("w32", "A", 1101)`),
+            or a string where the three identifiers are joined by underscores (e.g., `"w32_A_1101"`).
+
+        Returns
+        -------
+        PoseEditResponse
+            A Future-like object that holds the job URL
+            and can be used to retrieve the results once the job is done.
+        """
+        base_response = self.submit_job(
+            endpoint="poseview2_rest",
+            json={"poseview2": {"pdbCode": pdb_id, "ligand": self._convert_ligand_id(ligand)}},
+        )
+        return PoseEditResponse(base_response.job_url, retry_config=self._retry_config)
+
     def protoss(self, pdb_id: str) -> ProtossResponse:
         """Predict protonation and tautomerization, and add missing hydrogen atoms.
 
         Parameters
         ----------
-        pdb_id : str
+        pdb_id
             PDB ID of the protein; either valid 4-letter PDB ID,
             or dummy ID issued by Proteins.Plus for an uploaded PDB file (see `upload_pdb`).
         retry_config
@@ -222,6 +251,25 @@ class ProteinsPlusAPI:
             retry_config=self._retry_config,
         )["location"]
         return ProteinsPlusResponse(job_url, retry_config=self._retry_config)
+
+    @staticmethod
+    def _convert_ligand_id(ligand_id: str | tuple[str, str, int] | None) -> str:
+        """Create a ProteinsPlus-compatible ligand ID.
+
+        Parameters
+        ----------
+        ligand_id
+            Ligand ID as a string or a tuple of (het ID, chain ID, residue number).
+
+        Returns
+        -------
+        Ligand ID as a string.
+        """
+        if not ligand_id:
+            return ""
+        if isinstance(ligand_id, str):
+            return ligand_id
+        return "_".join([str(i) for i in ligand_id])
 
 
 class ProteinsPlusResponse:
@@ -584,6 +632,113 @@ class DoGSiteResponse(ProteinsPlusResponse):
         pocket_radius = center_and_radius[3]
         pocket_atom_serial_numbers = tuple(int(line[6:11]) for line in lines[6:])
         return pocket_center, pocket_radius, pocket_atom_serial_numbers
+
+
+class PoseEditResponse(ProteinsPlusResponse):
+    """PoseEdit ligand interaction diagram results.
+
+    This is a Future-like object that holds the job URL
+    and can be used to retrieve the results once the job is done.
+    Calling any of the methods or properties of this class
+    (except for `job_url`) will block until the results are available.
+    A job usually takes around 1-2 minutes to complete.
+
+    Parameters
+    ----------
+    job_url
+        URL of the job.
+
+    References
+    ----------
+    - [PoseEdit API](https://proteins.plus/help/poseview2_rest)
+    """
+
+    def __init__(self, job_url: str, retry_config: pl.http.HTTPRequestRetryConfig):
+        super().__init__(job_url, retry_config)
+        return
+
+    @property
+    def data(self) -> dict:
+        """Input parameters for the PoseEdit JavaScript library.
+
+        These are used for the generation of the 2D-diagram."""
+        return pl.http.request(
+            url=self.job_results["result_json"],
+            response_type="json",
+        )
+
+    @property
+    def svg(self) -> str:
+        """PoseEdit interaction diagram in SVG format."""
+        svg_str = pl.http.request(
+            url=self.job_results["result_svg"],
+            response_type="str",
+        )
+        # The SVG file has elements that only look good on a white background,
+        # but it has no background color.
+        # To fix this, we add a white rectangle as the background.
+        return self._add_svg_background(svg_str)
+
+    @staticmethod
+    def _add_svg_background(svg_str: str, color: str = "#fff") -> str:
+        """Add a background rectangle to an SVG string.
+
+        Parameters
+        ----------
+        svg_str
+            The SVG content as a string.
+        color
+            The background color to apply (default is light grey '#f0f0f0').
+
+        Returns
+        -------
+        Modified SVG string with background rectangle added.
+
+        Raises
+        -------
+        ValueError
+            If viewBox or size attributes are missing and can't determine size.
+        """
+        # Parse SVG string
+        try:
+            root = ET.fromstring(svg_str)
+        except ET.ParseError as e:
+            raise ValueError(f"Invalid SVG content: {e}")
+
+        # Handle namespaces
+        ns_match = re.match(r'\{.*\}', root.tag)
+        ns = ns_match.group(0) if ns_match else ''
+
+        # Get viewBox or width/height
+        viewBox = root.attrib.get('viewBox')
+        if viewBox:
+            x, y, width, height = map(float, viewBox.split())
+        else:
+            width = root.attrib.get('width')
+            height = root.attrib.get('height')
+            if width and height:
+                # Strip units (e.g., '600pt', '600px')
+                width = float(re.sub(r'[a-zA-Z]+', '', width))
+                height = float(re.sub(r'[a-zA-Z]+', '', height))
+                x, y = 0.0, 0.0
+            else:
+                raise ValueError("SVG missing viewBox and width/height attributes.")
+
+        # Create background rect element
+        rect = ET.Element(f'{ns}rect', {
+            'x': str(x),
+            'y': str(y),
+            'width': str(width),
+            'height': str(height),
+            'fill': color
+        })
+
+        # Insert rect after <defs> if present, else as first child
+        insert_index = 1 if len(root) > 0 and root[0].tag.endswith('defs') else 0
+        root.insert(insert_index, rect)
+
+        # Return modified SVG string
+        return ET.tostring(root, encoding='unicode')
 
 
 class ProtossResponse(ProteinsPlusResponse):
