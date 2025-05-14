@@ -477,7 +477,7 @@ def calculate_grid_parameters(grid: Grid) -> tuple[np.ndarray, np.ndarray, tuple
         )
     is_odd = grid.shape % 2
     if np.all(is_odd):
-        return grid.center, grid.shape - 1, slice(None)
+        return grid.center, grid.shape - 1, (slice(None),)
     npts = np.where(is_odd, grid.shape - 1, grid.shape)
     # In dimensions that are padded, the grid center is shifted by half a grid spacing.
     # We don't need to worry about basis vectors, since the grid is orthogonal
