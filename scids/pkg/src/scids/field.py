@@ -7,88 +7,87 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 import numpy as np
 
-import scids
 from scids import exception
 from scids.typing import ArrayLike
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Any, Literal
-    import numpy.typing as npt
-    from pathlib import Path
+    from jax.typing import ArrayLike, DTypeLike
     from scids.grid import Grid
 
 
-class ToxelField:
-    """Toxel field.
-
-    A collection of n scalar fields, or one m-dimensional vector field,
-    sampled over time (or any other dimension)
-    at regularly spaced points on a n-dimensional grid in Euclidean space.
+class Field:
+    """One or several tensor fields in Euclidean space.
 
     Parameters
     ----------
     tensor
-        An (n + 2)-dimensional array (where n is the number of grid dimensions)
-        representing the field values for each grid point at different times.
-        The first dimension represents time, the next n dimensions represent
-        the grid points along their respective axes,
-        and the last dimension represents the field values.
+        An `(n_prefix + n_dim + n_field)`-dimensional array containing the field values.
+        The first `n_prefix >= 0` dimensions represent prefix dimensions,
+        along which different instances of the field are sampled.
+        The next `n_dim >= 1` dimensions represent spatial dimensions of the field,
+        which must match the dimensions of the grid.
+        The last `n_field >= 0` dimensions represent the field values for each grid point.
         In each dimension, the elements should be ordered from the smallest index to largest.
     grid
-        A Grid object representing the grid on which the field is sampled.
-    names
-        Optional labels for each field value.
-        If given, the grid can then be indexed using labels as well.
+        The grid on which the field is sampled.
+    prefix
+        Information about the prefix dimensions.
+        This can either be the number of prefix dimensions as an integer,
+        or a sequence of dimension data for each prefix dimension.
+        If a sequence is provided, its length must match the number of prefix dimensions.
+        Each element of the sequence can be:
+        - A string representing the label of the dimension.
+        - A 2-tuple, where the first element is a string representing the label of the dimension,
+          and the second element is a sequence of strings
+          representing the labels of the prefix dimension's instances.
     """
 
     def __init__(
         self,
         tensor: ArrayLike,
         grid: Grid,
-        names: Sequence[Any] | None = None,
-        autodock_map_file_headers: Sequence[Sequence[scids.file.autodock_map.AutodockMapFileOptionalHeader]] | None = None,
+        prefix: int | Sequence[str | tuple[str, Sequence[str]]],
     ):
-        # Check for errors in input arguments.
-        # _exceptions.raise_for_type(self.__class__.__name__, ("grid", grid, Grid))
-        tensor = jnp.asarray(tensor)
-        # _exceptions.raise_array(
-        #     parent_name=self.__class__.__name__, param_name="tensor", array=tensor, ndim_gt=2
-        # )
-        if grid.dimension != tensor.ndim - 2:
-            raise ValueError(
-                "Dimension Mismatch:\n"
-                "An n-dimensional `tensor` requires an (n - 2)-dimensional `grid`, "
-                f"but the input tensor was {tensor.ndim}-dimensional, while the grid "
-                f"was {grid.dimension}-dimensional."
+        self._tensor = jnp.asarray(tensor)
+        self._grid = grid
+        self._prefix_ndim = prefix if isinstance(prefix, int) else len(prefix)
+        self._prefix_shape = self.tensor.shape[:self.prefix_ndim]
+        self._prefix_size = np.prod(self.prefix_shape)
+        if self.tensor.ndim < (self.prefix_ndim + self.grid.dimension):
+            raise exception.InputError(
+                name="tensor",
+                message="Tensor dimension must be greater than or equal to the sum of grid and prefix dimensions, "
+                        f"but got a {self.tensor.ndim}D tensor for a {self._prefix_ndim}D prefix and a {self.grid.dimension}D grid."
             )
-        if np.any(grid.shape != tensor.shape[1:-1]):
-            raise ValueError(
-                "Shape Mismatch:\n"
-                "The spatial shape of the input tensor (i.e. `tensor.shape[1:-1]`) "
-                f"must be equal to the shape of the grid, but the input tensor had "
-                f"a spatial shape of {tensor.shape[1:-1]}, while the shape of the grid "
-                f"was {grid.shape}."
+        if np.any(self.grid.shape != self.tensor.shape[self.prefix_ndim:self.prefix_ndim + self.grid.dimension]):
+            raise exception.InputError(
+                name="tensor",
+                message="The spatial shape of the tensor must be equal to the shape of the grid, "
+                        f"but the tensor has a spatial shape of {self.tensor.shape[self.prefix_ndim:self.prefix_ndim + self.grid.dimension]}, "
+                        f"while the shape of the grid is {self.grid.shape}."
             )
-        if names is None:
-            names = np.arange(tensor.shape[-1])
-        else:
-            names = np.asarray(names)
-            # _exceptions.raise_array(
-            #     parent_name=self.__class__.__name__, param_name="names", array=names, ndim_eq=1
-            # )
-            if names.size != tensor.shape[-1]:
-                raise ValueError(
-                    "Shape Mismatch:\n"
-                    "The size of `names` must be equal to the shape of `tensor` along its last dimension, "
-                    f"but the input array had {names.size} elements, while the last dimension of `tensor` "
-                    f"had {tensor.shape[-1]} elements."
+        self._field_ndim = self.tensor.ndim - self.prefix_ndim - self.grid.dimension
+        self._field_shape = self.tensor.shape[self.prefix_ndim + self.grid.dimension:]
+        self._field_size = np.prod(self._field_shape)
+        self._prefix_dim_labels = []
+        self._prefix_instance_labels = {}
+        if isinstance(prefix, int):
+            return
+        for prefix_idx, prefix_data in enumerate(prefix):
+            if isinstance(prefix_data, str):
+                self._prefix_dim_labels.append(prefix_data)
+                continue
+            prefix_dim_label, prefix_instance_labels = prefix_data
+            self._prefix_dim_labels.append(prefix_dim_label)
+            if len(prefix_instance_labels) != self.prefix_shape[prefix_idx]:
+                raise exception.InputError(
+                    name="prefix",
+                    message="The number of prefix instances must match the shape of the tensor along the prefix dimension, "
+                            f"but got {len(prefix_instance_labels)} instances for prefix dimension {prefix_idx} with size {self.prefix_shape[prefix_idx]}."
                 )
-
-        self._tensor: jnp.ndarray = jnp.asarray(tensor)
-        self._grid: Grid = grid
-        self._field_names = names
-        self._autodock_map_file_headers = autodock_map_file_headers
+            self._prefix_instance_labels[prefix_dim_label] = np.array(prefix_instance_labels)
         return
 
     @property
