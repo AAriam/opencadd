@@ -3,15 +3,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import arrayer
+import bbo
 import jax.numpy as jnp
 import numpy as np
 import numpy.typing as npt
 import scipy as sp
-import scipy.spatial
 
 import scids
 from scids import exception
-import scids.util
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -250,26 +249,27 @@ class DynamicPointCloud:
     def minimize_aabb(
         self,
         instance_slice: slice = slice(None),
-        centered: bool = True,
-        algorithm: Literal["pca", "hull", "auto"] = "auto",
+        mode: Literal["per_instance", "one_for_all", "one_for_slice"] = "per_instance",
+        algorithm: Literal["pca", "hull", "best"] = "best",
     ) -> DynamicPointCloud:
         """Minimize the [axis-aligned minimum bounding box](https://en.wikipedia.org/wiki/Minimum_bounding_box#Axis-aligned_minimum_bounding_box) volume of the point cloud.
 
-        This is done by rotating the point cloud around its center of mass.
+        This is done by rotating the point cloud
+        so that its minimum-volume oriented bounding box
+        is aligned with the coordinate axes.
 
         Parameters
         ----------
         instance_slice
             Slice of instances to consider.
-            By default, all instances are considered,
-            i.e., the AABB is calculated for all instances superposed.
-        centered
-            Whether to keep the center of mass of the point cloud at the origin.
-            To find the optimal rotation, this method needs to first translate
-            the point cloud's center of mass to the origin.
-            If this argument is set to False, the point cloud is translated back
-            to its original position after rotation,
-            otherwise the point cloud is left centered at the origin.
+            By default, all instances are considered.
+        mode
+            Mode of application:
+            - "per_instance": Minimize the bounding box for each instance separately.
+            - "one_for_slice": Minimize the bounding box for all instances superposed,
+              and apply the same rotation to all selected instances.
+            - "one_for_all": Minimize the bounding box for all instances superposed,
+              and apply the same rotation to all instances (not just the selected ones).
         algorithm
             Algorithm to use for finding the rotation.
             - "pca": Principal Component Analysis (PCA).
@@ -277,52 +277,29 @@ class DynamicPointCloud:
               However, it is a is not guaranteed to find the optimal rotation,
               but it is usually a good approximation.
             - "hull": Convex hull-based brute-force search.
-
-        Notes
-        -----
-        This method uses principal component analysis (PCA) to find the rotation.
-        It is not guaranteed to find the optimal rotation,
-        but it is a good approximation
-        (cf. [On the bounding boxes obtained by principal component analysis](https://www.researchgate.net/publication/235758825_On_the_bounding_boxes_obtained_by_principal_component_analysis)).
-        For other algorithms, see:
-        - [Minimum bounding box algorithms - Wikipedia](https://en.wikipedia.org/wiki/Minimum_bounding_box_algorithms)
-        - https://perso.uclouvain.be/chia-tche.chang/resources/CGM11_paper.pdf
-        - https://gis.stackexchange.com/questions/22895/finding-minimum-area-rectangle-for-given-points
-        - https://math.stackexchange.com/questions/2342844/how-to-find-the-rotation-which-minimizes-the-volume-of-the-bounding-box
+              This is guaranteed to find the optimal rotation for 2D points,
+              but is an approximation for higher dimensions.
+            - "best": For 2D points, this is the same as "hull".
+              For 3D points, this runs both "pca" and "hull",
+              and returns the one with the smallest volume.
         """
-        if algorithm == "hull" and self.dimension_points != 3:
+        if mode not in ("per_instance", "one_for_all", "one_for_slice"):
             raise exception.InputError(
-                name="algorithm",
-                message="The 'hull' algorithm is only available for 3D point clouds."
+                name="mode",
+                message="The `mode` parameter must be one of 'per_instance', 'one_for_all', or 'one_for_slice'."
             )
-        if algorithm == "auto":
-            algorithm = "hull" if self.dimension_points == 3 else "pca"
-
-        # if algorithm == "pca":
-        #     scids.tensor.pca(
-        #         points=
-        #     )
-
-        points = self.points[instance_slice].reshape(-1, self.dimension_points)
-        center = jnp.mean(points, axis=0)
-        points_centered = points - center
-        u, s, vt = jnp.linalg.svd(points_centered, full_matrices=False)
-        # Flip eigenvectors' sign to enforce deterministic output:
-        #  Adjusts the columns of u and the rows of v such that the loadings in the
-        #  columns in u that are largest in absolute value are always positive.
-        max_abs_cols = jnp.argmax(jnp.abs(u), axis=0)
-        signs = jnp.sign(u[max_abs_cols, jnp.arange(u.shape[1])])
-        u *= signs
-        vt *= signs[:, jnp.newaxis]
-        principal_components = vt
-        variance = s ** 2 / points.shape[0]
-        variance_normalized = variance / variance.sum()
-
-        all_points_centered = self._points_2d - center
-        all_points_rotated = all_points_centered @ principal_components.T
-        if not centered:
-            all_points_rotated += center
-        return DynamicPointCloud(all_points_rotated.reshape(self._points.shape))
+        instances = self._points[instance_slice]
+        if mode in ("one_for_all", "one_for_slice"):
+            combined_points = instances.reshape(-1, self.dimension_points)
+            bbo_output = bbo.run(points=combined_points, method=algorithm)
+            if mode == "one_for_all":
+                new_points = self._points @ bbo_output.rotation
+                return DynamicPointCloud(new_points)
+            new_points = self._points.at[instance_slice].set(bbo_output.points.reshape(instances.shape))
+            return DynamicPointCloud(new_points)
+        bbo_output = bbo.run(points=instances, method=algorithm)
+        new_points = self._points.at[instance_slice].set(bbo_output.points)
+        return DynamicPointCloud(new_points)
 
     def nearest_neighbors(
         self,
