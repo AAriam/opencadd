@@ -16,15 +16,15 @@ class DataSet:
     def __init__(
         self,
         data: ArrayLike,
-        prefix: int | Sequence[str | tuple[str, Sequence[str]]],
+        prefix: jnp.integer | Sequence[str | tuple[str, Sequence[str]]],
     ):
         self._data = jnp.asarray(data)
-        self._prefix_ndim = prefix if isinstance(prefix, int) else len(prefix)
+        self._prefix_ndim = prefix if isinstance(prefix, jnp.integer) else len(prefix)
         self._prefix_shape = self._data.shape[:self._prefix_ndim]
         self._prefix_size = np.prod(self._prefix_shape)
         self._prefix_dim_labels = []
         self._prefix_instance_labels = {}
-        if isinstance(prefix, int):
+        if isinstance(prefix, jnp.integer):
             return
         for prefix_idx, prefix_data in enumerate(prefix):
             if isinstance(prefix_data, str):
