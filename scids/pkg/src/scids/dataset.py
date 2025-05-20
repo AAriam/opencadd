@@ -20,6 +20,12 @@ class DataSet:
     ):
         self._data = jnp.asarray(data)
         self._prefix_ndim = prefix if isinstance(prefix, jnp.integer) else len(prefix)
+        if self._data.ndim <= self._prefix_ndim:
+            raise exception.InputError(
+                name="prefix",
+                message="The prefix dimension must be less than the data dimension, "
+                        f"but got {self._prefix_ndim} and {self._data.ndim}."
+            )
         self._prefix_shape = self._data.shape[:self._prefix_ndim]
         self._prefix_size = np.prod(self._prefix_shape)
         self._prefix_dim_labels = []
@@ -56,7 +62,7 @@ class DataSet:
     def prefix_size(self) -> int:
         """Size of the prefix dimensions.
 
-        This represents the total number of field instances.
+        This represents the total number of instances.
         """
         return self._prefix_size
 
