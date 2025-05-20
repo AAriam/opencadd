@@ -12,7 +12,6 @@ from scids.typing import ArrayLike
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from typing import Any, Literal
     from jax.typing import ArrayLike, DTypeLike
     from scids.grid import Grid
 
@@ -120,6 +119,16 @@ class Field:
         return self._prefix_size
 
     @property
+    def prefix_labels(self) -> np.ndarray:
+        """Labels of the prefix dimensions."""
+        return np.array(self._prefix_dim_labels)
+
+    @property
+    def prefix_instance_labels(self) -> dict[str, np.ndarray]:
+        """Labels of the prefix dimensions' instances."""
+        return {k: np.array(v) for k, v in self._prefix_instance_labels.items()}
+
+    @property
     def field_ndim(self) -> int:
         """Number of field dimensions."""
         return self._field_ndim
@@ -136,6 +145,18 @@ class Field:
         This represents the total number of values for each grid point.
         """
         return self._field_size
+
+    def prefix_index(self, labels: str | Sequence[str]) -> np.ndarray:
+        """Get the indices of prefix dimensions from their labels."""
+        names = np.asarray(labels).reshape(-1, 1)
+        indices = np.argwhere(self.prefix_labels == names)
+        if indices.shape[0] != names.size:
+            ind_bad_names = np.setdiff1d(np.arange(names.size), indices[:, 0])
+            raise IndexError(
+                f"Following field names are not valid: {names[ind_bad_names]}. "
+                f"Valid field names are: {self.field_names}."
+            )
+        return np.squeeze(indices[:, 1])
 
     def nearest_target_distances(
         self,
@@ -289,90 +310,8 @@ class Field:
                 index.append(selection)
         return self._tensor[*index]
 
-    # @property
-    # def field_names(self):
-    #     return self._field_names
-
-    # def index_field(self, name: Any | Sequence[Any]) -> np.ndarray:
-    #     names = np.asarray(name).reshape(-1, 1)
-    #     indices = np.argwhere(self._field_names == names)
-    #     if indices.shape[0] != names.size:
-    #         ind_bad_names = np.setdiff1d(np.arange(names.size), indices[:, 0])
-    #         raise IndexError(
-    #             f"Following field names are not valid: {names[ind_bad_names]}. "
-    #             f"Valid field names are: {self.field_names}."
-    #         )
-    #     return np.squeeze(indices[:, 1])
-
-    # def calculate_vacancy(
-    #     self,
-    #     energy_cutoff: float = +0.6,
-    #     mode: Literal["max", "min", "avg", "sum"] | None = "min",
-    # ) -> np.ndarray:
-    #     """
-    #     Calculate whether each grid point is vacant, or occupied by a target atom.
-
-    #     Parameters
-    #     ----------
-    #     energy_cutoff : float, Optional, default: +0.6
-    #         Cutoff value for energy; grid points with energies lower than cutoff are considered
-    #         vacant.
-    #     mode: Literal["max", "min", "avg", "sum"], Optional, default: "min"
-    #         If the energy of more than one ligand type is to be compared, this parameter defines
-    #         how those different energy values must be processed, before comparing with the cutoff.
-    #     ligand_types : Sequence[opencadd.consts.autodock.Autodock4AtomType], Optional, default: None
-    #         A subset of ligand types that were used to initialize the object, whose energy values
-    #         are to be taken as reference for calculating the vacancy of each grid point. If not
-    #         set to None, then all ligand interaction energies are considered.
-
-    #     Returns
-    #     -------
-    #     vacancy : numpy.ndarray[dtype=numpy.bool_, shape=T2FPharm.grid.shape[:-1]]
-    #         A 4-dimensional boolean array matching the first four dimensions of `T2FPharm.grid`,
-    #         indicating whether each grid point is vacant (True), or occupied (False).
-    #         Vacant grid points can easily be indexed by `T2FPharm.grid[vacancy]`.
-    #     """
-    #     # The reducing operations corresponding to each `mode`:
-    #     red_fun = {"max": np.max, "min": np.min, "avg": np.mean, "sum": np.sum}
-    #     # Get index of input ligand types
-    #     # if ligand_types is None:
-    #     #     ind = slice(None)
-    #     # else:
-    #     #     ind = np.argwhere(np.expand_dims(ligand_types, axis=-1) == self._probe_types)[:, 1]
-    #     #     # Verify that all input ligand types are valid
-    #     #     if len(ind) != len(ligand_types):
-    #     #         raise ValueError(f"Some of input energies were not calculated.")
-    #     # Reduce the given references using the given operation.
-    #     energy_vals = red_fun[mode](self._interaction_field.van_der_waals, axis=-1)
-    #     # Apply cutoff and return
-    #     self._vacancy = energy_vals < energy_cutoff
-    #     return self._vacancy
-
-    # def __getitem__(self, item):
-    #     return self._tensor.__getitem__(item)
-    #     # if isinstance(item, int) or (isinstance(item, tuple) and isinstance(item[-1], int)):
-    #     #
-    #     # if isinstance(item, str):
-    #     #     return self._tensor.__getitem__(..., index_of_label(item))
-    #     # elif isinstance(item, tuple) and isinstance(item[-1], (str, Sequence, np.ndarray)):
-    #     #     return self._tensor.__getitem__(*item[:-1], index_of_label(item))
-    #     # else:
-
-    # # def display_nglview(
-    #     self,
-    #     widget: NGLWidget,
-
-    #     representation_type: Literal["surface", "dot", "slice"] = "surface",
-    #     representation_params: SurfaceRepresentationParameters | None = None,
-    # ) -> NGLWidget:
-    #     widget.add_volume(
-    #         data=self.tensor[],
-    #         basis=self.grid.unit_vectors,
-    #         origin=self.grid.lower_bounds,
-    #         representation_type=representation_type,
-    #         representation_params=representation_params,
-    #     )
-    #     return widget
+    def __getitem__(self, item):
+        return self._tensor.__getitem__(item)
 
 
 def from_tensor(
