@@ -10,13 +10,8 @@ if TYPE_CHECKING:
 
 class ScidsError(Exception):
     """Base class for all SciDS exceptions."""
-    def __init__(
-        self,
-        file_type: str,
-        message: str,
-    ):
+    def __init__(self, message: str):
         super().__init__(message)
-        self.file_type = file_type
         self.message = message
         return
 
@@ -34,6 +29,7 @@ class ScidsReadError(ScidsError):
         token: str | None = None,
     ):
         super().__init__(file_type, message)
+        self.file_type = file_type
         self.filepath = filepath
         self.content = content
         self.line_idx = line_idx
