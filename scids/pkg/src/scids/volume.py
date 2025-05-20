@@ -6,9 +6,9 @@ import itertools
 import jax.numpy as jnp
 import numpy as np
 
+from scids import exception
+
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-    from scids.grid import Grid
     from scids.typing import ArrayLike
 
 
@@ -18,6 +18,17 @@ class RectangularCuboid:
     This can be a line, rectangle, rectangular cuboid,
     hyper-rectangular cuboid, etc.,
     sampled at one or several instances.
+
+    Parameters
+    ----------
+    lower_bounds
+        Lower bounds of the cuboid(s)
+        as an array of shape `(n_dimensions,)`
+        or `(n_instances, n_dimensions)`.
+    upper_bounds
+        Upper bounds of the cuboid(s)
+        as an array of shape `(n_dimensions,)`
+        or `(n_instances, n_dimensions)`.
     """
 
     def __init__(
@@ -27,44 +38,62 @@ class RectangularCuboid:
     ):
         self._lower_bounds = jnp.asarray(lower_bounds)
         self._upper_bounds = jnp.asarray(upper_bounds)
-        if self._lower_bounds.ndim != 2 or self._upper_bounds.ndim != 2:
-            raise ValueError("Input arrays must be 2-dimensional.")
         if self._lower_bounds.shape != self._upper_bounds.shape:
-            raise ValueError("Input arrays must have the same shape.")
+            raise exception.InputError(
+                name="upper_bounds",
+                message="Lower and upper bounds must have the same shape, "
+                        f"but got {self._lower_bounds.shape} and {self._upper_bounds.shape}."
+            )
+        if self._lower_bounds.ndim not in (1, 2):
+            raise exception.InputError(
+                name="lower_bounds",
+                message=f"Bounds must be 1D or 2D, but got {self._lower_bounds.ndim}D."
+            )
         return
 
     @property
     def lower_bounds(self) -> jnp.ndarray:
+        """Lower bounds of the cuboid(s)."""
         return self._lower_bounds
 
     @property
     def upper_bounds(self) -> jnp.ndarray:
+        """Upper bounds of the cuboid(s)."""
         return self._upper_bounds
 
     @property
     def volume(self) -> jnp.ndarray:
-        """Volume of the cuboid."""
-        return jnp.prod(self.upper_bounds - self.lower_bounds, axis=1)
+        """Volume of the cuboid(s)."""
+        return jnp.prod(self.upper_bounds - self.lower_bounds, axis=-1)
 
     @property
     def corners(self) -> np.ndarray:
-        """Coordinates of all corners of the cuboid.
+        """Coordinates of all corners of the cuboid(s).
 
         Returns
         -------
-        np.ndarray
-            Array of shape (n_instances, 2 ** n_dimensions, n_dimensions) containing the coordinates
-            of all corners for each cuboid.
+        Array of shape `(2 ** n_dimensions, n_dimensions)`
+        or `(n_instances, 2 ** n_dimensions, n_dimensions)`
+        containing the coordinates of all corners for each cuboid.
         """
-        n_instances, n_dimensions = self.lower_bounds.shape
+        # Generalize to 2D case
+        lower_bounds = jnp.atleast_2d(self.lower_bounds)
+        upper_bounds = jnp.atleast_2d(self.upper_bounds)
+        # Calculate dimensions
+        n_instances, n_dimensions = lower_bounds.shape
         n_corners = 2 ** n_dimensions
+        # Broadcast lower and upper bounds to shape (n_instances, n_corners, n_dimensions)
+        lower, upper = [
+            np.broadcast_to(bounds[:, None, :], (n_instances, n_corners, n_dimensions))
+            for bounds in (lower_bounds, upper_bounds)
+        ]
         # Generate binary selector for corners, shape (n_corners, n_dimensions)
         corner_mask = np.array(list(itertools.product([0, 1], repeat=n_dimensions)), dtype=int)[None, :, :]
-        # Broadcast lower and upper bounds to shape (n_instances, n_corners, n_dimensions)
-        lower = np.broadcast_to(self.lower_bounds[:, None, :], (n_instances, n_corners, n_dimensions))
-        upper = np.broadcast_to(self.upper_bounds[:, None, :], (n_instances, n_corners, n_dimensions))
         # Use corner_mask to choose between lower and upper bounds
         corners = np.where(corner_mask, upper, lower)
+        # Return corners in the original shape
+        if self.lower_bounds.ndim == 1:
+            return corners[0]
         return corners
 
     def __repr__(self) -> str:
