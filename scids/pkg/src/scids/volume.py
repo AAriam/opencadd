@@ -24,14 +24,12 @@ class AxisAlignedRectangularCuboid(dataset.DataSet):
     ----------
     lower_bounds
         Lower bounds of the cuboid(s)
-        as an array of shape `(n_dimensions,)`
-        or `(n_instances, n_dimensions)`.
+        as an array of shape `(..., n_dimensions)`.
         This is the coordinates of the vertex/vertices
         with the smallest value in each dimension.
     upper_bounds
         Upper bounds of the cuboid(s)
-        as an array of shape `(n_dimensions,)`
-        or `(n_instances, n_dimensions)`.
+        as an array of shape `(..., n_dimensions)`.
         This is the coordinates of the vertex/vertices
         with the largest value in each dimension.
     """
@@ -51,7 +49,7 @@ class AxisAlignedRectangularCuboid(dataset.DataSet):
                         f"but got {lower_bounds.shape} and {upper_bounds.shape}."
             )
         data = jnp.stack([lower_bounds, upper_bounds], axis=-2)
-        super().__init__(data=data, prefix=prefix)
+        super().__init__(data=data, prefix=prefix or lower_bounds.ndim - 1)
         self._input_prefix = prefix
         return
 
