@@ -25,10 +25,14 @@ class AxisAlignedRectangularCuboid:
         Lower bounds of the cuboid(s)
         as an array of shape `(n_dimensions,)`
         or `(n_instances, n_dimensions)`.
+        This is the coordinates of the vertex/vertices
+        with the smallest value in each dimension.
     upper_bounds
         Upper bounds of the cuboid(s)
         as an array of shape `(n_dimensions,)`
         or `(n_instances, n_dimensions)`.
+        This is the coordinates of the vertex/vertices
+        with the largest value in each dimension.
     """
 
     def __init__(
