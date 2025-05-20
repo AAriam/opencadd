@@ -6,13 +6,14 @@ import itertools
 import jax.numpy as jnp
 import numpy as np
 
-from scids import exception
+from scids import dataset, exception
 
 if TYPE_CHECKING:
-    from scids.typing import ArrayLike
+    from collections.abc import Sequence
+    from jax.typing import ArrayLike
 
 
-class AxisAlignedRectangularCuboid:
+class AxisAlignedRectangularCuboid(dataset.DataSet):
     """An axis-aligned rectangular cuboid form in n-dimensional Euclidean space.
 
     This can be a line, rectangle, rectangular cuboid,
@@ -39,31 +40,30 @@ class AxisAlignedRectangularCuboid:
         self,
         lower_bounds: ArrayLike,
         upper_bounds: ArrayLike,
+        prefix: Sequence[str | tuple[str, Sequence[str]]] | None = None,
     ):
-        self._lower_bounds = jnp.asarray(lower_bounds)
-        self._upper_bounds = jnp.asarray(upper_bounds)
-        if self._lower_bounds.shape != self._upper_bounds.shape:
+        lower_bounds = jnp.asarray(lower_bounds)
+        upper_bounds = jnp.asarray(upper_bounds)
+        if lower_bounds.shape != upper_bounds.shape:
             raise exception.InputError(
                 name="upper_bounds",
                 message="Lower and upper bounds must have the same shape, "
-                        f"but got {self._lower_bounds.shape} and {self._upper_bounds.shape}."
+                        f"but got {lower_bounds.shape} and {upper_bounds.shape}."
             )
-        if self._lower_bounds.ndim not in (1, 2):
-            raise exception.InputError(
-                name="lower_bounds",
-                message=f"Bounds must be 1D or 2D, but got {self._lower_bounds.ndim}D."
-            )
+        data = jnp.stack([lower_bounds, upper_bounds], axis=-2)
+        super().__init__(data=data, prefix=prefix)
+        self._input_prefix = prefix
         return
 
     @property
     def lower_bounds(self) -> jnp.ndarray:
         """Lower bounds of the cuboid(s)."""
-        return self._lower_bounds
+        return self._data[..., 0, :]
 
     @property
     def upper_bounds(self) -> jnp.ndarray:
         """Upper bounds of the cuboid(s)."""
-        return self._upper_bounds
+        return self._data[..., 1, :]
 
     @property
     def size(self) -> jnp.ndarray:
@@ -86,8 +86,8 @@ class AxisAlignedRectangularCuboid:
         containing the coordinates of all corners for each cuboid.
         """
         # Generalize to 2D case
-        lower_bounds = jnp.atleast_2d(self.lower_bounds)
-        upper_bounds = jnp.atleast_2d(self.upper_bounds)
+        lower_bounds = self.lower_bounds.reshape(-1, self.lower_bounds.shape[-1])
+        upper_bounds = self.upper_bounds.reshape(-1, self.upper_bounds.shape[-1])
         # Calculate dimensions
         n_instances, n_dimensions = lower_bounds.shape
         n_corners = 2 ** n_dimensions
@@ -101,15 +101,14 @@ class AxisAlignedRectangularCuboid:
         # Use corner_mask to choose between lower and upper bounds
         corners = np.where(corner_mask, upper, lower)
         # Return corners in the original shape
-        if self.lower_bounds.ndim == 1:
-            return corners[0]
-        return corners
+        return corners.reshape(*self.lower_bounds.shape[:-1], n_corners, n_dimensions)
 
     def __repr__(self) -> str:
         lines = [
             "RectangularCuboid(",
             f"    lower_bounds={self.lower_bounds},",
             f"    upper_bounds={self.upper_bounds},",
+            f"    prefix={self._input_prefix},",
             ")"
         ]
         return "\n".join(lines)
