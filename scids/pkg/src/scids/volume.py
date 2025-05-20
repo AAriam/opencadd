@@ -12,8 +12,8 @@ if TYPE_CHECKING:
     from scids.typing import ArrayLike
 
 
-class RectangularCuboid:
-    """An n-dimensional rectangular cuboid.
+class AxisAlignedRectangularCuboid:
+    """An axis-aligned rectangular cuboid form in n-dimensional Euclidean space.
 
     This can be a line, rectangle, rectangular cuboid,
     hyper-rectangular cuboid, etc.,
