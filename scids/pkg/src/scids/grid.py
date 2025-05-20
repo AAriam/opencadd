@@ -12,8 +12,8 @@ import numpy as np
 import scids
 
 if TYPE_CHECKING:
-    from typing import Any, Literal
-    from np.typing import ArrayLike
+    from typing import Literal
+    from numpy.typing import ArrayLike
 
 
 class Grid:
