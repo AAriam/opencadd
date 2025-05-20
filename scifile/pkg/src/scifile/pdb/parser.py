@@ -12,7 +12,6 @@ import arrayer
 import numpy as np
 import pandas as pd
 
-from scifile import util
 from scifile.pdb import _records, fields, records
 
 if TYPE_CHECKING:
