@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING
 import arrayer
 import numpy as np
 
-from scifile import exception, util
+from scifile import exception
 
 if TYPE_CHECKING:
     from typing import Any, Generator
