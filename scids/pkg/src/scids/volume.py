@@ -62,9 +62,14 @@ class RectangularCuboid:
         return self._upper_bounds
 
     @property
+    def size(self) -> jnp.ndarray:
+        """Size of the cuboid(s)."""
+        return jnp.abs(self.upper_bounds - self.lower_bounds)
+
+    @property
     def volume(self) -> jnp.ndarray:
         """Volume of the cuboid(s)."""
-        return jnp.prod(self.upper_bounds - self.lower_bounds, axis=-1)
+        return jnp.prod(self.size, axis=-1)
 
     @property
     def corners(self) -> np.ndarray:
