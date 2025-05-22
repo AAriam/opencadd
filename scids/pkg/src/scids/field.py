@@ -30,31 +30,34 @@ class Field(dataset.DataSet):
         In each dimension, the elements should be ordered from the smallest index to largest.
     grid
         The grid on which the field is sampled.
-    prefix
-        Information about the prefix dimensions.
-        This can either be the number of prefix dimensions as an integer,
-        or a sequence of dimension data for each prefix dimension.
-        If a sequence is provided, its length must match the number of prefix dimensions.
+    batch
+        Information about the batch dimensions.
+        This can either be the number of batch dimensions as an integer,
+        or a sequence of dimension data for each batch axis.
+        If a sequence is provided, its length must match the number of batch axes.
         Each element of the sequence can be:
-        - A string representing the label of the dimension.
-        - A 2-tuple, where the first element is a string representing the label of the dimension,
+        - A string representing the label of the axis.
+        - A 2-tuple, where the first element is a string
+          representing the label of the axis,
           and the second element is a sequence of strings
-          representing the labels of the prefix dimension's instances.
+          representing the labels for each instance along that axis.
     """
 
     def __init__(
         self,
         tensor: ArrayLike,
         grid: Grid,
-        prefix: int | Sequence[str | tuple[str, Sequence[str]]],
+        batch: int | Sequence[str | tuple[str, Sequence[str]]],
     ):
-        super().__init__(data=tensor, batch=prefix)
+        super().__init__(data=tensor, batch=batch)
         self._grid = grid
         if self.tensor.ndim < (self.batch_ndim + self.grid.dimension):
             raise exception.InputError(
                 name="tensor",
-                message="Tensor dimension must be greater than or equal to the sum of grid and prefix dimensions, "
-                        f"but got a {self.tensor.ndim}D tensor for a {self._batch_ndim}D prefix and a {self.grid.dimension}D grid."
+                message="Tensor dimension must be greater than or equal "
+                        "to the sum of grid and prefix dimensions, "
+                        f"but got a {self.tensor.ndim}D tensor for "
+                        f"a {self._batch_ndim}D batch and a {self.grid.dimension}D grid."
             )
         if np.any(self.grid.shape != self.tensor.shape[self.batch_ndim:self.batch_ndim + self.grid.dimension]):
             raise exception.InputError(
@@ -225,7 +228,7 @@ class Field(dataset.DataSet):
 def from_tensor(
     tensor: ArrayLike,
     grid: Grid,
-    prefix: int | Sequence[str | tuple[str, Sequence[str]]],
+    batch: int | Sequence[str | tuple[str, Sequence[str]]],
     axis_order: Sequence[int] | None = None,
     dtype: DTypeLike | None = None,
 ):
@@ -243,16 +246,17 @@ def from_tensor(
         In each dimension, the elements should be ordered from the smallest index to largest.
     grid
         The grid on which the field is sampled.
-    prefix
-        Information about the prefix dimensions.
-        This can either be the number of prefix dimensions as an integer,
-        or a sequence of dimension data for each prefix dimension.
-        If a sequence is provided, its length must match the number of prefix dimensions.
+    batch
+        Information about the batch dimensions.
+        This can either be the number of batch dimensions as an integer,
+        or a sequence of dimension data for each batch axis.
+        If a sequence is provided, its length must match the number of batch axes.
         Each element of the sequence can be:
-        - A string representing the label of the dimension.
-        - A 2-tuple, where the first element is a string representing the label of the dimension,
+        - A string representing the label of the axis.
+        - A 2-tuple, where the first element is a string
+          representing the label of the axis,
           and the second element is a sequence of strings
-          representing the labels of the prefix dimension's instances.
+          representing the labels for each instance along that axis.
     axis_order
         Order of the axes in the input tensor.
         This is a sequence of integers, where each integer
@@ -271,9 +275,11 @@ def from_tensor(
         if len(axis_order) > tensor.ndim:
             raise exception.InputError(
                 name="order_axes",
-                message="Expected a sequence of integers with maximum length equal to the number of dimensions of the tensor, "
-                        f"but got {axis_order} with length {len(axis_order)} and tensor with {tensor.ndim} dimensions."
+                message="Expected a sequence of integers with maximum length "
+                        "equal to the number of dimensions of the tensor, "
+                        f"but got {axis_order} with length {len(axis_order)} "
+                        f"and tensor with {tensor.ndim} dimensions."
             )
         destination = tuple(range(len(axis_order)))
         tensor = jnp.moveaxis(tensor, source=tuple(axis_order), destination=destination)
-    return Field(tensor=tensor, grid=grid, prefix=prefix)
+    return Field(tensor=tensor, grid=grid, batch=batch)
