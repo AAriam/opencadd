@@ -13,6 +13,29 @@ if TYPE_CHECKING:
 
 
 class DataSet:
+    """Dataset for n-dimensional batch data.
+
+    This represents an n-dimensional array-like data structure
+    with zero or more leading batch dimensions.
+    The batch dimensions and their elements can be labeled
+    for easier indexing and selection.
+
+    Parameters
+    ----------
+    data
+        Data as an n-dimensional array-like object.
+    batch
+        Information about the batch dimensions.
+        This can either be the number of batch dimensions as an integer,
+        or a sequence of dimension data for each batch axis.
+        If a sequence is provided, its length must match the number of batch axes.
+        Each element of the sequence can be:
+        - A string representing the label of the axis.
+        - A 2-tuple, where the first element is a string
+          representing the label of the axis,
+          and the second element is a sequence of strings
+          representing the labels for each instance along that axis.
+    """
     def __init__(
         self,
         data: ArrayLike,
