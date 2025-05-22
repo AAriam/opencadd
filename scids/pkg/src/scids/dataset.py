@@ -16,10 +16,11 @@ class DataSet:
     def __init__(
         self,
         data: ArrayLike,
-        prefix: jnp.integer | Sequence[str | tuple[str, Sequence[str]]],
+        prefix: int | jnp.integer | Sequence[str | tuple[str, Sequence[str]]],
     ):
         self._data = jnp.asarray(data)
-        self._prefix_ndim = prefix if isinstance(prefix, jnp.integer) else len(prefix)
+        prefix_is_int = isinstance(prefix, int | jnp.integer)
+        self._prefix_ndim = prefix if prefix_is_int else len(prefix)
         if self._data.ndim <= self._prefix_ndim:
             raise exception.InputError(
                 name="prefix",
@@ -30,7 +31,7 @@ class DataSet:
         self._prefix_size = np.prod(self._prefix_shape)
         self._prefix_dim_labels = []
         self._prefix_instance_labels = {}
-        if isinstance(prefix, jnp.integer):
+        if prefix_is_int:
             return
         for prefix_idx, prefix_data in enumerate(prefix):
             if isinstance(prefix_data, str):
