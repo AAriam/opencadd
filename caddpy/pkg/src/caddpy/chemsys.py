@@ -18,7 +18,7 @@ import scids
 if TYPE_CHECKING:
     from pathlib import Path
     from scids.pointcloud import DynamicPointCloud
-    from scids.file.pdb import PDBFileRecords, PDBFileSections
+    from scifile.pdb import PDBFileRecords, PDBFileSections
 
 
 class ChemicalSystem:
@@ -92,7 +92,7 @@ class ChemicalSystem:
         Otherwise, a tuple of srings each representing a single-model PDB file.
         """
         if frames is None:
-            frames = range(self.trajectory.count_instances)
+            frames = range(self.trajectory.prefix_ndim)
         elif isinstance(frames, int):
             frames = [frames]
         if not isinstance(frames, Sequence):
@@ -116,7 +116,7 @@ class ChemicalSystem:
     ):
         """Write the system as PDBQT files."""
         if frames is None:
-            frames = range(self.trajectory.count_instances)
+            frames = range(self.trajectory.prefix_ndim)
         elif isinstance(frames, int):
             frames = [frames]
         if not isinstance(frames, Sequence):
