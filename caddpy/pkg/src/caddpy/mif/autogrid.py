@@ -339,17 +339,17 @@ def from_pdbqt(
         spacing=grid.spacings[0],
         center=gridcenter,
     )
-    prefix = []
+    batch = []
     if not single_file:
-        prefix.append(("receptor", file_ids))
+        batch.append(("receptor", file_ids))
     if not single_parameter_file:
-        prefix.append(("parameter_file", parameter_file_ids))
-    prefix.append(("ligand_type", (*ligand_types, "e", "d")))
+        batch.append(("parameter_file", parameter_file_ids))
+    batch.append(("ligand_type", (*ligand_types, "e", "d")))
     return scids.field.from_tensor(
         tensor=maps.field[..., *slices],
         grid=grid,
         dtype=field_dtype,
-        prefix=prefix,
+        batch=batch,
     )
 
 
