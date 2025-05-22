@@ -48,23 +48,23 @@ class Field(dataset.DataSet):
         grid: Grid,
         prefix: int | Sequence[str | tuple[str, Sequence[str]]],
     ):
-        super().__init__(data=tensor, prefix=prefix)
+        super().__init__(data=tensor, batch=prefix)
         self._grid = grid
-        if self.tensor.ndim < (self.prefix_ndim + self.grid.dimension):
+        if self.tensor.ndim < (self.batch_ndim + self.grid.dimension):
             raise exception.InputError(
                 name="tensor",
                 message="Tensor dimension must be greater than or equal to the sum of grid and prefix dimensions, "
-                        f"but got a {self.tensor.ndim}D tensor for a {self._prefix_ndim}D prefix and a {self.grid.dimension}D grid."
+                        f"but got a {self.tensor.ndim}D tensor for a {self._batch_ndim}D prefix and a {self.grid.dimension}D grid."
             )
-        if np.any(self.grid.shape != self.tensor.shape[self.prefix_ndim:self.prefix_ndim + self.grid.dimension]):
+        if np.any(self.grid.shape != self.tensor.shape[self.batch_ndim:self.batch_ndim + self.grid.dimension]):
             raise exception.InputError(
                 name="tensor",
                 message="The spatial shape of the tensor must be equal to the shape of the grid, "
-                        f"but the tensor has a spatial shape of {self.tensor.shape[self.prefix_ndim:self.prefix_ndim + self.grid.dimension]}, "
+                        f"but the tensor has a spatial shape of {self.tensor.shape[self.batch_ndim:self.batch_ndim + self.grid.dimension]}, "
                         f"while the shape of the grid is {self.grid.shape}."
             )
-        self._field_ndim = self.tensor.ndim - self.prefix_ndim - self.grid.dimension
-        self._field_shape = self.tensor.shape[self.prefix_ndim + self.grid.dimension:]
+        self._field_ndim = self.tensor.ndim - self.batch_ndim - self.grid.dimension
+        self._field_shape = self.tensor.shape[self.batch_ndim + self.grid.dimension:]
         self._field_size = np.prod(self._field_shape)
         return
 
@@ -216,7 +216,7 @@ class Field(dataset.DataSet):
         """
         return np.pad(
             self._grid.direction_vectors(dimensions=dimensions),
-            pad_width=((0, 0), (self.prefix_ndim, self.field_ndim)),
+            pad_width=((0, 0), (self.batch_ndim, self.field_ndim)),
             mode="constant",
             constant_values=0,
         )
