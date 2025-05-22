@@ -49,7 +49,7 @@ class AxisAlignedRectangularCuboid(dataset.DataSet):
                         f"but got {lower_bounds.shape} and {upper_bounds.shape}."
             )
         data = jnp.stack([lower_bounds, upper_bounds], axis=-2)
-        super().__init__(data=data, prefix=prefix or lower_bounds.ndim - 1)
+        super().__init__(data=data, batch=prefix or lower_bounds.ndim - 1)
         self._input_prefix = prefix
         return
 
