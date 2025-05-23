@@ -38,7 +38,7 @@ class AxisAlignedRectangularCuboid(dataset.DataSet):
         self,
         lower_bounds: ArrayLike,
         upper_bounds: ArrayLike,
-        prefix: Sequence[str | tuple[str, Sequence[str]]] | None = None,
+        batch: Sequence[str | tuple[str, Sequence[str]]] | None = None,
     ):
         lower_bounds = jnp.asarray(lower_bounds)
         upper_bounds = jnp.asarray(upper_bounds)
@@ -49,8 +49,7 @@ class AxisAlignedRectangularCuboid(dataset.DataSet):
                         f"but got {lower_bounds.shape} and {upper_bounds.shape}."
             )
         data = jnp.stack([lower_bounds, upper_bounds], axis=-2)
-        super().__init__(data=data, batch=prefix or lower_bounds.ndim - 1)
-        self._input_prefix = prefix
+        super().__init__(data=data, batch=batch or lower_bounds.ndim - 1)
         return
 
     @property
@@ -102,11 +101,17 @@ class AxisAlignedRectangularCuboid(dataset.DataSet):
         return corners.reshape(*self.lower_bounds.shape[:-1], n_corners, n_dimensions)
 
     def __repr__(self) -> str:
+        if self._batch_instance_labels:
+            batch = []
+            for batch_dim_label, batch_instance_labels in self._batch_instance_labels.items():
+                batch.append((batch_dim_label, batch_instance_labels.tolist()))
+        else:
+            batch = self.batch_ndim
         lines = [
             "RectangularCuboid(",
             f"    lower_bounds={self.lower_bounds},",
             f"    upper_bounds={self.upper_bounds},",
-            f"    prefix={self._input_prefix},",
+            f"    batch={batch},",
             ")"
         ]
         return "\n".join(lines)
