@@ -38,7 +38,8 @@ class PointCloud(dataset.DataSet):
         with `point_count` samples each with `point_dim` features.
     batch
         Information about batch axes.
-        This must be a sequence with the same length as the number of batch axes.
+        If provided, this must be a sequence
+        with the same length as the number of batch axes.
         Each element of the sequence can be:
         - A string representing the label of the axis.
         - A 2-tuple, where the first element is a string
@@ -640,14 +641,27 @@ class PointCloud(dataset.DataSet):
 
 def from_array(
     points: ArrayLike,
-    prefix: Sequence[str | tuple[str, Sequence[str]]] | None = None,
+    batch: Sequence[str | tuple[str, Sequence[str]]] | None = None,
 ) -> PointCloud:
-    """Create a point cloud from an array of point coordinates.
+    """Create a point cloud from an array of values.
 
     Parameters
     ----------
     points
-        Data points as an array of shape `(n_samples, n_features)`
-        or `(n_instances, n_samples, n_features)`.
+        Point cloud(s) as a real or complex-valued array of
+        shape `(*batch_shape, point_count, point_dim)`,
+        where `*batch_shape` is zero or more batch axes,
+        holding different instances of a point cloud
+        with `point_count` samples each with `point_dim` features.
+    batch
+        Information about batch axes.
+        If provided, this must be a sequence
+        with the same length as the number of batch axes.
+        Each element of the sequence can be:
+        - A string representing the label of the axis.
+        - A 2-tuple, where the first element is a string
+          representing the label of the axis,
+          and the second element is a sequence of strings
+          representing the labels for each instance along that axis.
     """
-    return PointCloud(points=points, batch=prefix)
+    return PointCloud(points=points, batch=batch)
