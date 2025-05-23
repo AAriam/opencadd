@@ -61,7 +61,7 @@ class Grid:
         self._indices: np.ndarray = np.array(list(np.ndindex(*self._shape))).reshape(
             *self._shape, -1
         )
-        self._pointcloud = scids.pointcloud.DynamicPointCloud(
+        self._pointcloud = scids.pointcloud.PointCloud(
             points=self._coordinates.reshape(self._point_count, self.dimension)
         )
         # All possible combinations of -1, 0, and 1 in n dimensions
@@ -135,7 +135,7 @@ class Grid:
         return self._point_count
 
     @property
-    def points(self) -> scids.pointcloud.DynamicPointCloud:
+    def points(self) -> scids.pointcloud.PointCloud:
         """DynamicPointCloud object representing the grid points."""
         return self._pointcloud
 
