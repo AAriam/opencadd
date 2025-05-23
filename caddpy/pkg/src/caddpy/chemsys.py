@@ -17,7 +17,7 @@ import scids
 
 if TYPE_CHECKING:
     from pathlib import Path
-    from scids.pointcloud import DynamicPointCloud
+    from scids.pointcloud import PointCloud
     from scifile.pdb import PDBFileRecords, PDBFileSections
 
 
@@ -34,7 +34,7 @@ class ChemicalSystem:
         A collection of points in 3D space, which can be used to represent
         the conformation of the system over time or in different states.
     """
-    def __init__(self, composition: ChemicalComposition, trajectory: DynamicPointCloud):
+    def __init__(self, composition: ChemicalComposition, trajectory: PointCloud):
         self._composition = composition
         self._trajectory = trajectory
 
@@ -92,7 +92,7 @@ class ChemicalSystem:
         Otherwise, a tuple of srings each representing a single-model PDB file.
         """
         if frames is None:
-            frames = range(self.trajectory.prefix_ndim)
+            frames = range(self.trajectory.batch_ndim)
         elif isinstance(frames, int):
             frames = [frames]
         if not isinstance(frames, Sequence):
@@ -116,7 +116,7 @@ class ChemicalSystem:
     ):
         """Write the system as PDBQT files."""
         if frames is None:
-            frames = range(self.trajectory.prefix_ndim)
+            frames = range(self.trajectory.batch_ndim)
         elif isinstance(frames, int):
             frames = [frames]
         if not isinstance(frames, Sequence):
@@ -133,7 +133,7 @@ class ChemicalSystem:
             pdbqts.append(pdbfile.to_file(variant="pdbqt", multimodel=False))
         return tuple(pdbqts)
 
-    def new(self, composition: ChemicalComposition | None = None, trajectory: DynamicPointCloud | None = None):
+    def new(self, composition: ChemicalComposition | None = None, trajectory: PointCloud | None = None):
         """Create a new ChemicalSystem with the same class as this one."""
         if composition is None:
             composition = self._composition
