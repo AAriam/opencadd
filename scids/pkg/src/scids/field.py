@@ -108,10 +108,10 @@ class Field(dataset.DataSet):
         """Get distances to nearest neighbor elements within the tensor.
 
         For each element in the tensor, this method caclulates
-        the minimum number of steps `m >= 0` for each direction vector
-        such that moving `m` times along that direction leads to an element
-        `target` within bounds of the tensor where `predicate(tensor[current], tensor[target])`
-        is True. If no such position is found, the step count is 0.
+        the minimum number of steps `m` for each direction vector
+        such that moving `m` times along that direction leads to a target element
+        within bounds of the tensor where `predicate(element, target)` is True.
+        If no such position is found, the step count is 0.
 
         Parameters
         ----------
@@ -183,7 +183,10 @@ class Field(dataset.DataSet):
         if direction_vectors is None:
             direction_vectors = self.grid_direction_vectors()
 
-        dists = np.zeros(shape=(*self.tensor.shape, direction_vectors.shape[0]), dtype=np.uintc)
+        dists = np.zeros(
+            shape=(*self.tensor.shape, direction_vectors.shape[0]),
+            dtype=np.uintc
+        )
 
         # Calculate the maximum multiplier along each direction:
         # First, calculate the maximum possible multipliers
@@ -201,12 +204,12 @@ class Field(dataset.DataSet):
         # Loop through directions, and for each direction through multipliers, and calculate
         # distances between starting elements and end elements.
         for idx_dir, direction in enumerate(direction_vectors):
-            curr_mask = np.ones_like(self.tensor)
+            curr_mask = np.ones(shape=self.tensor.shape, dtype=bool)
             for mult in range(1, max_mult[idx_dir]):
                 start_slice, end_slice = slicer(mult * direction)
                 reached_target = predicate(self.tensor[start_slice], self.tensor[end_slice])
                 dists[(*start_slice, idx_dir)][curr_mask[start_slice]] = reached_target[curr_mask[start_slice]] * mult
-                curr_mask[start_slice][reached_target] = 0
+                curr_mask[start_slice][reached_target] = False
         return dists
 
     def grid_direction_vectors(self, dimensions: Sequence[int] | None = None) -> np.ndarray:
