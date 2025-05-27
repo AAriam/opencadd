@@ -102,7 +102,7 @@ class Grid:
         This is a flattened version of the `coordinates` property,
         where the first n dimensions are flattened into a single dimension.
         """
-        return self.points.points[0]
+        return self.points.points_2d
 
     @property
     def dimension(self) -> int:
