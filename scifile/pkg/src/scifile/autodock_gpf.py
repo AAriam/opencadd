@@ -322,6 +322,7 @@ class AutodockGpfFile:
 
     def _verify_atom_types(self, atom_types: Sequence[str]) -> tuple[str, ...]:
         types = []
+        autodock_atom_types = scicoda.atom.autodock_atom_types()
         for atom_type in atom_types:
             if not isinstance(atom_type, str):
                 raise exception.SciFileValidationError(
@@ -329,7 +330,7 @@ class AutodockGpfFile:
                     message=f"Invalid atom type: {atom_type}"
                 )
             atom_type = atom_type.upper()
-            if atom_type not in scicoda.data.autodock_atom_types["type"].values:
+            if atom_type not in autodock_atom_types["type"].values:
                 raise exception.SciFileValidationError(
                     filetype=FILETYPE,
                     message=f"Invalid atom type: {atom_type}"
