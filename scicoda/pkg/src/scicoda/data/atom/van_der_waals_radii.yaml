@@ -1,0 +1,129 @@
+schema:
+  title: Atomic Van der Waals Radii
+  summary: Van der Waals radii of atoms.
+  description: |
+    This is an array of atomic van der Waals radii,
+    sorted by atomic number from 1 to 109.
+    Values are taken from the
+    [Blue Obelisk Data Repository](https://github.com/AAriam/bodr/blob/29ce17071c71b2d4d5ee81a2a28f0407331f1624/bodr/elements/elements.xml)
+  $comment: |
+    For reference, see: https://github.com/rdkit/rdkit/issues/1831
+  type: array
+  items:
+    title: Atomic Van der Waals Radius
+    summary: Van der Waals radius of an atom.
+    description: |
+      Van der Waals radius of an atom in Ångströms (Å).
+    type: number
+    exclusiveMinimum: 0
+data:
+  - 1.2   # H
+  - 1.4   # He
+  - 2.2   # Li
+  - 1.9   # Be
+  - 1.8   # B
+  - 1.7   # C
+  - 1.6   # N
+  - 1.55  # O
+  - 1.5   # F
+  - 1.54  # Ne
+  - 2.4   # Na
+  - 2.2   # Mg
+  - 2.1   # Al
+  - 2.1   # Si
+  - 1.95  # P
+  - 1.8   # S
+  - 1.8   # Cl
+  - 1.88  # Ar
+  - 2.8   # K
+  - 2.4   # Ca
+  - 2.3   # Sc
+  - 2.15  # Ti
+  - 2.05  # V
+  - 2.05  # Cr
+  - 2.05  # Mn
+  - 2.05  # Fe
+  - 2.0   # Co
+  - 2.0   # Ni
+  - 2.0   # Cu
+  - 2.1   # Zn
+  - 2.1   # Ga
+  - 2.1   # Ge
+  - 2.05  # As
+  - 1.9   # Se
+  - 1.9   # Br
+  - 2.02  # Kr
+  - 2.9   # Rb
+  - 2.55  # Sr
+  - 2.4   # Y
+  - 2.3   # Zr
+  - 2.15  # Nb
+  - 2.1   # Mo
+  - 2.05  # Tc
+  - 2.05  # Ru
+  - 2.0   # Rh
+  - 2.05  # Pd
+  - 2.1   # Ag
+  - 2.2   # Cd
+  - 2.2   # In
+  - 2.25  # Sn
+  - 2.2   # Sb
+  - 2.1   # Te
+  - 2.1   # I
+  - 2.16  # Xe
+  - 3.0   # Cs
+  - 2.7   # Ba
+  - 2.5   # La
+  - 2.48  # Ce
+  - 2.47  # Pr
+  - 2.45  # Nd
+  - 2.43  # Pm
+  - 2.42  # Sm
+  - 2.4   # Eu
+  - 2.38  # Gd
+  - 2.37  # Tb
+  - 2.35  # Dy
+  - 2.33  # Ho
+  - 2.32  # Er
+  - 2.3   # Tm
+  - 2.28  # Yb
+  - 2.27  # Lu
+  - 2.25  # Hf
+  - 2.2   # Ta
+  - 2.1   # W
+  - 2.05  # Re
+  - 2.0   # Os
+  - 2.0   # Ir
+  - 2.05  # Pt
+  - 2.1   # Au
+  - 2.05  # Hg
+  - 2.2   # Tl
+  - 2.3   # Pb
+  - 2.3   # Bi
+  - 2.0   # Po
+  - 2.0   # At
+  - 2.0   # Rn
+  - 2.0   # Fr
+  - 2.0   # Ra
+  - 2.0   # Ac
+  - 2.4   # Th
+  - 2.0   # Pa
+  - 2.3   # U
+  - 2.0   # Np
+  - 2.0   # Pu
+  - 2.0   # Am
+  - 2.0   # Cm
+  - 2.0   # Bk
+  - 2.0   # Cf
+  - 2.0   # Es
+  - 2.0   # Fm
+  - 2.0   # Md
+  - 2.0   # No
+  - 2.0   # Lr
+  - 2.0   # Rf
+  - 2.0   # Db
+  - 2.0   # Sg
+  - 2.0   # Bh
+  - 2.0   # Hs
+  - 2.0   # Mt
+
