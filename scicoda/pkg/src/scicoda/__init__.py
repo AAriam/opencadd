@@ -1,6 +1,7 @@
 """SciCoDa: Scientific constants and data."""
 
-from scicoda.data import Data
+from scicoda import atom
 
-
-data = Data()
+__all__ = [
+    "atom",
+]
