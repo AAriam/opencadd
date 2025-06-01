@@ -61,14 +61,12 @@ class ChemicalSystem:
         grid: float | Sequence[float] | Grid = 0.5,
         padding: float | ArrayLike = 0,
         instance_selection: Any = None,
-        error_tolerance: NonNegativeFloat = 0,
     ):
         return self.trajectory.toxelate(
             grid=grid,
             point_radii=self.composition.vdw_radius,
             padding=padding,
             instance_selection=instance_selection,
-            error_tolerance=error_tolerance,
         )
 
     def remove(self, *args: Literal["nonpoly"]):
