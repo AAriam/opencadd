@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+import math
+from itertools import product
 
 import numpy as np
 import matplotlib.pyplot as plt
-import math
-from itertools import product
+from matplotlib.patches import Rectangle
+import ipywidgets as widgets
+from ipywidgets import HBox, VBox
+from IPython.display import display
 
 if TYPE_CHECKING:
     from typing import Sequence
@@ -210,3 +214,191 @@ class Plotter:
             plt.close(self._fig)  # prevent Jupyter auto-display
         elif total_plots > self._nrows * self._ncols:
             raise ValueError("Dynamic grid resizing not yet implemented. Plan grid size in advance.")
+
+
+class GridEditor2D:
+    """2D grid editor for Jupyter.
+
+    This widget allows interactive editing of a 2D boolean grid
+    to generate a numpy array.
+
+    Example
+    -------
+    >>> %matplotlib widget
+    >>> import scishow
+    >>> editor = scishow.matplotlib.GridEditor2D(rows=40, cols=60)
+    >>> editor.grid
+    array([[False, False, False, ..., False, False, False],
+           [False, False, False, ..., False, False, False],
+           ...,
+           [False, False, False, ..., False, False, False]])
+    """
+
+    def __init__(
+        self,
+        grid: np.ndarray | None = None,
+        rows: int = 10,
+        cols: int = 10,
+    ):
+        self._grid = grid or np.zeros((rows, cols), dtype=bool)
+
+        self._rows = self._grid.shape[0]
+        self._cols = self._grid.shape[1]
+
+        self._dragging = False
+        self._rect_selecting = False
+        self._rect_start = None
+        self._rectangle_patch = None
+        self._edit_mode = "toggle"
+
+        # GUI Controls
+        self._mode_dropdown = widgets.ToggleButtons(
+            options=["toggle", "on", "off"],
+            value=self._edit_mode,
+            description="Mode:"
+        )
+        self._mode_dropdown.observe(self._on_mode_change, names="value")
+
+        self._btn_clear = widgets.Button(description="Clear All", button_style='danger')
+        self._btn_fill = widgets.Button(description="Fill All", button_style='success')
+        self._btn_clear.on_click(lambda b: self._set_all(False))
+        self._btn_fill.on_click(lambda b: self._set_all(True))
+
+        self._rectangle_toggle = widgets.Checkbox(value=False, description='Rectangle Drag')
+        control_panel = VBox([
+            self._mode_dropdown,
+            self._rectangle_toggle,
+            HBox([self._btn_fill, self._btn_clear])
+        ])
+        display(control_panel)
+
+        # Plot setup
+        self._fig, self._ax = plt.subplots(figsize=(min(10, cols * 0.2), min(10, rows * 0.2)))
+        self._im = self._ax.imshow(self._grid, cmap='gray_r', interpolation='none', vmin=0, vmax=1)
+
+        self._ax.set_xticks(self._sparse_ticks(cols))
+        self._ax.set_yticks(self._sparse_ticks(rows))
+        self._ax.set_xticklabels(self._sparse_ticks(cols))
+        self._ax.set_yticklabels(self._sparse_ticks(rows))
+        self._update_title()
+
+        self._ax.format_coord = self._format_coord
+
+        self._fig.canvas.mpl_connect("button_press_event", self._on_press)
+        self._fig.canvas.mpl_connect("motion_notify_event", self._on_motion)
+        self._fig.canvas.mpl_connect("button_release_event", self._on_release)
+        return
+
+    @property
+    def grid(self) -> np.ndarray:
+        return self._grid
+
+    def _sparse_ticks(self, size: int) -> list[int]:
+        if size <= 20:
+            return list(range(size))
+        elif size <= 50:
+            return list(range(0, size, 2))
+        elif size <= 100:
+            return list(range(0, size, 5))
+        elif size <= 200:
+            return list(range(0, size, 10))
+        return list(range(0, size, 20))
+
+    def _format_coord(self, x: float, y: float) -> str:
+        row, col = int(y), int(x)
+        if 0 <= row < self._rows and 0 <= col < self._cols:
+            return f"Grid index: [{row}, {col}]"
+        return ""
+
+    def _on_mode_change(self, change):
+        self._edit_mode = change["new"]
+        self._update_title()
+
+    def _on_press(self, event):
+        if event.inaxes != self._ax:
+            return
+        x, y = int(event.xdata), int(event.ydata)
+        self._dragging = True
+
+        if self._rectangle_toggle.value:
+            self._rect_start = (x, y)
+            self._rect_selecting = True
+            if self._rectangle_patch:
+                self._rectangle_patch.remove()
+            self._rectangle_patch = Rectangle((x, y), 0, 0, linewidth=1,
+                                             edgecolor='blue', facecolor='blue',
+                                             alpha=0.3)
+            self._ax.add_patch(self._rectangle_patch)
+        else:
+            self._apply_at(y, x)
+
+    def _on_motion(self, event):
+        if event.inaxes != self._ax:
+            return
+        x, y = int(event.xdata), int(event.ydata)
+
+        if self._rect_selecting and self._rect_start:
+            x0, y0 = self._rect_start
+            x1, y1 = x, y
+            xmin, xmax = sorted([x0, x1])
+            ymin, ymax = sorted([y0, y1])
+            self._rectangle_patch.set_xy((xmin, ymin))
+            self._rectangle_patch.set_width(xmax - xmin + 1)
+            self._rectangle_patch.set_height(ymax - ymin + 1)
+            self._fig.canvas.draw_idle()
+        elif self._dragging and not self._rectangle_toggle.value:
+            self._apply_at(int(y), int(x))
+
+    def _on_release(self, event):
+        self._dragging = False
+        if self._rect_selecting and self._rect_start:
+            x0, y0 = self._rect_start
+            x1, y1 = int(event.xdata), int(event.ydata)
+            xmin, xmax = sorted([x0, x1])
+            ymin, ymax = sorted([y0, y1])
+
+            self._apply_rectangle(ymin, ymax, xmin, xmax)
+
+            self._rect_selecting = False
+            self._rect_start = None
+            if self._rectangle_patch:
+                self._rectangle_patch.remove()
+                self._rectangle_patch = None
+            self._fig.canvas.draw_idle()
+
+    def _apply_at(self, row: int, col: int):
+        if 0 <= row < self._rows and 0 <= col < self._cols:
+            match self._edit_mode:
+                case 'on':
+                    self._grid[row, col] = True
+                case 'off':
+                    self._grid[row, col] = False
+                case 'toggle':
+                    self._grid[row, col] = not self._grid[row, col]
+            self._refresh()
+
+    def _apply_rectangle(self, y0: int, y1: int, x0: int, x1: int):
+        y0, y1 = max(0, y0), min(self._rows - 1, y1)
+        x0, x1 = max(0, x0), min(self._cols - 1, x1)
+
+        match self._edit_mode:
+            case 'on':
+                self._grid[y0:y1 + 1, x0:x1 + 1] = True
+            case 'off':
+                self._grid[y0:y1 + 1, x0:x1 + 1] = False
+            case 'toggle':
+                self._grid[y0:y1 + 1, x0:x1 + 1] ^= True
+        self._refresh()
+
+    def _set_all(self, value: bool):
+        self._grid[:, :] = value
+        self._refresh()
+
+    def _refresh(self):
+        self._im.set_data(self._grid)
+        self._fig.canvas.draw_idle()
+
+    def _update_title(self):
+        self._ax.set_title(
+            f"Mode: {self._edit_mode.upper()} (R = rectangle drag)"
+        )
