@@ -8,6 +8,9 @@ import scipy as sp
 
 import scids
 from scids import dataset, exception
+from scids.volume import AxisAlignedRectangularCuboid
+from scids.grid import Grid
+from scids.field import Field
 from scids.typing import (
     atypecheck, Array, JAXArray, Num, Shaped, Is,
     Annotated, PositiveInt, PositiveFloat, PositiveInts1D, NonNegativeFloat
@@ -62,7 +65,7 @@ class PointCloud(dataset.DataSet):
         return
 
     @property
-    def points(self) -> Num[JAXArray, "*{self.batch_shape} {self.point_count} {self.point_dim}"]:
+    def points(self) -> Num[JAXArray, "*self_batch_shape {self.point_count} {self.point_dim}"]:
         """Coordinates of all points in all point clouds.
 
         This array has the same shape as the input data
@@ -102,11 +105,11 @@ class PointCloud(dataset.DataSet):
     def kdtree(self) -> sp.spatial.KDTree:
         """Combined KDTree of all points in all point clouds."""
         if self._kdtree_combined is None:
-            self._kdtree_combined = sp.spatial.KDTree(self._points_2d)
+            self._kdtree_combined = sp.spatial.KDTree(self.points_2d)
         return self._kdtree_combined
 
     @property
-    def kdtrees(self) -> Num[Array, "*{self.batch_shape}"] | None:
+    def kdtrees(self) -> Num[Array, "*self_batch_shape"] | None:
         """KDTree of each point cloud.
 
         This is an array of `KDTree` objects, one for each point cloud.
@@ -122,7 +125,7 @@ class PointCloud(dataset.DataSet):
                 self._kdtrees_per_instance[idx] = sp.spatial.KDTree(data=self._data[idx])
         return self._kdtrees_per_instance.copy()
 
-    def aabb(self, per_instance: bool = True) -> scids.volume.AxisAlignedRectangularCuboid:
+    def aabb(self, per_instance: bool = True) -> AxisAlignedRectangularCuboid:
         """Axis-aligned minimum bounding box ([AABB](https://en.wikipedia.org/wiki/Minimum_bounding_box#Axis-aligned_minimum_bounding_box)) of the point cloud.
 
         Also known as the [axis-aligned minimum bounding rectangle](https://en.wikipedia.org/wiki/Minimum_bounding_rectangle),
@@ -150,13 +153,12 @@ class PointCloud(dataset.DataSet):
 
     def toxelate(
         self,
-        grid: float | Sequence[float] | scids.grid.Grid,
+        grid: float | Sequence[float] | Grid,
         point_radii: float | ArrayLike,
         padding: float | ArrayLike = 0,
         instance_selection: Any = None,
         error_tolerance: NonNegativeFloat = 0,
-        invert: bool = False,
-    ) -> scids.volume.ToxelVolume:
+    ) -> Field:
         """Create a Toxel volume from the point cloud.
 
         Parameters
@@ -177,7 +179,7 @@ class PointCloud(dataset.DataSet):
         padding
 
         """
-        if not isinstance(grid, scids.grid.Grid):
+        if not isinstance(grid, Grid):
             # Get the bounding box of all instances superposed.
             total_bounding_box = self.aabb(per_instance=False)
             # Create a grid the size of the total bounding box, with given resolution
@@ -208,14 +210,10 @@ class PointCloud(dataset.DataSet):
             # Each toxel on the grid is occupied when the nearest point in self is within
             # `point_radii`, i.e. when it is not `np.inf`, since `self.nearest_neighbors` returns
             # `np.inf` for points where the nearest distance is larger than the upper bound.
-            if invert:
-                toxel_tensor = dists == np.inf
-            else:
-                toxel_mask = dists != np.inf
-                toxel_tensor = indices[toxel_mask] + 1  # +1 to avoid 0 index
             return scids.field.from_tensor(
                 grid=grid,
-                tensor=np.squeeze(toxel_tensor, axis=-1),
+                tensor=np.where(dists != np.inf, indices + 1, 0),  # +1 to avoid 0 index
+                batch=self.batch_ndim,
             )
         # If `point_radii` is an array of values, then we cannot rely only on the distances to
         # first nearest neighbors, since it is possible that the first k nearest neighbors have
@@ -224,27 +222,26 @@ class PointCloud(dataset.DataSet):
         radii_array = np.asarray(point_radii)
         max_radius = radii_array.max()
         min_radius = radii_array.min()
-        toxel_tensor = np.zeros(shape=(self.batch_ndim, grid.shape, 1), dtype=np.bool_)
-        ind_self, ind_gird, dists = self.distance_matrix_sparse(
-            points=grid, max_distance=max_radius
+        toxel_tensor = np.zeros(shape=(*self.batch_shape, *grid.shape), dtype=np.uint64)
+        dists, (*ind_batch, ind_point), ind_grid = self.distance_matrix_sparse(
+            points=grid.coordinates, max_distance=max_radius
         )
-        filter_definitely_occupied = dists <= min_radius
-        grid_inds_occupied = np.unravel_index(
-            ind_gird[1][filter_definitely_occupied], shape=grid.shape
-        )
-        toxel_tensor[(ind_self[0][filter_definitely_occupied], *grid_inds_occupied)] = True
-        filter_maybe_occupied = jnp.logical_not(filter_definitely_occupied)
+        definitely_occupied = dists <= min_radius
+        toxel_tensor[
+            tuple(axis_ind[definitely_occupied] for ind in (ind_batch, ind_grid) for axis_ind in ind)
+        ] = ind_point[definitely_occupied] + 1  # +1 to avoid 0 index
+        maybe_occupied = jnp.logical_not(definitely_occupied)
         dists_from_surface = (
-            dists[filter_maybe_occupied] - radii_array[ind_self[1][filter_maybe_occupied]]
+            dists[maybe_occupied] - radii_array[ind_point[maybe_occupied]]
         )
         occupied = dists_from_surface <= 0
-        grid_inds_occupied2 = np.unravel_index(
-            ind_gird[1][filter_maybe_occupied][occupied], shape=grid.shape
-        )
-        toxel_tensor[(ind_self[0][filter_maybe_occupied][occupied], *grid_inds_occupied2)] = True
+        toxel_tensor[
+            tuple(axis_ind[maybe_occupied][occupied] for ind in (ind_batch, ind_grid) for axis_ind in ind)
+        ] = ind_point[maybe_occupied][occupied] + 1  # +1 to avoid 0 index
         return scids.field.from_tensor(
-            grid=grid,
             tensor=toxel_tensor,
+            grid=grid,
+            batch=self.batch_ndim,
         )
 
     def distance_matrix_sparse(
@@ -414,7 +411,7 @@ class PointCloud(dataset.DataSet):
         instance_selection: Any = None,
         mode: Literal["per_instance", "one_for_all", "one_for_slice"] = "per_instance",
         algorithm: Literal["pca", "hull", "best"] = "best",
-    ) -> PointCloud:
+    ) -> "PointCloud":
         """Minimize the [axis-aligned minimum bounding box](https://en.wikipedia.org/wiki/Minimum_bounding_box#Axis-aligned_minimum_bounding_box) volume of the point cloud.
 
         This is done by rotating the point cloud
@@ -559,9 +556,12 @@ class PointCloud(dataset.DataSet):
                 workers=-1,
             )
             return distances, self_indices
-        k = count if isinstance(count, int) else len(count)
+        if isinstance(count, int):
+            k = () if count == 1 else (count,)
+        else:
+            k = (len(count),)
         kdtrees = self.kdtrees if instance_selection is None else self.kdtrees[instance_selection]
-        output_shape = (*kdtrees.shape, *points.shape[:-1], k)
+        output_shape = (*kdtrees.shape, *points.shape[:-1], *k)
         distances = np.empty(shape=output_shape, dtype=distance_dtype)
         indices = np.empty(
             shape=output_shape,
