@@ -26,6 +26,6 @@ Array: TypeAlias = jax.Array | np.ndarray
 JAXArray: TypeAlias = jax.Array
 
 PositiveInt: TypeAlias = Annotated[int, Is[lambda x: x > 0]]
-PositiveFloat: TypeAlias = Annotated[float, Is[lambda x: x > 0]]
-NonNegativeFloat: TypeAlias = Annotated[float, Is[lambda x: x >= 0]]
+PositiveFloat: TypeAlias = Annotated[float | int, Is[lambda x: x > 0]]
+NonNegativeFloat: TypeAlias = Annotated[float | int, Is[lambda x: x >= 0]]
 PositiveInts1D: TypeAlias = Int[Array, "n"] | Annotated[Sequence[int], Is[lambda x: np.all(x > 0)]]
