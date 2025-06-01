@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pandas as pd
 import numpy as np
 
 from scifile import typing
@@ -203,7 +204,7 @@ class PDBWriter:
         footnote: str = "",
     ):
         record_name = "ATOM  " if is_std else "HETATM"
-        charge = "  " if np.isnan(charge) else charge
+        charge = "  " if pd.isna(charge) else charge
 
         atom_name = f" {atom_name:<3}" if len(atom_name) < 4 else f"{atom_name:<4}"
         common_part = (
