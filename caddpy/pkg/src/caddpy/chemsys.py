@@ -143,8 +143,23 @@ class ChemicalSystem:
 
 class ChemicalComposition:
     def __init__(self, atoms: pd.DataFrame):
-        self._atoms = atoms
+        # Verify element symbols and assign element indices.
+        ref_element_symbols = np.strings.lower(scicoda.atom.symbols())
+        element_symbols = atoms["element"].str.lower()
+        ref_map = pd.Series(data=np.arange(len(ref_element_symbols)), index=ref_element_symbols)
+        element_indices = element_symbols.map(ref_map)
+        if element_indices.isnull().any():
+            missing = element_indices[element_indices.isnull()]
+            bad_indices = missing.index.to_numpy()
+            bad_values = atoms["element"].loc[bad_indices].to_numpy()
+            details = ", ".join(f"{i}: {v}" for i, v in zip(bad_indices, bad_values))
+            raise exception.InputError(
+                name="atoms",
+                message=f"Invalid element symbols (index: value): {details}."
+            )
+        atoms["element_index"] = element_indices
 
+        self._atoms = atoms
         self._data_autodock_atom_types: pd.DataFrame = None
         self._autodock_atom_type_indices: np.ndarray = None
         return
@@ -152,6 +167,20 @@ class ChemicalComposition:
     @property
     def atoms(self) -> pd.DataFrame:
         return self._atoms
+
+    @property
+    def element_index(self) -> np.ndarray:
+        """Atomic index (i.e. atomic number minus 1) of the atoms."""
+        return self._atoms["element_index"].values
+
+    @property
+    def vdw_radius(self) -> np.ndarray:
+        """Van der Waals radii of the atoms."""
+        if "r_vdw" in self._atoms:
+            return self._atoms["r_vdw"].values
+        ref_vdw_radii = scicoda.atom.van_der_waals_radii()
+        self.atoms["r_vdw"] = ref_vdw_radii[self.element_index]
+        return self._atoms["r_vdw"].values
 
     @property
     def atom_count(self) -> int:
