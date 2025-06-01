@@ -22,8 +22,8 @@ from caddpy.chemsys import ChemicalSystem
 
 class LigSiteDetector(GridDetector):
     """LIGSITE binding pocket detector."""
-    def __init__(self, volume: Field):
-        super().__init__(volume=volume)
+    def __init__(self, field: Field, closing_structure: np.ndarray | None = None):
+        super().__init__(field=field, closing_structure=closing_structure)
         ndir = 13  # number of directions in a 3x3x3 unit cell
         self._dirs = self.field.grid_direction_vectors()
         assert self._dirs.ndim == 2, "Direction vectors should be 2-dimensional."
@@ -51,7 +51,7 @@ class LigSiteDetector(GridDetector):
         return
 
     @property
-    def psp_counts(self) -> np.ndarray:
+    def psp_count(self) -> np.ndarray:
         """Number of protein-solvent-protein (PSP) events in each direction.
 
         For unoccupied grid points, this is equal to the number of solvent–protein–solvent (SPS) events.
@@ -59,7 +59,7 @@ class LigSiteDetector(GridDetector):
         return np.array(self._psp_counts)
 
     @property
-    def psp_distances(self) -> np.ndarray:
+    def psp_distance(self) -> np.ndarray:
         """Protein–solvent–protein (PSP) distances in each direction, in units of grid spacings (e.g. Ångstrom).
 
         For unoccupied grid points, this is equal to solvent–protein–solvent (SPS) distances.
@@ -67,7 +67,7 @@ class LigSiteDetector(GridDetector):
         return np.array(self._psp_dists)
 
     @property
-    def ps_distances(self) -> np.ndarray:
+    def ps_distance(self) -> np.ndarray:
         """Distances to nearest xeno grid points in each direction, in units of grid spacings (e.g. Ångstrom).
 
         A distance of `numpy.nan` means that no xeno neighbor was found in that direction.
@@ -75,7 +75,7 @@ class LigSiteDetector(GridDetector):
         return np.array(self._ps_dists)
 
     @property
-    def ps_distances_discrete(self) -> np.ndarray:
+    def ps_distance_discrete(self) -> np.ndarray:
         """Distances to nearest xeno grid points in each direction, in units of direction vectors.
 
         A distance of 0 means that no xeno neighbor was found in that direction.
@@ -83,7 +83,7 @@ class LigSiteDetector(GridDetector):
         return np.array(self._ps_dists_int)
 
     @property
-    def directions(self) -> np.ndarray:
+    def direction(self) -> np.ndarray:
         """Direction vectors for PSP events.
 
         This is a 2D array of shape `(26, (self.field.batch_ndim + 3))`
@@ -125,6 +125,7 @@ def from_chemsys(
     system: ChemicalSystem,
     grid: int | float | Sequence[int | float] | Grid = 0.5,
     instance_selection: Any = None,
+    closing_structure: np.ndarray | None = None,
 ):
-    volume = system.toxelate(grid=grid, instance_selection=instance_selection)
-    return LigSiteDetector(volume=volume)
+    field = system.toxelate(grid=grid, instance_selection=instance_selection)
+    return LigSiteDetector(field=field, closing_structure=closing_structure)
