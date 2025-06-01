@@ -410,6 +410,7 @@ class NGLWidget(nv.NGLWidget):
     @staticmethod
     def _to_js_array(array: np.ndarray) -> str:
         """Convert a numpy array to a JavaScript array."""
+        array = np.asarray(array)
         array_flat = array.ravel("F")
         array_sanitized = array_flat.astype(str)
         array_sanitized[np.isnan(array_flat)] = "NaN"
