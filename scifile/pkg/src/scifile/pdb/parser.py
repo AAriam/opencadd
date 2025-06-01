@@ -812,7 +812,7 @@ class PDBParser:
         ] + (
             ["element", "charge"] if self._variant == "pdb" else ["autodock_atom_type", "partial_charge"]
         ) + ["x", "y", "z"]
-        return pd.DataFrame(data).set_index("serial", drop=False)[fields]
+        return pd.DataFrame(data).set_index("serial", drop=False).convert_dtypes()[fields]
 
     def anisou(self) -> pd.DataFrame | None:
         """
