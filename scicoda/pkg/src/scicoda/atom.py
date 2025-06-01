@@ -52,6 +52,36 @@ def autodock_atom_types(
     return dataframe
 
 
+def symbols(
+    schema: bool = False,
+    cache: bool = True
+) -> np.ndarray | tuple[np.ndarray, dict]:
+    """Chemical element symbols.
+
+    Parameters
+    ----------
+    schema
+        Return the JSON Schema of the data along with the data.
+    cache
+        Retain the data in memory after reading it
+        for faster access in subsequent calls.
+
+    Returns
+    -------
+    The data is a 1D `numpy.ndarray` of chemical element symbols,
+    sorted by atomic number from 1 to 118 (i.e. hydrogen to oganesson).
+
+    If `schema` is set to `True`, a 2-tuple is returned,
+    containing the data along its JSON Schema as a dictionary.
+    Otherwise, only the data is returned.
+    """
+    file = data.get("atom", "symbols", cache=cache)
+    array = np.array(file["data"])
+    if schema:
+        return array, file["schema"]
+    return array
+
+
 def van_der_waals_radii(
     schema: bool = False,
     cache: bool = True
