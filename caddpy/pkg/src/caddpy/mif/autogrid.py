@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from pathlib import Path
 import shutil
-import os
 import tempfile
 from typing import TYPE_CHECKING
 
