@@ -716,19 +716,6 @@ class PDBParser:
             }
         ).set_index("serial", drop=False)
 
-    # def atom(self):
-    #     coordinates = self.coordinates()
-    #     if coordinates is None:
-    #         return self.anisou()
-    #     anisou = self.anisou()
-    #     if anisou is None:
-    #         return coordinates
-    #     return pd.merge(
-    #         coordinates, anisou,
-    #         how="outer",
-    #         on=("atom_name", "alt_loc", "res_name", "chain_id", "res_num", "res_icode", "element", "charge", "model_num")
-    #     )
-
     def atom(self) -> pd.DataFrame | None:
         """
         ATOM and HETATM records of the PDB file, containing atomistic data (coordinates, occupancy, and
