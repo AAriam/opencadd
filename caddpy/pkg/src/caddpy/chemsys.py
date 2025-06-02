@@ -41,10 +41,20 @@ class ChemicalSystem:
         the conformation of the system over time or in different states.
     """
     def __init__(self, composition: ChemicalComposition, trajectory: PointCloud):
+        if composition.atom_count != trajectory.point_count:
+            raise exception.InputError(
+                name="trajectory",
+                message="Composition and trajectory must have the same number of atoms, "
+                        f"but composition has {composition.atom_count} atoms and trajectory has {trajectory.point_count}.",
+            )
+        if trajectory.point_dim != 3:
+            raise exception.InputError(
+                name="trajectory",
+                message=f"Trajectory must be a 3D point cloud, "
+                        f"but is {trajectory.point_dim}D with shape {trajectory.points.shape}.",
+            )
         self._composition = composition
         self._trajectory = trajectory
-
-        self._ngl_widget: ngl.NGLWidget | None = None
         return
 
     @property
@@ -73,19 +83,6 @@ class ChemicalSystem:
         composition = self._composition[self._composition.res_poly]
         conformation = self._trajectory.points[:, self._composition.res_poly.to_numpy()]
         return ChemicalSystem(composition=composition, trajectory=conformation)
-
-    def display_nglview(self, widget: ngl.NGLWidget | Literal["self"] | None = "self"):
-        if not widget:
-            output_widget = self._ngl_widget = ngl.NGLWidget()
-        elif widget == "self":
-            if self._ngl_widget:
-                output_widget = self._ngl_widget
-            else:
-                output_widget = self._ngl_widget = ngl.NGLWidget()
-        else:
-            output_widget = widget
-        output_widget.add_trajectory(_ChemicalSystemNGLViewAdaptor(self))
-        return output_widget
 
     def to_pdb(
         self,
@@ -256,11 +253,14 @@ class _ChemicalSystemNGLViewAdaptor(ngl.Structure, ngl.Trajectory):
         return self._chemsys.to_pdb(0)
 
     def get_coordinates(self, index):
-        return self._chemsys.trajectory.points[index]
+        index_unraveled = index if self._chemsys.trajectory.batch_ndim == 0 else np.unravel_index(
+            index, self._chemsys.trajectory.batch_shape
+        )
+        return self._chemsys.trajectory.points[index_unraveled]
 
     @property
     def n_frames(self):
-        return self._chemsys.trajectory.points.shape[0]
+        return self._chemsys.trajectory.batch_size
 
 
 def from_pdb(
