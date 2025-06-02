@@ -139,6 +139,7 @@ class AutoDockAtomType(RecordFieldDataType):
     def from_pdb(fields: str | Sequence[str]):
         return np.char.strip(fields)
 
+
 class IDcode(RecordFieldDataType):
     """
     A PDB identification code which consists of 4 characters,
