@@ -9,21 +9,25 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import Literal, Any
+import operator
 
 import jax.numpy as jnp
 import numpy as np
+import scipy as sp
 
 from scids.field import Field
 from scids.grid import Grid
 
 from caddpy.pocket.grid import GridDetector
+from caddpy.pocket.ligsite_gui import LigSiteDetectorGUI
 from caddpy.chemsys import ChemicalSystem
 
 
 class LigSiteDetector(GridDetector):
     """LIGSITE binding pocket detector."""
-    def __init__(self, field: Field, closing_structure: np.ndarray | None = None):
-        super().__init__(field=field, closing_structure=closing_structure)
+    def __init__(self, field: Field):
+        super().__init__(field=field)
+        self._grid_axis_indices = tuple(range(self.field.batch_ndim, self.field.tensor.ndim))
         ndir = 13  # number of directions in a 3x3x3 unit cell
         self._dirs = self.field.grid_direction_vectors()
         assert self._dirs.ndim == 2, "Direction vectors should be 2-dimensional."
@@ -48,7 +52,117 @@ class LigSiteDetector(GridDetector):
         # negative half-directions, in order to get the PSP lengths.
         self._psp_dists = self._ps_dists[..., :ndir] + self._ps_dists[..., -1:-(ndir+1):-1]
         self._psp_counts = np.count_nonzero(~np.isnan(self._psp_dists), axis=-1)
+
+        self._psp_masks: dict[str, np.ndarray | None] = {
+            "count_lower": None,
+            "count_upper": None,
+            "dist_lower": None,
+            "dist_upper": None,
+        }
+        self._psp_mask: np.ndarray | None = None
+        self._volume_mask = np.logical_not(self.field.tensor)
+        self._pocket_mask: np.ndarray | None = None
+        self._gui = None
         return
+
+    def pocket_mask(self, additional_mask: np.ndarray | None = None):
+        masks = [self._volume_mask]
+        if self._psp_mask is not None:
+            masks.append(self._psp_mask)
+        if additional_mask is not None:
+            masks.append(additional_mask)
+        self._pocket_mask = np.logical_and.reduce(masks)
+        return
+
+    def psp_mask(
+        self,
+        count_lower: int | bool | None = None,
+        count_upper: int | bool | None = None,
+        dist_lower: float | bool | None = None,
+        dist_upper: float | bool | None = None,
+        dist_lower_mode: Literal["any", "all", "max", "min", "mean"] = "all",
+        dist_upper_mode: Literal["any", "all", "max", "min", "mean"] = "any",
+    ):
+        def make_mask(
+            arr: np.ndarray,
+            threshold: int | float,
+            side: Literal["lower", "upper"],
+            mode: Literal["any", "all", "max", "min", "mean"]
+        ):
+            comparison_op = operator.le if side == "upper" else operator.ge
+            reduction_op = {
+                "any": np.any,
+                "all": np.all,
+                "max": np.max,
+                "min": np.min,
+                "mean": np.mean,
+            }[mode]
+            if mode in ("any", "all"):
+                return reduction_op(comparison_op(arr, threshold), axis=-1)
+            elif mode in ("max", "min", "mean"):
+                return comparison_op(reduction_op(arr, axis=-1), threshold)
+            else:
+                raise ValueError(f"Unknown mode: {mode}")
+
+        if count_lower is not None:
+            self._psp_masks["count_lower"] = None if count_lower is True else self.psp_count >= count_lower
+        if count_upper is not None:
+            self._psp_masks["count_upper"] = None if count_upper is True else self.psp_count <= count_upper
+        if dist_lower is not None:
+            self._psp_masks["dist_lower"] = None if dist_lower is True else make_mask(
+                self.psp_distance, threshold=dist_lower, side="lower", mode=dist_lower_mode
+            )
+        if dist_upper is not None:
+            self._psp_masks["dist_upper"] = None if dist_upper is True else make_mask(
+                self.psp_distance, threshold=dist_upper, side="upper", mode=dist_upper_mode
+            )
+        active_masks = [mask for mask in self._psp_masks.values() if mask is not None]
+        if not active_masks:
+            self._psp_mask = None
+        else:
+            self._psp_mask = np.logical_and.reduce(active_masks, out=self._psp_mask)
+        return
+
+    def volume_mask(
+        self,
+        closing_structure: np.ndarray | tuple[int, int] | None = None,
+        closing_iterations: int = 1,
+        closing_mask: np.ndarray | None = None,
+        closing_border_value: Literal[0, 1] = 1,
+        fill_structure: np.ndarray | None = None,
+    ):
+        if isinstance(closing_structure, tuple):
+            structure_connectivity, structure_iterations = closing_structure
+            # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.generate_binary_structure.html
+            closing_structure_initial = sp.ndimage.generate_binary_structure(
+                rank=3, connectivity=structure_connectivity
+            )
+            # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.iterate_structure.html
+            closing_structure = sp.ndimage.iterate_structure(
+                structure=closing_structure_initial, iterations=structure_iterations
+            )
+        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.binary_closing.html
+        volume_closed = sp.ndimage.binary_closing(
+            input=self.field.tensor,
+            structure=closing_structure,
+            iterations=closing_iterations,
+            mask=closing_mask,
+            border_value=closing_border_value,
+            axes=self._grid_axis_indices,
+        )
+        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.binary_fill_holes.html
+        volume_closed_and_filled = sp.ndimage.binary_fill_holes(
+            input=volume_closed,
+            structure=fill_structure,
+            axes=self._grid_axis_indices,
+        )
+        self._volume_mask = np.logical_not(volume_closed_and_filled)
+        return
+
+    @property
+    def gui(self):
+        if not self._gui:
+            self._gui = LigSiteDetectorGUI(self)
 
     @property
     def psp_count(self) -> np.ndarray:
@@ -94,38 +208,11 @@ class LigSiteDetector(GridDetector):
         """
         return np.array(self._dirs)
 
-    def calculate_buriedness(
-        self,
-        psp_max_length: float = 20.0,
-        psp_min_count: int = 2,
-    ) -> np.ndarray:
-        """
-        Calculate whether each grid point is buried inside the target structure or not, based on
-        counting the number of protein-solvent-protein (PSP) events for each point, and applying
-        a cutoff.
-
-        Parameters
-        ----------
-        vacancy : numpy.ndarray
-
-        psp_distances : numpy.ndarray
-        psp_max_length : float, Optional, default: 10.0
-            Maximum acceptable distance for a PSP event, in Ångstrom (Å).
-        psp_min_count : int, Optional, default: 4
-            Minimum required number of PSP events for a grid point, in order to count as buried.
-        """
-        # Count PSP events that are shorter than the given cutoff.
-        grid_psp_counts = jnp.count_nonzero(self._psp_distances <= psp_max_length, axis=-1)
-        buriedness = grid_psp_counts >= psp_min_count
-        site = jnp.logical_and(jnp.logical_not(self.toxel_vol.toxels), buriedness)
-        return site
-
 
 def from_chemsys(
     system: ChemicalSystem,
     grid: int | float | Sequence[int | float] | Grid = 0.5,
     instance_selection: Any = None,
-    closing_structure: np.ndarray | None = None,
 ):
     field = system.toxelate(grid=grid, instance_selection=instance_selection)
-    return LigSiteDetector(field=field, closing_structure=closing_structure)
+    return LigSiteDetector(field=field)
