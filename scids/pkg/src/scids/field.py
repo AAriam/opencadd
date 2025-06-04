@@ -212,7 +212,7 @@ class Field(dataset.DataSet):
                 curr_mask[start_slice][reached_target] = False
         return dists
 
-    def grid_direction_vectors(self, dimensions: Sequence[int] | None = None) -> np.ndarray:
+    def grid_direction_vectors(self, dimensions: int | Sequence[int] | None = None) -> np.ndarray:
         """Get (a subset of) direction vectors in the grid.
 
         This returns the same direction vectors as
