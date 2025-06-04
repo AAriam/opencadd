@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+import itertools
 
 from collections.abc import Sequence
 from typing import Literal
 from pathlib import Path
 import uuid
 
+import jax
 import numpy as np
 import pandas as pd
 import nglview as ngl
@@ -79,14 +81,15 @@ class ChemicalSystem:
             instance_selection=instance_selection,
         )
 
-    def remove(self, *args: Literal["nonpoly"]):
-        composition = self._composition[self._composition.res_poly]
-        conformation = self._trajectory.points[:, self._composition.res_poly.to_numpy()]
-        return ChemicalSystem(composition=composition, trajectory=conformation)
+    def select(self, selection: ArrayLike | pd.Series):
+        selection = np.asarray(selection, dtype=bool)
+        atoms = self.composition.atoms[selection]
+        positions = self.trajectory.points[..., selection, :]
+        return self.new(composition=atoms, trajectory=positions)
 
     def to_pdb(
         self,
-        frames: int | Sequence[int] | None = None,
+        frames: Any = None,
         multimodel: bool = False,
     ) -> str | tuple[str, ...]:
         """Write the system as PDB files.
@@ -107,6 +110,11 @@ class ChemicalSystem:
         If multimodel is True, a single PDB file string is returned.
         Otherwise, a tuple of srings each representing a single-model PDB file.
         """
+        if self.trajectory.batch_size == 1:
+            atoms = self.composition.atoms.assign(model_num=0)
+            atoms[["x", "y", "z"]] = self.trajectory.points[(0, ) * self.trajectory.batch_ndim]
+            return scifile.pdb.PDBFile(atom=atoms)
+
         if frames is None:
             frames = range(self.trajectory.batch_ndim)
         elif isinstance(frames, int):
@@ -149,12 +157,16 @@ class ChemicalSystem:
             pdbqts.append(pdbfile.to_file(variant="pdbqt", multimodel=False))
         return tuple(pdbqts)
 
-    def new(self, composition: ChemicalComposition | None = None, trajectory: PointCloud | None = None):
+    def new(self, composition: pd.DataFrame | ChemicalComposition | None = None, trajectory: ArrayLike | PointCloud | None = None):
         """Create a new ChemicalSystem with the same class as this one."""
         if composition is None:
             composition = self._composition
+        elif isinstance(composition, pd.DataFrame):
+            composition = ChemicalComposition(composition)
         if trajectory is None:
             trajectory = self._trajectory
+        elif isinstance(trajectory, np.ndarray | jax.Array):
+            trajectory = scids.pointcloud.from_array(trajectory)
         return ChemicalSystem(composition=composition, trajectory=trajectory)
 
 class ChemicalComposition:
@@ -250,7 +262,7 @@ class _ChemicalSystemNGLViewAdaptor(ngl.Structure, ngl.Trajectory):
         return
 
     def get_structure_string(self):
-        return self._chemsys.to_pdb(0)
+        return str(self._chemsys.to_pdb())
 
     def get_coordinates(self, index):
         index_unraveled = index if self._chemsys.trajectory.batch_ndim == 0 else np.unravel_index(
@@ -263,52 +275,49 @@ class _ChemicalSystemNGLViewAdaptor(ngl.Structure, ngl.Trajectory):
         return self._chemsys.trajectory.batch_size
 
 
-def from_pdb(
-    files: str | bytes | Path | list[str | bytes | Path],
-    parse_only: Sequence[PDBFileSections | PDBFileRecords | str] | None = None,
-    strictness: Literal[0, 1, 2, 3] = 0,
-):
-    """Create a ChemicalSystem from a PDB file."""
-    if isinstance(files, (str, bytes, Path)):
-        files = [files]
-    # Parse the first file to get the composition first
-    first_file = scifile.pdb.read(
-        file=files[0],
-        parse_only=parse_only,
-        strictness=strictness,
-    )
-    model_count = first_file.atom["model_num"].nunique()
-    if len(files) > 1 and model_count > 1:
-        raise ValueError(
-            "Either provide a single multimodel PDB file or a list of PDB files with a single model each."
+def from_pdb(files: scifile.pdb.PDBFile | Path | bytes | str | ArrayLike):
+    """Create a ChemicalSystem from PDB file(s)."""
+    if isinstance(files, scifile.pdb.PDBFile | Path | bytes | str):
+        atom, trajectory = _read_single_pdb(files)
+        return ChemicalSystem(
+            composition=ChemicalComposition(atoms=atom),
+            trajectory=scids.pointcloud.from_array(trajectory)
         )
-
-    # Create the conformation tensor
-    count_frames = model_count if model_count > 1 else len(files)
-    count_atoms = len(first_file.atom) // count_frames
-    trajectory = np.zeros(
-        shape=(count_frames, count_atoms, 3),
-        dtype=np.float32,
-    )
-    if model_count > 1:
-        composition = first_file.atom[first_file.atom["model_num"] == 1]
-        for model_idx in range(model_count):
-            trajectory[model_idx] = first_file.atom[first_file.atom["model_num"] == model_idx + 1][["x", "y", "z"]]
-    else:
-        composition = first_file.atom[first_file.atom["model_num"] == 0]
-        trajectory[0] = first_file.atom[["x", "y", "z"]]
-        for idx_instance, file in enumerate(files[1:], start=1):
-            pdbfile = scifile.pdb.read(
-                file=file,
-                parse_only=parse_only,
-                strictness=strictness,
+    files = np.asarray(files, dtype=object)
+    # Parse the first file to get the composition first
+    first_atom, first_trajectory = _read_single_pdb(file=files.flat[0])
+    model_count = first_trajectory.shape[0] if first_trajectory.ndim == 3 else 1
+    atom_count = first_trajectory.shape[-2]
+    batch_shape = files.shape if model_count == 1 else (*files.shape, model_count)
+    trajectory = np.zeros(shape=(*batch_shape, atom_count, 3), dtype=np.float32)
+    trajectory[(0, ) * len(batch_shape)] = first_trajectory
+    # Iterate over file indices, skipping the first file since we already parsed it
+    for index in itertools.islice(np.ndindex(batch_shape), 1, None):
+        atom, traj = _read_single_pdb(file=files[index])
+        nmodel = traj.shape[0] if traj.ndim == 3 else 1
+        if nmodel != model_count:
+            raise exception.InputError(
+                name="files",
+                message=f"All files must have the same number of models, "
+                        f"but file at index {index} has {nmodel} models while the first file has {model_count} models."
             )
-            trajectory[idx_instance] = pdbfile.atom[["x", "y", "z"]]
-    composition = composition.drop(["model_num", "x", "y", "z"], axis=1)
+        trajectory[index] = traj
     return ChemicalSystem(
-        composition=ChemicalComposition(composition),
+        composition=ChemicalComposition(first_atom),
         trajectory=scids.pointcloud.from_array(trajectory)
     )
+
+
+def _read_single_pdb(file: scifile.pdb.PDBFile | Path | bytes | str) -> tuple[pd.DataFrame, np.ndarray]:
+    pdbfile = file if isinstance(file, scifile.pdb.PDBFile) else scifile.pdb.read(file=file, parse_only=["atom"])
+    atom = pdbfile.atom
+    # Create the trajectory array
+    trajectory = atom[["x", "y", "z"]].to_numpy(dtype=np.float32)
+    if pdbfile.nummdl:
+        trajectory = trajectory.reshape(pdbfile.nummdl, -1, 3)
+        atom = atom[atom["model_num"] == 1]
+    atom = atom.drop(["model_num", "x", "y", "z"], axis=1)
+    return atom, trajectory
 
 
 def from_pdbqt():
