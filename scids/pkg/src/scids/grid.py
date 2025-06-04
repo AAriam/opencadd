@@ -185,7 +185,7 @@ class Grid:
         """
         return self.lower_bounds + indices * self.spacings
 
-    def direction_vectors(self, dimensions: Sequence[int] | None = None) -> np.ndarray:
+    def direction_vectors(self, dimensions: int | Sequence[int] | None = None) -> np.ndarray:
         """Get (a subset of) direction vectors in the grid.
 
         These vectors represent possible relative movement directions
