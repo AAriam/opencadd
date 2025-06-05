@@ -58,11 +58,18 @@ class GridDetector:
         dist_upper: float | bool | None = None,
         dist_lower_mode: Literal["any", "all", "max", "min", "mean"] = "all",
         dist_upper_mode: Literal["any", "all", "max", "min", "mean"] = "any",
-        directions: Literal[1, 2, 3] | Sequence[Literal[1, 2, 3]] | np.ndarray = (1, 2, 3),
+        directions: Literal[1, 2, 3] | Sequence[Literal[1, 2, 3]] | np.ndarray | None = None,
     ):
-        if self._ligsite is None or not np.array_equiv(
-            self._ligsite.direction,
-            LigSite.calculate_direction_vectors(field=self.field, directions=directions),
+        if self._ligsite is None and directions is None:
+            raise exception.InputError(
+                name="directions",
+                message="Directions must be specified when setting the mask for the first time.",
+            )
+        if self._ligsite is None or (
+            directions is not None and not np.array_equiv(
+                self._ligsite.direction,
+                LigSite.calculate_direction_vectors(field=self.field, directions=directions),
+            )
         ):
             self._ligsite = LigSite(
                 field=self.field,
@@ -203,8 +210,8 @@ class GridDetectorGUI(GridDetector, GUI):
                     widget=widgets.ToggleButton(
                         description="Auto Refresh",
                         tooltip="Automatically recalculate the LIGSITE mask when the settings change.",
-                        value=False,
-                        button_style="danger",
+                        value=True,
+                        button_style="success",
                         disabled=True,
                     )
                 )
@@ -242,6 +249,9 @@ class GridDetectorGUI(GridDetector, GUI):
                 slider = self._gui__add_widget(
                     name=f"{name_prefix}psp_{panel_type}_slider",
                     widget=slider_class(
+                        value=(0, 13) if panel_type == "count" else (0.0, 100.0),
+                        min=0 if panel_type == "count" else 0.0,
+                        max=13 if panel_type == "count" else 100.0,
                         step=1 if panel_type == "count" else 0.01,
                         disabled=True,
                         continuous_update=False,
@@ -265,7 +275,7 @@ class GridDetectorGUI(GridDetector, GUI):
                         name=f"{name_prefix}psp_{panel_type}_{side}",
                         widget=widgets.Dropdown(
                             options=dropdown_options,
-                            value="Enabled" if panel_type == "count" else ("All" if side == "min" else "Any"),
+                            value=True if panel_type == "count" else ("all" if side == "min" else "any"),
                             layout=widgets.Layout(width="100%"),
                             disabled=True,
                         )
@@ -355,54 +365,46 @@ class GridDetectorGUI(GridDetector, GUI):
     def _ovc_ligsite_dirs(self, change: dict):
         with self._gui__logger:
             print(f"Changed LIGSITE directions to {change['new']}.")
+        # Temporarily disable controls during calculation to prevent user interaction.
+        self._gui__toggle_ligsite_controls(False)
         value = change["new"]
         if not value:
-            self._gui__toggle_ligsite_controls(False)
+            # If no directions are selected, leave controls disabled and unset the mask.
             self.unset_mask("ligsite")
             return {}
         self._gui__show_calculating()
+        # Calculate mask to get new PSP min/max values.
         self.set_mask_ligsite(directions=tuple(range(1, value + 1)))
-        psp_count_slider = self._gui__get_widget("ligsite_psp_count_slider")
-        psp_dist_slider = self._gui__get_widget("ligsite_psp_dist_slider")
+        # Reset the sliders to the new min/max values.
         self._gui__reset_slider_minmax(
-            slider=psp_count_slider,
+            slider=self._gui__get_widget("ligsite_psp_count_slider"),
             minimum=self.ligsite.psp_count.min().item(),
             maximum=self.ligsite.psp_count.max().item(),
         )
         self._gui__reset_slider_minmax(
-            slider=psp_dist_slider,
+            slider=self._gui__get_widget("ligsite_psp_dist_slider"),
             minimum=jnp.nanmin(self.ligsite.psp_distance).item(),
             maximum=jnp.nanmax(self.ligsite.psp_distance).item(),
         )
-        if change["old"] is None:
-            self._gui__toggle_ligsite_controls(True)
+        auto_refresh = self._gui__get_widget("ligsite_auto_refresh").value
+        if auto_refresh:
+            # Recalculate mask with the current min/max values when auto-refresh is enabled.
+            self._gui__recalculate_ligsite_mask(pass_directions=False)
+        # Reenable controls after calculation.
         self._gui__hide_calculating()
-        return {}
+        self._gui__toggle_ligsite_controls(True)
+        return {} if auto_refresh else None
 
     def _ovc_ligsite_refresh(self, _: widgets.Button):
         with self._gui__logger:
             print("Refreshing LIGSITE mask with current settings.")
         directions = self._gui__get_widget("ligsite_dirs")
-        if not directions.value:
+        if directions.value:
+            self._gui__recalculate_ligsite_mask(pass_directions=True)
+        else:
             self._gui__toggle_ligsite_controls(False)
             self.unset_mask("ligsite")
-            return {}
-        psp_count_slider = self._gui__get_widget("ligsite_psp_count_slider")
-        psp_dist_slider = self._gui__get_widget("ligsite_psp_dist_slider")
-        psp_count_min = self._gui__get_widget("ligsite_psp_count_min")
-        psp_count_max = self._gui__get_widget("ligsite_psp_count_max")
-        psp_dist_min = self._gui__get_widget("ligsite_psp_dist_min")
-        psp_dist_max = self._gui__get_widget("ligsite_psp_dist_max")
-        self.set_mask_ligsite(
-            count_lower=psp_count_slider.lower if psp_count_min.value else True,
-            count_upper=psp_count_slider.upper if psp_count_max.value else True,
-            dist_lower=psp_dist_slider.lower if psp_dist_min.value else True,
-            dist_upper=psp_dist_slider.upper if psp_dist_max.value else True,
-            dist_lower_mode=psp_dist_min.value,
-            dist_upper_mode=psp_dist_max.value,
-            directions=.value,
-        )
-        return
+        return {}
 
     def _ovc_ligsite_auto_refresh(self, change: dict):
         enabled = change["new"]
@@ -415,7 +417,36 @@ class GridDetectorGUI(GridDetector, GUI):
     def _ovc_ligsite_reset(self, _: widgets.Button):
         with self._gui__logger:
             print("Resetting LIGSITE mask to default state.")
-        return
+        self._gui__toggle_ligsite_controls(False)
+        self._gui__show_calculating()
+        self._gui__get_widget("ligsite_dirs").value = 3
+        self.set_mask_ligsite(directions=tuple(range(1, 4)))
+        count_slider = self._gui__get_widget("ligsite_psp_count_slider")
+        count_slider_min = self.ligsite.psp_count.min().item()
+        count_slider_max = self.ligsite.psp_count.max().item()
+        dist_slider = self._gui__get_widget("ligsite_psp_dist_slider")
+        dist_slider_min = jnp.nanmin(self.ligsite.psp_distance).item()
+        dist_slider_max = jnp.nanmax(self.ligsite.psp_distance).item()
+        self._gui__reset_slider_minmax(
+            slider=count_slider,
+            minimum=count_slider_min,
+            maximum=count_slider_max,
+        )
+        self._gui__reset_slider_minmax(
+            slider=dist_slider,
+            minimum=dist_slider_min,
+            maximum=dist_slider_max,
+        )
+        count_slider.lower = max(count_slider.lower, 5)
+        dist_slider.upper = min(dist_slider.upper, 10.0)
+        self._gui__get_widget("ligsite_psp_count_min").value = True
+        self._gui__get_widget("ligsite_psp_count_max").value = False
+        self._gui__get_widget("ligsite_psp_dist_min").value = "all"
+        self._gui__get_widget("ligsite_psp_dist_max").value = "any"
+        self._gui__recalculate_ligsite_mask(pass_directions=False)
+        self._gui__hide_calculating()
+        self._gui__toggle_ligsite_controls(True)
+        return {}
 
     def _ovc_ligsite_psp_count_slider(self, change: dict):
         with self._gui__logger:
@@ -459,6 +490,25 @@ class GridDetectorGUI(GridDetector, GUI):
     def _ovc_ligsite_psp_dist_max(self, change: dict):
         with self._gui__logger:
             print(f"Changed LIGSITE PSP distance upper mode to {change['new']}.")
+        return
+
+    def _gui__recalculate_ligsite_mask(self, pass_directions: bool):
+        psp_directions = self._gui__get_widget("ligsite_dirs")
+        psp_count_slider = self._gui__get_widget("ligsite_psp_count_slider")
+        psp_dist_slider = self._gui__get_widget("ligsite_psp_dist_slider")
+        psp_count_min = self._gui__get_widget("ligsite_psp_count_min")
+        psp_count_max = self._gui__get_widget("ligsite_psp_count_max")
+        psp_dist_min = self._gui__get_widget("ligsite_psp_dist_min")
+        psp_dist_max = self._gui__get_widget("ligsite_psp_dist_max")
+        self.set_mask_ligsite(
+            count_lower=psp_count_slider.lower if psp_count_min.value else True,
+            count_upper=psp_count_slider.upper if psp_count_max.value else True,
+            dist_lower=psp_dist_slider.lower if psp_dist_min.value else True,
+            dist_upper=psp_dist_slider.upper if psp_dist_max.value else True,
+            dist_lower_mode=psp_dist_min.value,
+            dist_upper_mode=psp_dist_max.value,
+            directions=tuple(range(1, psp_directions.value + 1)) if pass_directions else None,
+        )
         return
 
     def _gui__toggle_ligsite_controls(self, status: bool):
