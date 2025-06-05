@@ -1,5 +1,5 @@
 
-from typing import Any
+from typing import Any, Sequence
 
 from IPython.display import display
 from ipywidgets import Dropdown, IntRangeSlider, HBox, VBox, Label, HTML, Box, Layout, Widget, Button
@@ -48,16 +48,17 @@ class GUI:
         if self._gui is None:
             raise RuntimeError("GUI has not been initialized.")
         self._gui__render()
-        display(self._gui)
+        if isinstance(self._gui, Widget):
+            display(self._gui)
+        else:
+            display(*self._gui)
         return
 
-    def _gui__set_main_widget(self, widget: Widget) -> None:
+    def _gui__set_main_widget(self, widget: Widget | Sequence[Widget]) -> None:
         """Set the main GUI widget that will be displayed.
 
         This method should be called in the subclass's `__init__` method.
         """
-        if not isinstance(widget, Widget):
-            raise TypeError(f"Expected a Widget instance, got {type(widget)}")
         self._gui = widget
         return
 
