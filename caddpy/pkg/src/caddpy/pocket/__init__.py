@@ -1,5 +1,5 @@
-from caddpy.pocket import ligsite, grid
+from caddpy.pocket import grid_detector
 
 __all__ = [
-    "ligsite",
+    "grid_detector",
 ]
