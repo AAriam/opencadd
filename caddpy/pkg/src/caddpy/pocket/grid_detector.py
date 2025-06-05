@@ -13,7 +13,6 @@ import jax.numpy as jnp
 import numpy as np
 import scipy as sp
 import ipywidgets as widgets
-import IPython.display as ipydisplay
 from scids.field import Field
 from scids.grid import Grid
 from scishow.nglview import NGLWidget
@@ -161,277 +160,249 @@ class GridDetector:
         return
 
 
-class GridDetectorGUI(GridDetector):
+class GridDetectorGUI(GridDetector, GUI):
     def __init__(self, receptor: ChemicalSystem, field: Field):
-        super().__init__(receptor=receptor, field=field)
-        self._nglwidget = NGLWidget().display(gui=True)
-        self._nglwidget.add_trajectory(receptor, name="protein")
-        self._nglwidget.component_0.add_surface(color="rgb(100,20,20)", opacity=0.5, surface_type="vws", scale_factor=10, smooth=10)
 
-        self._widget_psp_dirs = widgets.Dropdown(
-            options={
-                "Disabled": None,
-                "1D": 1,
-                "2D": 2,
-                "3D": 3,
-            },
-            rows=4,
-        )
-        self._widget_psp_dirs.observe(self._on_value_change_psp_dirs, names="value")
-        self._widget_psp_count = self._create_numeric_range_slider(
-            dtype="int",
-            disabled=True,
-            observer=self._on_value_change_psp_count
-        )
-        self._widget_psp_dist = self._create_numeric_range_slider(
-            dtype="float",
-            disabled=True,
-            observer=self._on_value_change_psp_dist
-        )
+        def make_ngl() -> NGLWidget:
+            nglwidget = NGLWidget().display(gui=True)
+            nglwidget.add_trajectory(receptor, name="protein")
+            nglwidget.component_0.add_surface(
+                color="rgb(100,20,20)",
+                opacity=0.5,
+                surface_type="vws",
+                scale_factor=10,
+                smooth=10
+            )
+            self._gui__add_widget("ngl", nglwidget)
+            return nglwidget
 
-        panel_ligsite = self._create_control_panel(
-            header_name="PSP",
-            controller_labels=("Directions", "Distance", "Count"),
-            controllers=[
-                self._widget_psp_dirs,
-                self._widget_psp_dist,
-                self._widget_psp_count,
-            ],
-        )
+        def make_ligsite():
+            def make_top_panel():
+                directions = widgeter.labeled_widget(
+                    value="Directions:",
+                    widget=self._gui__add_widget(
+                        name=f"{name_prefix}dirs",
+                        widget=widgets.Dropdown(
+                            options={"None": None, "1D": 1, "2D": 2, "3D": 3},
+                            layout=widgets.Layout(width="flex-grow", min_width="20px"),
+                        )
+                    )
+                )
+                refresh = self._gui__add_widget(
+                    name=f"{name_prefix}refresh",
+                    widget=widgets.Button(
+                        description="Refresh",
+                        tooltip="Recalculate the LIGSITE mask with the current settings.",
+                        button_style="success",
+                    )
+                )
+                auto_refresh = self._gui__add_widget(
+                    name=f"{name_prefix}auto_refresh",
+                    widget=widgets.ToggleButton(
+                        description="Auto Refresh",
+                        tooltip="Automatically recalculate the LIGSITE mask when the settings change.",
+                        value=False,
+                        button_style="danger",
+                    )
+                )
+                reset = self._gui__add_widget(
+                    name=f"{name_prefix}reset",
+                    widget=widgets.Button(
+                        description="Reset",
+                        tooltip="Reset the LIGSITE mask to the default state.",
+                        button_style="danger",
+                    )
+                )
+                return widgets.HBox(
+                    [directions, refresh, auto_refresh, reset],
+                    layout=widgets.Layout(width="100%", align_items="center")
+                )
 
-        main_panel = widgets.Tab(
-            children=[panel_ligsite],
+            def make_psp_panels():
+                return widgets.HBox(
+                    [make_psp_panel(panel_type) for panel_type in ("count", "dist")],
+                    layout=widgets.Layout(
+                        width="100%",
+                        justify_content="space-between",
+                        flex_flow="row wrap",
+                        margin="10px 0 10px 0"
+                    )
+                )
+
+            def make_psp_panel(panel_type: Literal["count", "dist"]):
+                title = widgets.HBox(
+                    [widgets.HTML(f"<b>PSP {"Count" if panel_type == 'count' else 'Distance'}</b>")],
+                    layout=widgets.Layout(justify_content="center", width="100%")
+                )
+                slider_class = widgets.IntSlider if panel_type == "count" else widgets.FloatSlider
+                slider = self._gui__add_widget(
+                    name=f"{name_prefix}psp_{panel_type}_slider",
+                    widget=slider_class(
+                        step=1 if panel_type == "count" else 0.01,
+                        disabled=True,
+                        continuous_update=False,
+                        orientation="horizontal",
+                        readout=True,
+                        readout_format="d" if panel_type == "count" else ".2f",
+                        layout=widgets.Layout(width="100%"),
+                    )
+                )
+                dropdown_options = ["Enabled", "Disabled"] if panel_type == "count" else [
+                    "Any", "All", "Max", "Min", "Mean", "Disabled"
+                ]
+                minmax_dropdowns = []
+                for side in ("min", "max"):
+                    dropdown = self._gui__add_widget(
+                        name=f"{name_prefix}psp_{panel_type}_{side}",
+                        widget=widgets.Dropdown(
+                            options=dropdown_options,
+                            value="Enabled" if panel_type == "count" else ("All" if side == "min" else "Any"),
+                            layout=widgets.Layout(width="100%"),
+                        )
+                    )
+                    minmax_dropdowns.append(
+                        widgeter.labeled_widget(
+                            value=f"{side.capitalize()}:",
+                            widget=dropdown
+                        )
+                    )
+                minmax_dropdowns.insert(
+                    1,
+                    widgets.Box(layout=widgets.Layout(flex="1 1 50px"))
+                )
+                minmax_settings = widgets.HBox(
+                    minmax_dropdowns,
+                    layout=widgets.Layout(width="100%", align_items="center")
+                )
+                return widgets.VBox(
+                    [title, slider, minmax_settings],
+                    layout=widgets.Layout(
+                        flex="1 1 0%",
+                        padding="12px",
+                        border="0.5px solid lightgray",
+                        border_radius="10px",
+                        min_width="0",
+                        overflow="hidden",
+                    )
+                )
+
+            name_prefix = "ligsite_"
+            return widgets.VBox(
+                [make_top_panel(), make_psp_panels()],
+                layout=widgets.Layout(width="100%", overflow="hidden"),
+            )
+
+        GridDetector.__init__(self, receptor=receptor, field=field)
+        GUI.__init__(self, observer_method_prefix="_ovc_")
+        top_panel = widgets.Tab(
+            children=[make_ligsite()],
             titles=["LIGSITE"],
             selected_index=0,
         )
-
-        self._debug = widgets.Output()
-        self._widgets = (self._debug, main_panel, self._nglwidget)
-
+        self._gui__logger = widgets.Output()
+        self._gui__set_main_widget((top_panel, make_ngl(), self._gui__logger))
         return
 
-    def display(self):
-        """Display the GUI."""
-        self._update_grid()
-        display(*self._widgets)
-        return
-
-    def _update_grid(self):
-        name = "grid"
-        self._nglwidget.remove_component_by_name(name)
-        self._nglwidget.add_spheres(
+    def _gui__render(self):
+        name = "pocket volume"
+        ngl = self._gui__get_widget("ngl")
+        ngl.remove_component_by_name(name)
+        ngl.add_spheres(
             coords=self.field.grid.coordinates[self.mask],
             name=name,
         )
         return
 
-    def _on_value_change_psp_dirs(self, change: dict):
-        value = change["new"]
-        if not value:
-            self._widget_psp_count.disabled = True
-            self._widget_psp_dist.disabled = True
-            self.unset_mask("ligsite")
-            self._update_grid()
-            return
-        self.set_mask_ligsite(directions=tuple(range(1, value + 1)))
-        self._widget_psp_count.disabled = False
-        self._widget_psp_dist.disabled = False
-        self._reset_slider_minmax(
-            slider=self._widget_psp_count,
-            minimum=self.ligsite.psp_count.min().item(),
-            maximum=self.ligsite.psp_count.max().item(),
-        )
-        self._reset_slider_minmax(
-            slider=self._widget_psp_dist,
-            minimum=jnp.nanmin(self.ligsite.psp_distance).item(),
-            maximum=jnp.nanmax(self.ligsite.psp_distance).item(),
-        )
+    def _ovc_ligsite_dirs(self, change: dict):
+        with self._gui__logger:
+            print(f"Changed LIGSITE directions to {change['new']}.")
+        # value = change["new"]
+        # if not value:
+        #     widget_psp_count = self._gui__get_widget("psp_count")
+        #     widget_psp_count.disabled = True
+        #     self._widget_psp_dist.disabled = True
+        #     self.unset_mask("ligsite")
+        #     self._gui__render()
+        #     return
+        # self.set_mask_ligsite(directions=tuple(range(1, value + 1)))
+        # self._widget_psp_count.disabled = False
+        # self._widget_psp_dist.disabled = False
+        # self._gui__reset_slider_minmax(
+        #     slider=self._widget_psp_count,
+        #     minimum=self.ligsite.psp_count.min().item(),
+        #     maximum=self.ligsite.psp_count.max().item(),
+        # )
+        # self._gui__reset_slider_minmax(
+        #     slider=self._widget_psp_dist,
+        #     minimum=jnp.nanmin(self.ligsite.psp_distance).item(),
+        #     maximum=jnp.nanmax(self.ligsite.psp_distance).item(),
+        # )
         return
 
-    def _on_value_change_psp_dist(self, change: dict):
-        old_lower, old_upper = change["old"]
-        new_lower, new_upper = change["new"]
-        self.set_mask_ligsite(
-            dist_lower=new_lower if new_lower != old_lower else None,
-            dist_upper=new_upper if new_upper != old_upper else None,
-        )
-        self._update_grid()
+    def _ovc_ligsite_refresh(self, _: widgets.Button):
+        with self._gui__logger:
+            print("Refreshing LIGSITE mask with current settings.")
         return
 
-    def _on_value_change_psp_count(self, change: dict):
-        old_lower, old_upper = change["old"]
-        new_lower, new_upper = change["new"]
-        self.set_mask_ligsite(
-            count_lower=new_lower if new_lower != old_lower else None,
-            count_upper=new_upper if new_upper != old_upper else None,
-        )
-        self._update_grid()
+    def _ovc_ligsite_auto_refresh(self, change: dict):
+        enabled = change["new"]
+        button = change["owner"]
+        with self._gui__logger:
+            print(f"Auto-refresh LIGSITE mask is now {'enabled' if change['new'] else 'disabled'}.")
+        button.button_style = "success" if enabled else "danger"
+        return
+
+    def _ovc_ligsite_reset(self, _: widgets.Button):
+        with self._gui__logger:
+            print("Resetting LIGSITE mask to default state.")
+        return
+
+    def _ovc_ligsite_psp_count_slider(self, change: dict):
+        with self._gui__logger:
+            print(f"Changed LIGSITE PSP count slider to {change['new']}.")
+        # old_lower, old_upper = change["old"]
+        # new_lower, new_upper = change["new"]
+        # self.set_mask_ligsite(
+        #     count_lower=new_lower if new_lower != old_lower else None,
+        #     count_upper=new_upper if new_upper != old_upper else None,
+        # )
+        # self._gui__render()
+        return
+
+    def _ovc_ligsite_psp_count_min(self, change: dict):
+        with self._gui__logger:
+            print(f"Changed LIGSITE PSP count lower mode to {change['new']}.")
+        return
+
+    def _ovc_ligsite_psp_count_max(self, change: dict):
+        with self._gui__logger:
+            print(f"Changed LIGSITE PSP count upper mode to {change['new']}.")
+        return
+
+    def _ovc_ligsite_psp_dist_slider(self, change: dict):
+        with self._gui__logger:
+            print(f"Changed LIGSITE PSP distance slider to {change['new']}.")
+        # old_lower, old_upper = change["old"]
+        # new_lower, new_upper = change["new"]
+        # self.set_mask_ligsite(
+        #     dist_lower=new_lower if new_lower != old_lower else None,
+        #     dist_upper=new_upper if new_upper != old_upper else None,
+        # )
+        # self._gui__render()
+        return
+
+    def _ovc_ligsite_psp_dist_min(self, change: dict):
+        with self._gui__logger:
+            print(f"Changed LIGSITE PSP distance lower mode to {change['new']}.")
+        return
+
+    def _ovc_ligsite_psp_dist_max(self, change: dict):
+        with self._gui__logger:
+            print(f"Changed LIGSITE PSP distance upper mode to {change['new']}.")
         return
 
     @staticmethod
-    def _create_toggle_buttons_source(
-        labels: Sequence[str],
-        tooltips: str | Sequence[str] = "",
-        initial_values: bool | Sequence[bool] = False,
-        button_style: Literal["success", "info", "warning", "danger", ""] = "danger",
-        observer: Callable | None = None,
-    ):
-        if isinstance(tooltips, str):
-            tooltips = [tooltips] * len(labels)
-        if isinstance(initial_values, bool):
-            initial_values = [initial_values] * len(labels)
-        toggle_buttons = []
-        for label, initial_value, tooltip in zip(labels, initial_values, tooltips, strict=False):
-            toggle_button = widgets.ToggleButton(
-                value=initial_value,
-                description=label,
-                tooltip=tooltip,
-                layout=widgets.Layout(width="auto"),
-                button_style=button_style,
-            )
-            toggle_buttons.append(toggle_button)
-            if observer is not None:
-                # Set all buttons to observe the same observer function:
-                toggle_button.observe(observer, names="value")
-        return toggle_buttons
-
-    @staticmethod
-    def _create_toggle_buttons_mode(
-        labels: Sequence[str] | Sequence[tuple[str, Any]] = (
-            ("Min", "min"),
-            ("Avg", "avg"),
-            ("Max", "max"),
-            ("Sum", "sum"),
-            ("All", "all"),
-            ("Any", "any"),
-            ("One", "one"),
-        ),
-        current_value: Any = "min",
-        tooltips: Sequence[str] = (
-            "Minimum value of all selected source fields.",
-            "Average value of all selected source fields.",
-            "Maximum value of all selected source fields.",
-            "Sum of all selected source fields.",
-            "All values of selected source fields.",
-            "Any value of selected source fields.",
-            "Only one value of selected source fields.",
-        ),
-        button_style: Literal["success", "info", "warning", "danger", ""] = "warning",
-        disabled: bool = True,
-        observer: Callable | None = None,
-    ) -> widgets.ToggleButtons:
-        toggle_buttons = widgets.ToggleButtons(
-            options=labels,
-            value=current_value,
-            button_style=button_style,
-            disabled=disabled,
-            tooltips=tooltips,
-            style=widgets.ToggleButtonsStyle(button_width="auto"),
-        )
-        if observer is not None:
-            toggle_buttons.observe(observer, names="value")
-        return toggle_buttons
-
-    @staticmethod
-    def _create_toggle_buttons_filter(
-        observer: Callable | None = None,
-    ):
-        toggle_buttons = widgets.ToggleButtons(
-            options=["Include", "Exclude"],
-            value="Include",
-            disabled=True,
-            button_style="info",
-            tooltips=[
-                "Include the points filtered by current selection.",
-                "Exclude the points filtered by current selection.",
-            ],
-            style=widgets.ToggleButtonsStyle(button_width="4em"),
-        )
-        if observer is not None:
-            toggle_buttons.observe(observer, names="value")
-        return toggle_buttons
-
-    @staticmethod
-    def _create_numeric_range_slider(
-        dtype: Literal["int", "float"] = "float",
-        minimum: int | float = 0,
-        maximum: int | float = 0,
-        value: tuple[int | float, int | float] | None = None,
-        step: int | float | None = None,
-        continuous_update: bool = False,
-        readout_format: str | None = None,
-        disabled: bool = False,
-        observer: Callable | None = None,
-    ):
-        widget = widgets.IntRangeSlider if dtype == "int" else widgets.FloatRangeSlider
-        if not step:
-            step = 1 if dtype == "int" else 0.01
-        if readout_format is None:
-            readout_format = ".2f" if dtype == "float" else "d"
-        range_slider = widget(
-            value=value or (minimum, maximum),
-            min=minimum,
-            max=maximum,
-            step=step,
-            disabled=disabled,
-            continuous_update=continuous_update,
-            orientation="horizontal",
-            readout=True,
-            readout_format=readout_format,
-            layout=widgets.Layout(display="flex", align_items="stretch", width="100%"),
-        )
-        if observer is not None:
-            range_slider.observe(observer, names="value")
-        return range_slider
-
-    @staticmethod
-    def _create_control_panel(
-        controllers: Sequence[widgets.Widget],
-        header_name: str,
-        header_color: str = "lightblue",
-        controller_labels: Sequence[str] = ("Source", "Mode", "Filter", "Range"),
-    ):
-        # Create the header, i.e. title of the widget
-        # This is created as a button, because it offers more styling options than text,
-        # but it doesn't have any functionality.
-        header = widgets.Button(
-            description=header_name,
-            layout=widgets.Layout(width="auto"),
-            style=widgets.ButtonStyle(button_color=header_color, font_weight="bold"),
-        )
-        # Create the left column holding labels of controllers:
-        labels_column = widgets.VBox(
-            [
-                widgets.Label(
-                    value=f"{label} :",
-                    layout=widgets.Layout(margin="3px 10px 3px 0px", width="50px"),
-                )
-                for label in controller_labels
-            ],
-            layout=widgets.Layout(width="100px"),
-        )
-        # Create the right column holding the controllers
-        controllers_column = widgets.VBox(
-            controllers,
-            layout=widgets.Layout(
-                display="flex", flex_flow="column", align_items="stretch", width="100%"
-            ),
-        )
-
-        # Horizontal container for two columns holding labels and controllers:
-        controller_box = widgets.HBox([labels_column, controllers_column])
-
-        # Assemble the control panel
-        control_panel = widgets.Box(
-            layout=widgets.Layout(
-                display="flex", flex_flow="column", align_items="stretch", width="50%"
-            ),
-            children=[header, controller_box],
-        )
-        return control_panel
-
-    @staticmethod
-    def _reset_slider_minmax(
+    def _gui__reset_slider_minmax(
         slider: widgets.IntRangeSlider | widgets.FloatRangeSlider,
         minimum: int | float,
         maximum: int | float,
@@ -633,221 +604,3 @@ def from_chemsys(
     grid: int | float | Sequence[int | float] | Grid = 0.5,
 ):
     return GridDetectorGUI(receptor=system, field=system.toxelate(grid=grid))
-
-
-class GridDetectorGUI(GridDetector, GUI):
-    def __init__(self, receptor: ChemicalSystem, field: Field):
-
-        def make_ngl() -> NGLWidget:
-            nglwidget = NGLWidget().display(gui=True)
-            nglwidget.add_trajectory(receptor, name="protein")
-            nglwidget.component_0.add_surface(
-                color="rgb(100,20,20)",
-                opacity=0.5,
-                surface_type="vws",
-                scale_factor=10,
-                smooth=10
-            )
-            self._gui__add_widget("ngl", nglwidget)
-            return nglwidget
-
-        def make_ligsite():
-            def make_top_panel():
-                directions = widgeter.labeled_widget(
-                    value="Directions:",
-                    widget=self._gui__add_widget(
-                        name=f"{name_prefix}dirs",
-                        widget=widgets.Dropdown(
-                            options={"None": None, "1D": 1, "2D": 2, "3D": 3},
-                            layout=widgets.Layout(width="flex-grow", min_width="20px"),
-                        )
-                    )
-                )
-                refresh = self._gui__add_widget(
-                    name=f"{name_prefix}refresh",
-                    widget=widgets.Button(
-                        description="Refresh",
-                        tooltip="Recalculate the LIGSITE mask with the current settings.",
-                        button_style="success",
-                    )
-                )
-                auto_refresh = self._gui__add_widget(
-                    name=f"{name_prefix}auto_refresh",
-                    widget=widgets.ToggleButton(
-                        description="Auto Refresh",
-                        tooltip="Automatically recalculate the LIGSITE mask when the settings change.",
-                        value=False,
-                        button_style="danger",
-                    )
-                )
-                reset = self._gui__add_widget(
-                    name=f"{name_prefix}reset",
-                    widget=widgets.Button(
-                        description="Reset",
-                        tooltip="Reset the LIGSITE mask to the default state.",
-                        button_style="danger",
-                    )
-                )
-                return widgets.HBox(
-                    [directions, refresh, auto_refresh, reset],
-                    layout=widgets.Layout(width="100%", align_items="center")
-                )
-
-            def make_psp_panels():
-                return widgets.HBox(
-                    [make_psp_panel(panel_type) for panel_type in ("count", "dist")],
-                    layout=widgets.Layout(
-                        width="100%",
-                        justify_content="space-between",
-                        flex_flow="row wrap",
-                        margin="10px 0 10px 0"
-                    )
-                )
-
-            def make_psp_panel(panel_type: Literal["count", "dist"]):
-                title = widgets.HBox(
-                    [ipydisplay.HTML(f"<b>PSP {"Count" if panel_type == 'count' else 'Distance'}</b>")],
-                    layout=widgets.Layout(justify_content="center", width="100%")
-                )
-                slider_class = widgets.IntSlider if panel_type == "count" else widgets.FloatSlider
-                slider = self._gui__add_widget(
-                    name=f"{name_prefix}psp_{panel_type}_slider",
-                    widget=slider_class(
-                        step=1 if panel_type == "count" else 0.01,
-                        disabled=True,
-                        continuous_update=False,
-                        orientation="horizontal",
-                        readout=True,
-                        readout_format="d" if panel_type == "count" else ".2f",
-                        layout=widgets.Layout(width="100%"),
-                    )
-                )
-                dropdown_options = ["Enabled", "Disabled"] if panel_type == "count" else [
-                    "Any", "All", "Max", "Min", "Mean", "Disabled"
-                ]
-                minmax_dropdowns = []
-                for side in ("min", "max"):
-                    dropdown = self._gui__add_widget(
-                        name=f"{name_prefix}psp_{panel_type}_{side}",
-                        widget=widgets.Dropdown(
-                            options=dropdown_options,
-                            value="Enabled" if panel_type == "count" else ("All" if side == "min" else "Any"),
-                            layout=widgets.Layout(width="100%"),
-                        )
-                    )
-                    minmax_dropdowns.append(
-                        widgeter.labeled_widget(
-                            value=f"{side.capitalize()}:",
-                            widget=dropdown
-                        )
-                    )
-                minmax_dropdowns.insert(
-                    1,
-                    widgets.Box(layout=widgets.Layout(flex="1 1 50px"))
-                )
-                minmax_settings = widgets.HBox(
-                    minmax_dropdowns,
-                    layout=widgets.Layout(width="100%", align_items="center")
-                )
-                return widgets.VBox(
-                    [title, slider, minmax_settings],
-                    layout=widgets.Layout(
-                        flex="1 1 0%",
-                        padding="12px",
-                        border="0.5px solid lightgray",
-                        border_radius="10px",
-                        min_width="0",
-                        overflow="hidden",
-                    )
-                )
-
-            name_prefix = "ligsite_"
-            return widgets.VBox(
-                [make_top_panel(), make_psp_panels()],
-                layout=widgets.Layout(width="100%", overflow="hidden"),
-            )
-
-        GridDetector.__init__(receptor=receptor, field=field)
-        GUI.__init__(self, observer_method_prefix="_ovc_")
-        top_panel = widgets.Tab(
-            children=[make_ligsite()],
-            titles=["LIGSITE"],
-            selected_index=0,
-        )
-        self._gui__logger = widgets.Output()
-        self._gui__set_main_widget(
-            widgets.VBox(
-                [top_panel, make_ngl(), self._gui__logger],
-            )
-        )
-        return
-
-    def _gui__render(self):
-        name = "grid"
-        ngl = self._gui__get_widget("ngl")
-        ngl.remove_component_by_name(name)
-        ngl.add_spheres(
-            coords=self.field.grid.coordinates[self.mask],
-            name=name,
-        )
-        return
-
-    def _ovc_psp_dirs(self, change: dict):
-        value = change["new"]
-        if not value:
-            widget_psp_count = self._gui__get_widget("psp_count")
-            widget_psp_count.disabled = True
-            self._widget_psp_dist.disabled = True
-            self.unset_mask("ligsite")
-            self._gui__render()
-            return
-        self.set_mask_ligsite(directions=tuple(range(1, value + 1)))
-        self._widget_psp_count.disabled = False
-        self._widget_psp_dist.disabled = False
-        self._gui__reset_slider_minmax(
-            slider=self._widget_psp_count,
-            minimum=self.ligsite.psp_count.min().item(),
-            maximum=self.ligsite.psp_count.max().item(),
-        )
-        self._gui__reset_slider_minmax(
-            slider=self._widget_psp_dist,
-            minimum=jnp.nanmin(self.ligsite.psp_distance).item(),
-            maximum=jnp.nanmax(self.ligsite.psp_distance).item(),
-        )
-        return
-
-    def _ovc_psp_dist(self, change: dict):
-        old_lower, old_upper = change["old"]
-        new_lower, new_upper = change["new"]
-        self.set_mask_ligsite(
-            dist_lower=new_lower if new_lower != old_lower else None,
-            dist_upper=new_upper if new_upper != old_upper else None,
-        )
-        self._gui__render()
-        return
-
-    def _ovc_psp_count(self, change: dict):
-        old_lower, old_upper = change["old"]
-        new_lower, new_upper = change["new"]
-        self.set_mask_ligsite(
-            count_lower=new_lower if new_lower != old_lower else None,
-            count_upper=new_upper if new_upper != old_upper else None,
-        )
-        self._gui__render()
-        return
-
-    @staticmethod
-    def _gui__reset_slider_minmax(
-        slider: widgets.IntRangeSlider | widgets.FloatRangeSlider,
-        minimum: int | float,
-        maximum: int | float,
-    ):
-        """Reset the slider's min and max values."""
-        if slider.min >= maximum:
-            slider.min = minimum
-            slider.max = maximum
-        else:
-            slider.max = maximum
-            slider.min = minimum
-        return
-
