@@ -18,6 +18,7 @@ from scids.grid import Grid
 from scishow.nglview import NGLWidget
 from scishow.ipywidgets import GUI
 import scishow.ipywidgets as widgeter
+import arrayer
 
 from caddpy.chemsys import ChemicalSystem
 from caddpy import exception
@@ -194,6 +195,7 @@ class GridDetectorGUI(GridDetector, GUI):
                         description="Refresh",
                         tooltip="Recalculate the LIGSITE mask with the current settings.",
                         button_style="success",
+                        disabled=True,
                     )
                 )
                 auto_refresh = self._gui__add_widget(
@@ -203,6 +205,7 @@ class GridDetectorGUI(GridDetector, GUI):
                         tooltip="Automatically recalculate the LIGSITE mask when the settings change.",
                         value=False,
                         button_style="danger",
+                        disabled=True,
                     )
                 )
                 reset = self._gui__add_widget(
@@ -211,10 +214,11 @@ class GridDetectorGUI(GridDetector, GUI):
                         description="Reset",
                         tooltip="Reset the LIGSITE mask to the default state.",
                         button_style="danger",
+                        disabled=True,
                     )
                 )
                 return widgets.HBox(
-                    [directions, refresh, auto_refresh, reset],
+                    [directions, status, refresh, auto_refresh, reset],
                     layout=widgets.Layout(width="100%", align_items="center")
                 )
 
@@ -234,7 +238,7 @@ class GridDetectorGUI(GridDetector, GUI):
                     [widgets.HTML(f"<b>PSP {"Count" if panel_type == 'count' else 'Distance'}</b>")],
                     layout=widgets.Layout(justify_content="center", width="100%")
                 )
-                slider_class = widgets.IntSlider if panel_type == "count" else widgets.FloatSlider
+                slider_class = widgets.IntRangeSlider if panel_type == "count" else widgets.FloatRangeSlider
                 slider = self._gui__add_widget(
                     name=f"{name_prefix}psp_{panel_type}_slider",
                     widget=slider_class(
@@ -247,9 +251,14 @@ class GridDetectorGUI(GridDetector, GUI):
                         layout=widgets.Layout(width="100%"),
                     )
                 )
-                dropdown_options = ["Enabled", "Disabled"] if panel_type == "count" else [
-                    "Any", "All", "Max", "Min", "Mean", "Disabled"
-                ]
+                dropdown_options = {"Enabled": True, "Disabled": False} if panel_type == "count" else {
+                    "Any": "any",
+                    "All": "all",
+                    "Max": "max",
+                    "Min": "min",
+                    "Mean": "mean",
+                    "Disabled": False
+                }
                 minmax_dropdowns = []
                 for side in ("min", "max"):
                     dropdown = self._gui__add_widget(
@@ -258,6 +267,7 @@ class GridDetectorGUI(GridDetector, GUI):
                             options=dropdown_options,
                             value="Enabled" if panel_type == "count" else ("All" if side == "min" else "Any"),
                             layout=widgets.Layout(width="100%"),
+                            disabled=True,
                         )
                     )
                     minmax_dropdowns.append(
@@ -292,18 +302,46 @@ class GridDetectorGUI(GridDetector, GUI):
                 layout=widgets.Layout(width="100%", overflow="hidden"),
             )
 
+        def make_logger():
+            self._gui__logger = widgets.Output()
+            return widgets.Accordion(
+                children=[self._gui__logger],
+                titles=["Logs"],
+                selected_index=None,
+            )
+
         GridDetector.__init__(self, receptor=receptor, field=field)
         GUI.__init__(self, observer_method_prefix="_ovc_")
+
+        status = self._gui__add_widget(
+            name="status",
+            widget=widgets.Label(
+                value="Calculating...",
+                style={
+                    "text_color": "red",
+                    "background": "black",
+                    "font_style": "italic",
+                    "font_weight": "bold",
+                },
+                layout=widgets.Layout(
+                    width="flex-grow",
+                    min_width="fit-content",
+                    display="none",
+                    padding="0 10px 0 10px",
+                ),
+            )
+        )
         top_panel = widgets.Tab(
             children=[make_ligsite()],
             titles=["LIGSITE"],
             selected_index=0,
         )
-        self._gui__logger = widgets.Output()
-        self._gui__set_main_widget((top_panel, make_ngl(), self._gui__logger))
+
+        self._gui__set_main_widget((top_panel, make_ngl(), make_logger()))
         return
 
     def _gui__render(self):
+        self._gui__show_calculating()
         name = "pocket volume"
         ngl = self._gui__get_widget("ngl")
         ngl.remove_component_by_name(name)
@@ -311,37 +349,59 @@ class GridDetectorGUI(GridDetector, GUI):
             coords=self.field.grid.coordinates[self.mask],
             name=name,
         )
+        self._gui__hide_calculating()
         return
 
     def _ovc_ligsite_dirs(self, change: dict):
         with self._gui__logger:
             print(f"Changed LIGSITE directions to {change['new']}.")
-        # value = change["new"]
-        # if not value:
-        #     widget_psp_count = self._gui__get_widget("psp_count")
-        #     widget_psp_count.disabled = True
-        #     self._widget_psp_dist.disabled = True
-        #     self.unset_mask("ligsite")
-        #     self._gui__render()
-        #     return
-        # self.set_mask_ligsite(directions=tuple(range(1, value + 1)))
-        # self._widget_psp_count.disabled = False
-        # self._widget_psp_dist.disabled = False
-        # self._gui__reset_slider_minmax(
-        #     slider=self._widget_psp_count,
-        #     minimum=self.ligsite.psp_count.min().item(),
-        #     maximum=self.ligsite.psp_count.max().item(),
-        # )
-        # self._gui__reset_slider_minmax(
-        #     slider=self._widget_psp_dist,
-        #     minimum=jnp.nanmin(self.ligsite.psp_distance).item(),
-        #     maximum=jnp.nanmax(self.ligsite.psp_distance).item(),
-        # )
-        return
+        value = change["new"]
+        if not value:
+            self._gui__toggle_ligsite_controls(False)
+            self.unset_mask("ligsite")
+            return {}
+        self._gui__show_calculating()
+        self.set_mask_ligsite(directions=tuple(range(1, value + 1)))
+        psp_count_slider = self._gui__get_widget("ligsite_psp_count_slider")
+        psp_dist_slider = self._gui__get_widget("ligsite_psp_dist_slider")
+        self._gui__reset_slider_minmax(
+            slider=psp_count_slider,
+            minimum=self.ligsite.psp_count.min().item(),
+            maximum=self.ligsite.psp_count.max().item(),
+        )
+        self._gui__reset_slider_minmax(
+            slider=psp_dist_slider,
+            minimum=jnp.nanmin(self.ligsite.psp_distance).item(),
+            maximum=jnp.nanmax(self.ligsite.psp_distance).item(),
+        )
+        if change["old"] is None:
+            self._gui__toggle_ligsite_controls(True)
+        self._gui__hide_calculating()
+        return {}
 
     def _ovc_ligsite_refresh(self, _: widgets.Button):
         with self._gui__logger:
             print("Refreshing LIGSITE mask with current settings.")
+        directions = self._gui__get_widget("ligsite_dirs")
+        if not directions.value:
+            self._gui__toggle_ligsite_controls(False)
+            self.unset_mask("ligsite")
+            return {}
+        psp_count_slider = self._gui__get_widget("ligsite_psp_count_slider")
+        psp_dist_slider = self._gui__get_widget("ligsite_psp_dist_slider")
+        psp_count_min = self._gui__get_widget("ligsite_psp_count_min")
+        psp_count_max = self._gui__get_widget("ligsite_psp_count_max")
+        psp_dist_min = self._gui__get_widget("ligsite_psp_dist_min")
+        psp_dist_max = self._gui__get_widget("ligsite_psp_dist_max")
+        self.set_mask_ligsite(
+            count_lower=psp_count_slider.lower if psp_count_min.value else True,
+            count_upper=psp_count_slider.upper if psp_count_max.value else True,
+            dist_lower=psp_dist_slider.lower if psp_dist_min.value else True,
+            dist_upper=psp_dist_slider.upper if psp_dist_max.value else True,
+            dist_lower_mode=psp_dist_min.value,
+            dist_upper_mode=psp_dist_max.value,
+            directions=.value,
+        )
         return
 
     def _ovc_ligsite_auto_refresh(self, change: dict):
@@ -401,6 +461,34 @@ class GridDetectorGUI(GridDetector, GUI):
             print(f"Changed LIGSITE PSP distance upper mode to {change['new']}.")
         return
 
+    def _gui__toggle_ligsite_controls(self, status: bool):
+        """Enable/Disable the LIGSITE mask and its controls."""
+        disabled = not status
+        for widget_name in (
+            "dirs",
+            "refresh",
+            "auto_refresh",
+            "reset",
+            "psp_count_slider",
+            "psp_dist_slider",
+            "psp_count_min",
+            "psp_count_max",
+            "psp_dist_min",
+            "psp_dist_max",
+        ):
+            self._gui__get_widget(f"ligsite_{widget_name}").disabled = disabled
+        return
+
+    def _gui__show_calculating(self):
+        """Show the 'Calculating...' status."""
+        self._gui__get_widget("status").layout.display = ""
+        return
+
+    def _gui__hide_calculating(self):
+        """Hide the 'Calculating...' status."""
+        self._gui__get_widget("status").layout.display = "none"
+        return
+
     @staticmethod
     def _gui__reset_slider_minmax(
         slider: widgets.IntRangeSlider | widgets.FloatRangeSlider,
@@ -414,15 +502,48 @@ class GridDetectorGUI(GridDetector, GUI):
         else:
             slider.max = maximum
             slider.min = minimum
-        return
+        slider.value = (minimum, maximum)
+        return slider
 
 
 class LigSite:
     """LIGSITE binding pocket detector.
 
+    This class only implements the core functionality of LIGSITE;
+    It calculates the protein-solvent-protein (PSP) events
+    in the specified directions, and provides a method to generate masks
+    based on the number and distance of these events.
+    It is used in the `GridDetector` class,
+    which implements the remaining functionality of LIGSITE,
+    among other grid-based pocket detection methods.
+
+    Parameters
+    ----------
+    field
+        A voxel `Field` object where
+        non-zero values represent the protein volume.
+    directions
+        Directions in which to calculate PSP events.
+        This can be one of the following:
+        - An integer array of shape `(n_directions, 3)`,
+          where each row is a direction vector
+          from one point to another in the 3D grid
+          (e.g. `[1, 0, 0]` for the positive x-direction).
+          All vectors must be linearly independent,
+          and the smallest vector for each direction must be provided.
+        - A single integer within the range `[1, 3]`,
+          corresponding to 1D, 2D, or 3D directions, respectively.
+          N-dimensional directions are those that have N non-zero components.
+          For example, 1D directions are `[1, 0, 0]`, `[0, 1, 0]`, and `[0, 0, 1]`,
+          corresponding to directions along the x, y, and z axes, respectively.
+        - A non-repeating sequence of integers within the range `[1, 3]`,
+          to combine 1D, 2D, and 3D directions.
+          For example, `(1, 2)` will generate all 1D and 2D directions.
+
     References
     ----------
-    - [LIGSITE: automatic and efficient detection of potential small molecule-binding sites in proteins](https://doi.org/10.1016/S1093-3263(98)00002-3)
+    - [LIGSITE: automatic and efficient detection of potential
+      small molecule-binding sites in proteins](https://doi.org/10.1016/S1093-3263(98)00002-3)
     """
 
     def __init__(
@@ -568,6 +689,14 @@ class LigSite:
         field: Field,
         directions: Literal[1, 2, 3] | Sequence[Literal[1, 2, 3]] | np.ndarray = (1, 2, 3),
     ) -> jax.Array:
+        """Validate and calculate direction vectors for PSP events.
+
+        This function does not need to be called by the user directly;
+        it is called during the initialization,
+        and used as a utility method in the `GridDetectorGUI` class
+        to compare new directions with the existing ones.
+        Parameters are the same as in the `LigSite` class constructor.
+        """
         if isinstance(directions, int):
             directions = [directions]
         directions = np.asarray(directions)
@@ -584,8 +713,16 @@ class LigSite:
         elif directions.ndim == 2:
             if directions.shape[1] != 3:
                 raise ValueError("Directions must be 3D")
+            linearly_dependents = arrayer.matrix.linearly_dependent_pairs(directions)
+            if linearly_dependents.size > 0:
+                raise exception.InputError(
+                    name="directions",
+                    message="Following direction vector pairs "
+                            f"are linearly dependent: {linearly_dependents.tolist()}."
+                )
+            full_directions = np.concatenate([directions, -directions[::-1]], axis=0)
             dir_vectors = np.pad(
-                directions,
+                full_directions,
                 pad_width=((0, 0), (field.batch_ndim, 0)),
                 mode="constant",
                 constant_values=0,
