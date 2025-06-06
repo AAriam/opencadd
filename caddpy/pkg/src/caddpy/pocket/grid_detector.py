@@ -1,3 +1,4 @@
+"""Grid-based binding pocket detection."""
 
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ import scishow.ipywidgets as widgeter
 import arrayer
 
 from caddpy.chemsys import ChemicalSystem
+from caddpy.typing import Array, JAXArray, Int, Num, Bool, Float, atypecheck
 from caddpy import exception
 
 
@@ -669,7 +671,6 @@ class LigSite:
             field=field,
             directions=directions,
         )
-
         # Calculate distance of each grid point to the nearest xeno grid point
         # in each half direction, in units of corresponding distance vectors
         ps_dist_int = field.nearest_target_distances(
@@ -708,12 +709,94 @@ class LigSite:
         dist_upper: float | bool | None = None,
         dist_lower_mode: Literal["any", "all", "max", "min", "mean"] = "all",
         dist_upper_mode: Literal["any", "all", "max", "min", "mean"] = "any",
-    ) -> jax.Array | None:
+    ) -> Bool[JAXArray, "*field.shape"] | None:
+        """Generate a volume mask based on PSP events.
+
+        This method generates a single boolean mask by combining up to four conditions
+        with logical AND operations:
+        - Minimum number of PSP events for each grid point, as defined by the `count_lower` parameter.
+        - Maximum number of PSP events for each grid point, as defined by the `count_upper` parameter.
+        - Minimum PSP distance for each grid point, as defined by the `dist_lower` and `dist_lower_mode` parameters.
+        - Maximum PSP distance for each grid point, as defined by the `dist_upper` and `dist_upper_mode` parameters.
+
+        To calculate more complex masks, you can directly access the individual properties
+        `psp_count`, `psp_distance`, `ps_distance`, and `ps_distance_discrete` in this class,
+        which are the underlying data used to generate the masks.
+
+        To improve performance when generating multiple masks based on slight variations,
+        the last submask calculated for each condition is cached, and will be reused in
+        subsequent calls to this method if the corresponding parameter is set to `None` (default).
+        Providing a value of `True` for any parameter will exclude that condition from the mask,
+        and will also clear the corresponding cached submask.
+        Providing another value will generate a new submask for that condition and update the cache.
+
+        Since each grid point has multiple PSP distances (one for each direction),
+        the distance masks are calculated by reducing the PSP distances along the direction axis,
+        to obtain a single boolean value for each grid point. The reduction mode can be specified
+        using the `dist_lower_mode` and `dist_upper_mode` parameters,
+        for the lower and upper distance masks, respectively.
+        The supported reduction modes are:
+
+        - `any`: The mask is `True` for a grid point if
+          any PSP distance for that point is below/above the threshold.
+        - `all`: The mask is `True` for a grid point if
+          all PSP distances for that point are below/above the threshold.
+        - `max`: The mask is `True` for a grid point if
+          the maximum PSP distance for that point is below/above the threshold.
+        - `min`: The mask is `True` for a grid point if
+          the minimum PSP distance for that point is below/above the threshold.
+        - `mean`: The mask is `True` for a grid point if
+          the mean PSP distance for that point is below/above the threshold.
+
+        Note that all reduction modes ignore `NaN` values in the PSP distances
+        (these are for directions where no PSP event was found).
+        If you are interested in points that have no `NaN` values in the PSP distances
+        (i.e., points that have PSP events in all directions),
+        you can simply set the `count_lower` parameter to the number of directions,
+        which will only include points that have PSP events in all directions.
+
+        Parameters
+        ----------
+        count_lower
+            Minimum number of PSP events for each grid point.
+            Set to `True` to exclude this condition from the mask,
+            or set to `None` (default) to reuse the last generated mask (if any).
+        count_upper
+            Maximum number of PSP events for each grid point.
+            Set to `True` to exclude this condition from the mask,
+            or set to `None` (default) to reuse the last generated mask (if any).
+        dist_lower
+            Minimum PSP distance for each grid point.
+            Set to `True` to exclude this condition from the mask,
+            or set to `None` (default) to reuse the last generated mask (if any).
+        dist_upper
+            Maximum PSP distance for each grid point.
+            Set to `True` to exclude this condition from the mask,
+            or set to `None` (default) to reuse the last generated mask (if any).
+        dist_lower_mode
+            Reduction mode for calculating the lower PSP distance mask.
+        dist_upper_mode
+            Reduction mode for calculating the upper PSP distance mask.
+
+        Returns
+        -------
+        A boolean array of the same shape as the input field tensor,
+        where `True` values indicate grid points that satisfy all specified conditions.
+        If no conditions are specified,
+        i.e., all parameters are `True` or are `None` with no previous cache,
+        the method returns `None`.
+
+        Note that the mask does not distinguish between occupied and unoccupied grid points,
+        i.e., for unoccupied grid points, it calculates based on protein–solvent–protein (PSP) events,
+        while for occupied grid points, it uses solvent–protein–solvent (SPS) events.
+        To obtain a mask that is only `True` for unoccupied grid points (i.e., solvent/free space),
+        you must simply combine this mask with a mask for unoccupied grid points using logical AND.
+        """
         def make_mask(
             arr: jnp.ndarray,
             threshold: int | float,
             side: Literal["lower", "upper"],
-            mode: Literal["any", "all", "max", "min", "mean"]
+            mode: Literal["any", "all", "max", "min", "mean"],
         ):
             comparison_op = operator.le if side == "upper" else operator.ge
             if mode == "any":
@@ -727,7 +810,6 @@ class LigSite:
                 reduction_op = {"max": jnp.nanmax, "min": jnp.nanmin, "mean": jnp.nanmean}[mode]
                 return comparison_op(reduction_op(arr, axis=-1), threshold)
             raise ValueError(f"Unknown mode: {mode}")
-
         if count_lower is not None:
             self._psp_mask["count_lower"] = None if count_lower is True else self.psp_count >= count_lower
         if count_upper is not None:
@@ -744,7 +826,7 @@ class LigSite:
         return jnp.logical_and.reduce(jnp.array(active_masks)) if active_masks else None
 
     @property
-    def psp_count(self) -> jax.Array:
+    def psp_count(self) -> Int[JAXArray, "*field.shape"]:
         """Number of protein-solvent-protein (PSP) events in each direction.
 
         For unoccupied grid points, this is equal to the number of solvent–protein–solvent (SPS) events.
@@ -752,15 +834,16 @@ class LigSite:
         return self._psp_count
 
     @property
-    def psp_distance(self) -> jax.Array:
+    def psp_distance(self) -> Float[JAXArray, "*field.shape {self.direction.shape[0] / 2}"]:
         """Protein–solvent–protein (PSP) distances in each direction, in units of grid spacings (e.g. Ångstrom).
 
         For unoccupied grid points, this is equal to solvent–protein–solvent (SPS) distances.
+        A distance of `numpy.nan` means that no PSP/SPS event was found in that direction.
         """
         return self._psp_dist
 
     @property
-    def ps_distance(self) -> jax.Array:
+    def ps_distance(self) -> Float[JAXArray, "*field.shape {self.direction.shape[0]}"]:
         """Distances to nearest xeno grid points in each direction, in units of grid spacings (e.g. Ångstrom).
 
         A distance of `numpy.nan` means that no xeno neighbor was found in that direction.
@@ -768,7 +851,7 @@ class LigSite:
         return self._ps_dist
 
     @property
-    def ps_distance_discrete(self) -> jax.Array:
+    def ps_distance_discrete(self) -> Int[JAXArray, "*field.shape {self.direction.shape[0]}"]:
         """Distances to nearest xeno grid points in each direction, in units of direction vectors.
 
         A distance of 0 means that no xeno neighbor was found in that direction.
@@ -776,14 +859,19 @@ class LigSite:
         return self._ps_dist_int
 
     @property
-    def direction(self) -> jax.Array:
-        """Direction vectors for PSP events.
+    def direction(self) -> Int[JAXArray, "{2 * n_directions} {field.batch_ndim + 3}"]:
+        """Direction vectors used for PSP/SPS events calculation.
 
-        This is a 2D array of shape `(26, (self.field.batch_ndim + 3))`
-        containing 26 unit vectors pointing to the 26 neighbors of a grid point in a 3D grid.
-        Each vector is padded with leading zeros to match the batch dimensions of volume.
+        This is a 2D array of shape `(2 * n_signed_directions, (field.batch_ndim + 3))`
+        containing `2 * n_signed_directions` unit vectors pointing to the neighbors of a grid point in a 3D grid.
+        Each vector is padded with leading zeros to match the batch dimensions of the input volume field.
         The vectors are ordered such that `self.directions[i] == -self.directions[-(i + 1)]`,
-        i.e., the first 13 vectors are the opposite of the last 13 vectors in reverse order.
+        i.e., the first `n_signed_directions` vectors are
+        the opposite of the last `n_signed_directions` vectors in reverse order.
+        These correspond to the positive and negative half-directions
+        in which the PSP/SPS events are calculated.
+        The order corresponds to the order of distances in the `psp_distance`,
+        `ps_distance`, and `ps_distance_discrete` properties.
         """
         return self._dir
 
@@ -842,5 +930,16 @@ class LigSite:
 def from_chemsys(
     system: ChemicalSystem,
     grid: int | float | Sequence[int | float] | Grid = 0.5,
-):
+) -> GridDetectorGUI:
+    """Create a grid-based pocket detector from a chemical system.
+
+    Parameters
+    ----------
+    system
+        A `ChemicalSystem` object containing the receptor structure.
+    grid
+        The grid spacing for the voxel grid.
+        This can be a single value (e.g. `0.5` for 0.5 Ångstrom spacing),
+        or a Grid object specifying the grid.
+    """
     return GridDetectorGUI(receptor=system, field=system.toxelate(grid=grid))
