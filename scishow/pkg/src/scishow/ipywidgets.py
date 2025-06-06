@@ -37,21 +37,22 @@ class GUI:
        with those keyword arguments to update the GUI.
     """
     def __init__(self, observer_method_prefix='_ovc_'):
-        self._observer_method_prefix = observer_method_prefix
-        self._widget_name_to_widget: dict[str, Widget] = {}
-        self._widget_id_to_name: dict[int, str] = {}
-        self._gui = None
+        self._gui__observer_method_prefix = observer_method_prefix
+        self._gui__widget_name_to_widget: dict[str, Widget] = {}
+        self._gui__widget_id_to_name: dict[int, str] = {}
+        self._gui__observe_value_changes_value = True
+        self._gui__main_widget = None
         return
 
     def display(self) -> None:
         """Display the GUI in the current Jupyter notebook cell."""
-        if self._gui is None:
+        if self._gui__main_widget is None:
             raise RuntimeError("GUI has not been initialized.")
         self._gui__render()
-        if isinstance(self._gui, Widget):
-            display(self._gui)
+        if isinstance(self._gui__main_widget, Widget):
+            display(self._gui__main_widget)
         else:
-            display(*self._gui)
+            display(*self._gui__main_widget)
         return
 
     def _gui__set_main_widget(self, widget: Widget | Sequence[Widget]) -> None:
@@ -59,7 +60,7 @@ class GUI:
 
         This method should be called in the subclass's `__init__` method.
         """
-        self._gui = widget
+        self._gui__main_widget = widget
         return
 
     def _gui__add_widget(self, name: str, widget: Widget) -> Widget:
@@ -82,8 +83,8 @@ class GUI:
         if not isinstance(widget, Widget):
             raise TypeError(f"Expected a Widget instance, got {type(widget)}")
         widget_id = id(widget)
-        self._widget_name_to_widget[name] = widget
-        self._widget_id_to_name[widget_id] = name
+        self._gui__widget_name_to_widget[name] = widget
+        self._gui__widget_id_to_name[widget_id] = name
         if isinstance(widget, Button):
             widget.on_click(self._gui__on_widget_value_change)
         else:
@@ -100,9 +101,18 @@ class GUI:
         name
             Unique name of the widget.
         """
-        if name not in self._widget_name_to_widget:
+        if name not in self._gui__widget_name_to_widget:
             raise KeyError(f"Widget '{name}' not found")
-        return self._widget_name_to_widget[name]
+        return self._gui__widget_name_to_widget[name]
+
+    def _gui__observe_value_changes(self, observe: bool) -> None:
+        """Enable or disable observing value changes of interactive widgets.
+
+        This method can be used to temporarily disable the observers,
+        e.g., when making multiple changes to the GUI state at once.
+        """
+        self._gui__observe_value_changes_value = bool(observe)
+        return
 
     def _gui__render(self, **kwargs) -> None:
         """Render the GUI based on the current state of the widgets.
@@ -118,12 +128,14 @@ class GUI:
         It calls the corresponding observer method based on the widget's name,
         if it exists.
         """
+        if not self._gui__observe_value_changes_value:
+            return
         widget = change if isinstance(change, Button) else change['owner']
         widget_id = id(widget)
-        widget_name = self._widget_id_to_name.get(widget_id)
+        widget_name = self._gui__widget_id_to_name.get(widget_id)
         if not widget_name:
             return
-        observer_method_name = f"{self._observer_method_prefix}{widget_name}"
+        observer_method_name = f"{self._gui__observer_method_prefix}{widget_name}"
         observer_method = getattr(self, observer_method_name, None)
         if observer_method:
             render_kwargs = observer_method(change)
