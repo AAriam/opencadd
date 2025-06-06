@@ -1,12 +1,12 @@
 """Functionalities for creating a GUI with [ipywidgets](https://ipywidgets.readthedocs.io/)."""
 
-from contextlib import contextmanager
-from typing import Any, Sequence
+from contextlib import contextmanager, nullcontext
+from typing import Any, Sequence, Generator
 import re
 import traitlets
 
 from IPython.display import display
-from ipywidgets import Dropdown, IntRangeSlider, HBox, VBox, Label, HTML, Box, Layout, Widget, Button
+from ipywidgets import Dropdown, IntRangeSlider, FloatRangeSlider, IntSlider, FloatSlider, HBox, VBox, Label, HTML, Box, Layout, Widget, Button
 
 
 class GUI:
@@ -14,6 +14,19 @@ class GUI:
 
     Parameters
     ----------
+    auto_toggle_availability
+        Whether to automatically toggle the availability of widgets
+        during the handling of widget events.
+        If set to `True`, the GUI will automatically disable all widgets
+        during the handling of a widget event,
+        and re-enable the previously enabled ones
+        after the event handler has finished.
+    auto_toggle_observation
+        Whether to automatically toggle observation of widget events
+        during the handling of widget events.
+        If set to `True`, the GUI will automatically disable observation
+        of all further widget events during the handling of a widget event,
+        and re-enable it after the event handler has finished.
     observer_method_name_template
         Name template for observer methods that handle widget events in the subclass.
         This is used to dynamically find the corresponding observer method
@@ -58,8 +71,12 @@ class GUI:
     """
     def __init__(
         self,
+        auto_toggle_availability: bool = False,
+        auto_toggle_observation: bool = False,
         observer_method_name_template="_o{event_name[0]}{event_type[0]}__{widget_name}"
     ):
+        self._gui__auto_toggle_observation = auto_toggle_observation
+        self._gui__auto_toggle_availability = auto_toggle_availability
         self._gui__observer_method_name_template = observer_method_name_template
         self._gui__widget_name_to_widget: dict[str, Widget] = {}
         self._gui__widget_id_to_name: dict[int, str] = {}
@@ -136,7 +153,7 @@ class GUI:
         self._gui__widget_name_to_widget[name] = widget
         self._gui__widget_id_to_name[widget_id] = name
         if observe:
-            self._gui__toggle_widget_observer(
+            self._gui__toggle_widget_observation(
                 widget=widget,
                 observe=True,
                 observe_name=observe_name,
@@ -158,7 +175,32 @@ class GUI:
             raise KeyError(f"Widget '{name}' not found")
         return self._gui__widget_name_to_widget[name]
 
-    def _gui__toggle_widget_observer(
+    def _gui__reset_slider_minmax(
+        self,
+        slider: IntSlider | FloatSlider | IntRangeSlider | FloatRangeSlider,
+        minimum: int | float,
+        maximum: int | float,
+        value: int | float | tuple[int, int] | tuple[float, float] | bool = True,
+        disable_observe: bool = False,
+    ):
+        """Reset the slider's min and max values."""
+        if disable_observe:
+            self._gui__toggle_widget_observation(False, widget=slider)
+        if slider.min >= maximum:
+            slider.min = minimum
+            slider.max = maximum
+        else:
+            slider.max = maximum
+            slider.min = minimum
+        if value is not False:
+            slider.value = ((minimum + maximum) // 2) if isinstance(
+                value, IntSlider | FloatSlider
+            ) else (minimum, maximum)
+        if disable_observe:
+            self._gui__toggle_widget_observation(True, widget=slider)
+        return slider
+
+    def _gui__toggle_widget_observation(
         self,
         observe: bool | None,
         *,
@@ -212,9 +254,11 @@ class GUI:
         ----------
         - [Jupyter Widgets Documentation: Widget Events](https://ipywidgets.readthedocs.io/en/stable/examples/Widget%20Events.html)
         """
-        def toggle(w: Widget) -> None:
-            if not isinstance(w, Widget):
-                raise TypeError(f"Expected a Widget instance, got {type(w)}")
+        for w in self._gui__iterate_widgets(
+            widget=widget,
+            name=name,
+            name_regex=name_regex
+        ):
             if isinstance(w, Button):
                 do_observe = (
                     self._gui__widget_observer not in w._click_handlers.callbacks
@@ -234,8 +278,183 @@ class GUI:
                     names=observe_name,
                     type=observe_type,
                 )
-            return
+        return
 
+    def _gui__toggle_widget_availability(
+        self,
+        available: bool | None,
+        *,
+        widget: Widget | Sequence[Widget] | None = None,
+        name: str | Sequence[str] | None = None,
+        name_regex: str | re.Pattern | None = None,
+    ) -> None:
+        """Enable/disable widgets, or toggle their availability.
+
+        If none of the parameters `widget`, `name`, or `name_regex` is provided,
+        this method will apply to all widgets registered in the GUI,
+        otherwise it will only apply to the widgets specified by any of these parameters.
+
+        Parameters
+        ----------
+        available
+            Whether to enable (True), disable (False),
+            or toggle availability (None) of widgets.
+            If toggling, this method will disable the widget
+            if it is not already disabled,
+            or enable it if it is already disabled.
+        widget
+            Optional widget or sequence of widgets to consider.
+        name
+            Optional name or sequence of names of widgets to consider.
+        name_regex
+            Optional regular expression to filter which widgets to consider.
+        """
+        for w in self._gui__iterate_widgets(
+            widget=widget,
+            name=name,
+            name_regex=name_regex
+        ):
+            w.disabled = not w.disabled if available is None else not available
+        return
+
+    @contextmanager
+    def _gui__temporary_toggle(
+        self,
+        *,
+        observe: bool | None = False,
+        available: bool | None = False,
+        observe_name: str | traitlets.Sentinel | Sequence[str | traitlets.Sentinel] = "value",
+        observe_type: str | traitlets.Sentinel = "change",
+        widget: Widget | Sequence[Widget] | None = None,
+        name: str | Sequence[str] | None = None,
+        name_regex: str | None = None,
+        restore: bool = True,
+    ) -> None:
+        """Temporarily enable, disable, or toggle observing widget events and/or availability.
+
+        This is a context manager wrapping the two other context managers
+        `_gui__temporary_observation_toggle` and `_gui__temporary_availability_toggle`.
+        All parameters are the same as for those methods combined.
+        """
+        with self._gui__temporary_observation_toggle(
+            observe=observe,
+            observe_name=observe_name,
+            observe_type=observe_type,
+            widget=widget,
+            name=name,
+            name_regex=name_regex
+        ), self._gui__temporary_availability_toggle(
+            available=available,
+            widget=widget,
+            name=name,
+            name_regex=name_regex,
+            restore=restore
+        ):
+            yield
+        return
+
+    @contextmanager
+    def _gui__temporary_observation_toggle(
+        self,
+        observe: bool | None = False,
+        *,
+        observe_name: str | traitlets.Sentinel | Sequence[str | traitlets.Sentinel] = "value",
+        observe_type: str | traitlets.Sentinel = "change",
+        widget: Widget | Sequence[Widget] | None = None,
+        name: str | Sequence[str] | None = None,
+        name_regex: str | None = None
+    ) -> None:
+        """Temporarily enable, disable, or toggle observing widget events.
+
+        This is a context manager for the `_gui__toggle_widget_observation` method.
+        All parameters are the same as for that method.
+        """
+        # Resolve the widgets once here for efficiency
+        widgets = list(
+            self._gui__iterate_widgets(
+                widget=widget,
+                name=name,
+                name_regex=name_regex,
+            )
+        )
+        self._gui__toggle_widget_observation(
+            observe=observe,
+            observe_name=observe_name,
+            observe_type=observe_type,
+            widget=widgets,
+        )
+        try:
+            yield
+        finally:
+            self._gui__toggle_widget_observation(
+                observe=None if observe is None else not observe,
+                observe_name=observe_name,
+                observe_type=observe_type,
+                widget=widgets,
+            )
+        return
+
+    @contextmanager
+    def _gui__temporary_availability_toggle(
+        self,
+        available: bool | None = False,
+        *,
+        widget: Widget | Sequence[Widget] | None = None,
+        name: str | Sequence[str] | None = None,
+        name_regex: str | None = None,
+        restore: bool = True
+    ) -> None:
+        """Temporarily enable/disable widgets, or toggle their availability.
+
+        This is a context manager for the `_gui__toggle_widget_availability` method.
+        All parameters are the same as for that method, except for `restore`,
+        which is only available here.
+
+        Parameters
+        ----------
+        restore
+            Whether to restore the original availability state of the widgets
+            after the context manager exits.
+            This is only relevant if `available` is set to `True` or `False`.
+        """
+        widgets_and_states = []
+        for w in self._gui__iterate_widgets(
+            widget=widget,
+            name=name,
+            name_regex=name_regex
+        ):
+            widgets_and_states.append((w, w.disabled))
+            w.disabled = not w.disabled if available is None else not available
+        try:
+            yield
+        finally:
+            for w, original_state in widgets_and_states:
+                w.disabled = original_state if restore else (
+                    not w.disabled if available is None else available
+                )
+        return
+
+    def _gui__iterate_widgets(
+        self,
+        widget: Widget | Sequence[Widget] | None = None,
+        name: str | Sequence[str] | None = None,
+        name_regex: str | re.Pattern | None = None,
+    ) -> Generator[Widget, None, None]:
+        """Iterate over widgets in the GUI.
+
+        This method yields each widget that matches any of the provided parameters.
+        If no parameters are provided, it yields all widgets in the GUI.
+        Note that the widgets must have been added using `_gui__add_widget`.
+
+        Parameters
+        ----------
+        widget
+            Optional widget or sequence of widgets to iterate over.
+        name
+            Optional name or sequence of names of widgets to iterate over.
+        name_regex
+            Optional regular expression to filter which widgets to iterate over.
+        """
         widget_provided = widget is not None
         name_provided = name is not None
         name_regex_provided = name_regex is not None
@@ -243,7 +462,9 @@ class GUI:
             if isinstance(widget, Widget):
                 widget = [widget]
             for w in widget:
-                toggle(w)
+                if not isinstance(w, Widget):
+                    raise TypeError(f"Expected a Widget instance, got {type(w)}")
+                yield w
         if name_provided:
             if isinstance(name, str):
                 name = [name]
@@ -251,70 +472,16 @@ class GUI:
                 w = self._gui__widget_name_to_widget.get(w_name)
                 if not w:
                     raise KeyError(f"Widget '{w_name}' not found")
-                toggle(w)
+                yield w
         if name_regex_provided:
             if isinstance(name_regex, str):
                 name_regex = re.compile(name_regex)
             for w_name, w in self._gui__widget_name_to_widget.items():
                 if name_regex.match(w_name):
-                    toggle(w)
+                    yield w
         if not (widget_provided or name_provided or name_regex_provided):
             # If no specific widgets or names are provided, apply to all widgets
-            for w in self._gui__widget_name_to_widget.values():
-                toggle(w)
-        return
-
-    @contextmanager
-    def _gui__temporary_observation_toggle(
-        self,
-        observe: bool | None = False,
-        observe_name: str | traitlets.Sentinel | Sequence[str | traitlets.Sentinel] = "value",
-        observe_type: str | traitlets.Sentinel = "change",
-        widget: Widget | Sequence[Widget] | None = None,
-        name: str | Sequence[str] | None = None,
-        name_regex: str | None = None
-    ) -> None:
-        """Context manager to temporarily enable or disable observing value changes.
-
-        This is useful when making multiple changes to the GUI state at once,
-        to avoid triggering the observers unnecessarily.
-
-        Parameters
-        ----------
-        observe
-            Whether to observe value changes of interactive widgets.
-        widget
-            Optional widget or sequence of widgets to observe/unobserve.
-            If provided, only these widgets will be affected,
-            otherwise all widgets will be affected.
-        name
-            Optional name or sequence of names of widgets to observe/unobserve.
-            If provided, only widgets with these names will be affected,
-            otherwise all widgets will be affected.
-        name_regex
-            Optional regular expression to filter which widgets to observe/unobserve.
-            If provided, only widgets whose names match the regex will be affected,
-            otherwise all widgets will be affected.
-        """
-        self._gui__toggle_widget_observer(
-            observe=observe,
-            observe_name=observe_name,
-            observe_type=observe_type,
-            widget=widget,
-            name=name,
-            name_regex=name_regex
-        )
-        try:
-            yield
-        finally:
-            self._gui__toggle_widget_observer(
-                observe=not observe if observe is not None else None,
-                observe_name=observe_name,
-                observe_type=observe_type,
-                widget=widget,
-                name=name,
-                name_regex=name_regex
-            )
+            yield from self._gui__widget_name_to_widget.values()
         return
 
     def _gui__widget_observer(self, change: dict[str, Any] | Button) -> None:
@@ -332,14 +499,20 @@ class GUI:
             # Widget is not registered using the `_gui__add_widget` method.
             return
         observer_method_name = self._gui__observer_method_name_template.format(
-            event_name="click" if is_button else change["type"],
-            event_type=" " if is_button else change.get("name", " "),
+            event_name=" " if is_button else change.get("name", " "),
+            event_type="click" if is_button else change["type"],
             widget_name=widget_name
         ).replace(" ", "")
-        print(observer_method_name)
         observer_method = getattr(self, observer_method_name, None)
         if observer_method:
-            render_kwargs = observer_method(change)
+            observation_context_manager = self._gui__temporary_observation_toggle(
+                observe=False
+            ) if self._gui__auto_toggle_observation else nullcontext()
+            availability_context_manager = self._gui__temporary_availability_toggle(
+                available=False
+            ) if self._gui__auto_toggle_availability else nullcontext()
+            with observation_context_manager, availability_context_manager:
+                render_kwargs = observer_method(change)
             if render_kwargs is not None:
                 self._gui__render(**render_kwargs)
         return
