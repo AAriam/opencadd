@@ -1,13 +1,15 @@
+"""Functionalities for creating a GUI with [ipywidgets](https://ipywidgets.readthedocs.io/)."""
 
+from contextlib import contextmanager
 from typing import Any, Sequence
+import re
 
 from IPython.display import display
 from ipywidgets import Dropdown, IntRangeSlider, HBox, VBox, Label, HTML, Box, Layout, Widget, Button
 
 
-
 class GUI:
-    """Base class for creating a GUI with ipywidgets.
+    """Base class for creating a GUI with [ipywidgets](https://ipywidgets.readthedocs.io/).
 
     Usage
     -----
@@ -40,7 +42,6 @@ class GUI:
         self._gui__observer_method_prefix = observer_method_prefix
         self._gui__widget_name_to_widget: dict[str, Widget] = {}
         self._gui__widget_id_to_name: dict[int, str] = {}
-        self._gui__observe_value_changes_value = True
         self._gui__main_widget = None
         return
 
@@ -63,7 +64,7 @@ class GUI:
         self._gui__main_widget = widget
         return
 
-    def _gui__add_widget(self, name: str, widget: Widget) -> Widget:
+    def _gui__add_widget(self, name: str, widget: Widget, observe: bool = True) -> Widget:
         """Add an interactive widget to the GUI.
 
         This method should be called in the subclass's `__init__` method.
@@ -75,6 +76,8 @@ class GUI:
         widget
             An instance of an `ipywidgets.Widget` subclass
             (e.g., `Button`, `Dropdown`, etc.).
+        observe
+            Whether to observe value changes of the widget.
 
         Returns
         -------
@@ -85,10 +88,8 @@ class GUI:
         widget_id = id(widget)
         self._gui__widget_name_to_widget[name] = widget
         self._gui__widget_id_to_name[widget_id] = name
-        if isinstance(widget, Button):
-            widget.on_click(self._gui__on_widget_value_change)
-        else:
-            widget.observe(self._gui__on_widget_value_change, names='value')
+        if observe:
+            self._gui__set_widget_value_observer(widget, observe=True)
         return widget
 
     def _gui__get_widget(self, name: str) -> Widget:
@@ -105,13 +106,127 @@ class GUI:
             raise KeyError(f"Widget '{name}' not found")
         return self._gui__widget_name_to_widget[name]
 
-    def _gui__observe_value_changes(self, observe: bool) -> None:
+    def _gui__set_widget_value_observer(self, widget: Widget, observe: bool = True) -> None:
+        """Set whether to observe value changes of a specific widget.
+
+        Parameters
+        ----------
+        widget
+            The widget instance to set the observer for.
+        observe
+            Whether to observe value changes of the widget.
+        """
+        if not isinstance(widget, Widget):
+            raise TypeError(f"Expected a Widget instance, got {type(widget)}")
+        if isinstance(widget, Button):
+            widget.on_click(
+                self._gui__on_widget_value_change,
+                remove=not observe
+            )
+        elif observe:
+            widget.observe(
+                self._gui__on_widget_value_change,
+                names='value',
+            )
+        else:
+            widget.unobserve(
+                self._gui__on_widget_value_change,
+                names='value',
+            )
+        return
+
+    def _gui__observe_value_changes(
+        self,
+        observe: bool,
+        widget: Widget | Sequence[Widget] | None = None,
+        name: str | Sequence[str] | None = None,
+        name_regex: str | re.Pattern | None = None,
+    ) -> None:
         """Enable or disable observing value changes of interactive widgets.
 
-        This method can be used to temporarily disable the observers,
-        e.g., when making multiple changes to the GUI state at once.
+        This is useful when making multiple changes to the GUI state at once,
+        to avoid triggering the observers unnecessarily.
+
+        Parameters
+        ----------
+        observe
+            Whether to observe value changes of interactive widgets.
+        widget
+            Optional widget or sequence of widgets to observe/unobserve.
+            If provided, only these widgets will be affected,
+            otherwise all widgets will be affected.
+        name
+            Optional name or sequence of names of widgets to observe/unobserve.
+            If provided, only widgets with these names will be affected,
+            otherwise all widgets will be affected.
+        name_regex
+            Optional regular expression to filter which widgets to observe/unobserve.
+            If provided, only widgets whose names match the regex will be affected,
+            otherwise all widgets will be affected.
         """
-        self._gui__observe_value_changes_value = bool(observe)
+        widget_provided = widget is not None
+        name_provided = name is not None
+        name_regex_provided = name_regex is not None
+        if widget_provided:
+            if isinstance(widget, Widget):
+                widget = [widget]
+            for w in widget:
+                self._gui__set_widget_value_observer(w, observe=observe)
+        if name_provided:
+            if isinstance(name, str):
+                name = [name]
+            for w_name in name:
+                self._gui__set_widget_value_observer(
+                    self._gui__widget_name_to_widget[w_name],
+                    observe=observe
+                )
+        if name_regex_provided:
+            if isinstance(name_regex, str):
+                name_regex = re.compile(name_regex)
+            for w_name, w in self._gui__widget_name_to_widget.items():
+                if name_regex.match(w_name):
+                    self._gui__set_widget_value_observer(w, observe=observe)
+        if not (widget_provided or name_provided or name_regex_provided):
+            # If no specific widgets or names are provided, apply to all widgets
+            for w in self._gui__widget_name_to_widget.values():
+                self._gui__set_widget_value_observer(w, observe=observe)
+        return
+
+    @contextmanager
+    def _gui__temporary_observe(
+        self,
+        observe: bool,
+        widget: Widget | Sequence[Widget] | None = None,
+        name: str | Sequence[str] | None = None,
+        name_regex: str | None = None
+    ) -> None:
+        """Context manager to temporarily enable or disable observing value changes.
+
+        This is useful when making multiple changes to the GUI state at once,
+        to avoid triggering the observers unnecessarily.
+
+        Parameters
+        ----------
+        observe
+            Whether to observe value changes of interactive widgets.
+        widget
+            Optional widget or sequence of widgets to observe/unobserve.
+            If provided, only these widgets will be affected,
+            otherwise all widgets will be affected.
+        name
+            Optional name or sequence of names of widgets to observe/unobserve.
+            If provided, only widgets with these names will be affected,
+            otherwise all widgets will be affected.
+        name_regex
+            Optional regular expression to filter which widgets to observe/unobserve.
+            If provided, only widgets whose names match the regex will be affected,
+            otherwise all widgets will be affected.
+        """
+        self._gui__observe_value_changes(observe, widget=widget, name=name, name_regex=name_regex)
+        try:
+            yield
+        finally:
+            self._gui__observe_value_changes(not observe, widget=widget, name=name, name_regex=name_regex)
         return
 
     def _gui__render(self, **kwargs) -> None:
@@ -128,8 +243,6 @@ class GUI:
         It calls the corresponding observer method based on the widget's name,
         if it exists.
         """
-        if not self._gui__observe_value_changes_value:
-            return
         widget = change if isinstance(change, Button) else change['owner']
         widget_id = id(widget)
         widget_name = self._gui__widget_id_to_name.get(widget_id)
