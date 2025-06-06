@@ -216,17 +216,18 @@ class GUI:
             if not isinstance(w, Widget):
                 raise TypeError(f"Expected a Widget instance, got {type(w)}")
             if isinstance(w, Button):
-                if observe is None:
-                    do_observe = self._gui__widget_observer not in w._click_handlers.callbacks
+                do_observe = (
+                    self._gui__widget_observer not in w._click_handlers.callbacks
+                    if observe is None else observe
+                )
                 w.on_click(
                     self._gui__widget_observer,
                     remove=not do_observe
                 )
             else:
-                if observe is None:
-                    do_observe = self._gui__widget_observer not in w._trait_notifiers.get(
-                        observe_name, {}
-                    ).get(observe_type, [])
+                do_observe = self._gui__widget_observer not in w._trait_notifiers.get(
+                    observe_name, {}
+                ).get(observe_type, []) if observe is None else observe
                 func = w.observe if do_observe else w.unobserve
                 func(
                     self._gui__widget_observer,
@@ -334,7 +335,8 @@ class GUI:
             event_name="click" if is_button else change["type"],
             event_type=" " if is_button else change.get("name", " "),
             widget_name=widget_name
-        )
+        ).replace(" ", "")
+        print(observer_method_name)
         observer_method = getattr(self, observer_method_name, None)
         if observer_method:
             render_kwargs = observer_method(change)
