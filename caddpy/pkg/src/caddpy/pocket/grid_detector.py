@@ -329,7 +329,7 @@ class GridDetectorGUI(GridDetector, GUI):
             )
 
         GridDetector.__init__(self, receptor=receptor, field=field)
-        GUI.__init__(self, observer_method_name_template="_ovc_")
+        GUI.__init__(self)
 
         status = self._gui__add_widget(
             name="status",
@@ -395,7 +395,7 @@ class GridDetectorGUI(GridDetector, GUI):
         self._ligsite__toggle_controls(True)
         return {} if auto_refresh else None
 
-    def _ovc__ligsite_refresh(self, _: widgets.Button):
+    def _oc__ligsite_refresh(self, _: widgets.Button):
         with self._gui__logger:
             print("Refreshing LIGSITE mask with current settings.")
         directions = self._gui__get_widget("ligsite_psp_dirs")
@@ -406,7 +406,7 @@ class GridDetectorGUI(GridDetector, GUI):
             self.unset_mask("ligsite")
         return {}
 
-    def _ovc__ligsite_auto_refresh(self, change: dict):
+    def _oc__ligsite_auto_refresh(self, change: dict):
         enabled = change["new"]
         with self._gui__logger:
             print(f"LIGSITE auto-refresh {'enabled' if enabled else 'disabled'}.")
@@ -418,7 +418,7 @@ class GridDetectorGUI(GridDetector, GUI):
         )
         return
 
-    def _ovc__ligsite_reset(self, _: widgets.Button):
+    def _oc__ligsite_reset(self, _: widgets.Button):
         with self._gui__logger:
             print("Resetting LIGSITE mask to default state.")
         self._ligsite__toggle_controls(False)
