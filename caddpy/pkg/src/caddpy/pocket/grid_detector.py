@@ -329,7 +329,7 @@ class GridDetectorGUI(GridDetector, GUI):
             )
 
         GridDetector.__init__(self, receptor=receptor, field=field)
-        GUI.__init__(self, observer_method_prefix="_ovc_")
+        GUI.__init__(self, observer_method_name_template="_ovc_")
 
         status = self._gui__add_widget(
             name="status",
@@ -363,9 +363,9 @@ class GridDetectorGUI(GridDetector, GUI):
         """The NGLWidget containing the protein structure and the pocket volume."""
         return self._gui__get_widget(self._WIDGET_NAME["ngl"])
 
-    def _ovc_ligsite_psp_dirs(self, change: dict):
+    def _ovc__ligsite_psp_dirs(self, change: dict):
         with self._gui__logger:
-            print(f"Changed LIGSITE directions to {change['new']}.")
+            print(f"LIGSITE directions changed to {change['new']}.")
         # Temporarily disable controls during calculation to prevent user interaction.
         self._ligsite__toggle_controls(False)
         value = change["new"]
@@ -395,7 +395,7 @@ class GridDetectorGUI(GridDetector, GUI):
         self._ligsite__toggle_controls(True)
         return {} if auto_refresh else None
 
-    def _ovc_ligsite_refresh(self, _: widgets.Button):
+    def _ovc__ligsite_refresh(self, _: widgets.Button):
         with self._gui__logger:
             print("Refreshing LIGSITE mask with current settings.")
         directions = self._gui__get_widget("ligsite_psp_dirs")
@@ -406,24 +406,24 @@ class GridDetectorGUI(GridDetector, GUI):
             self.unset_mask("ligsite")
         return {}
 
-    def _ovc_ligsite_auto_refresh(self, change: dict):
+    def _ovc__ligsite_auto_refresh(self, change: dict):
         enabled = change["new"]
         with self._gui__logger:
             print(f"LIGSITE auto-refresh {'enabled' if enabled else 'disabled'}.")
         button = change["owner"]
         button.button_style = "success" if enabled else "danger"
-        self._gui__observe_value_changes(
+        self._gui__toggle_widget_observer(
             observe=enabled,
             name_regex="^ligsite_psp_.*",
         )
         return
 
-    def _ovc_ligsite_reset(self, _: widgets.Button):
+    def _ovc__ligsite_reset(self, _: widgets.Button):
         with self._gui__logger:
             print("Resetting LIGSITE mask to default state.")
         self._ligsite__toggle_controls(False)
         with self._show_status():
-            self._gui__observe_value_changes(False)
+            self._gui__toggle_widget_observer(False)
             self._gui__get_widget("ligsite_psp_dirs").value = 3
             self.set_mask_ligsite(directions=tuple(range(1, 4)))
             count_slider = self._gui__get_widget("ligsite_psp_count_slider")
@@ -451,11 +451,11 @@ class GridDetectorGUI(GridDetector, GUI):
             self._gui__get_widget("ligsite_psp_dist_min").value = "all"
             self._gui__get_widget("ligsite_psp_dist_max").value = "any"
             self._ligsite__recalculate_mask(pass_directions=False)
-            self._gui__observe_value_changes(True)
+            self._gui__toggle_widget_observer(True)
         self._ligsite__toggle_controls(True)
         return {}
 
-    def _ovc_ligsite_psp_count_slider(self, change: dict):
+    def _ovc__ligsite_psp_count_slider(self, change: dict):
         with self._gui__logger:
             print(f"LIGSITE PSP count range changed to {change['new']}.")
         with self._show_status():
@@ -471,7 +471,7 @@ class GridDetectorGUI(GridDetector, GUI):
         self._ligsite__toggle_controls(True)
         return {}
 
-    def _ovc_ligsite_psp_count_min(self, change: dict):
+    def _ovc__ligsite_psp_count_min(self, change: dict):
         with self._gui__logger:
             print(f"Changed LIGSITE PSP count lower mode to {change['new']}.")
         with self._show_status():
@@ -482,7 +482,7 @@ class GridDetectorGUI(GridDetector, GUI):
         self._ligsite__toggle_controls(True)
         return {}
 
-    def _ovc_ligsite_psp_count_max(self, change: dict):
+    def _ovc__ligsite_psp_count_max(self, change: dict):
         with self._gui__logger:
             print(f"Changed LIGSITE PSP count upper mode to {change['new']}.")
         with self._show_status():
@@ -493,7 +493,7 @@ class GridDetectorGUI(GridDetector, GUI):
         self._ligsite__toggle_controls(True)
         return {}
 
-    def _ovc_ligsite_psp_dist_slider(self, change: dict):
+    def _ovc__ligsite_psp_dist_slider(self, change: dict):
         with self._gui__logger:
             print(f"Changed LIGSITE PSP distance slider to {change['new']}.")
         with self._show_status():
@@ -511,7 +511,7 @@ class GridDetectorGUI(GridDetector, GUI):
         self._ligsite__toggle_controls(True)
         return {}
 
-    def _ovc_ligsite_psp_dist_min(self, change: dict):
+    def _ovc__ligsite_psp_dist_min(self, change: dict):
         with self._gui__logger:
             print(f"Changed LIGSITE PSP distance lower mode to {change['new']}.")
         with self._show_status():
@@ -525,7 +525,7 @@ class GridDetectorGUI(GridDetector, GUI):
         self._ligsite__toggle_controls(True)
         return {}
 
-    def _ovc_ligsite_psp_dist_max(self, change: dict):
+    def _ovc__ligsite_psp_dist_max(self, change: dict):
         with self._gui__logger:
             print(f"Changed LIGSITE PSP distance upper mode to {change['new']}.")
         with self._show_status():
@@ -600,7 +600,7 @@ class GridDetectorGUI(GridDetector, GUI):
     ):
         """Reset the slider's min and max values."""
         if disable_observe:
-            self._gui__observe_value_changes(False, widget=slider)
+            self._gui__toggle_widget_observer(False, widget=slider)
         if slider.min >= maximum:
             slider.min = minimum
             slider.max = maximum
@@ -609,7 +609,7 @@ class GridDetectorGUI(GridDetector, GUI):
             slider.min = minimum
         slider.value = (minimum, maximum)
         if disable_observe:
-            self._gui__observe_value_changes(True, widget=slider)
+            self._gui__toggle_widget_observer(True, widget=slider)
         return slider
 
     @contextmanager
