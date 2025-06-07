@@ -796,7 +796,7 @@ class GridDetectorGUI(GUI):
         )
         return
 
-    def _gui__render(self, enable_regex: str | None = None):
+    def _gui__render(self):
         """Update the NGLWidget with the current mask.
 
         This method is automatically called by the `GUI` parent class when needed.
@@ -808,11 +808,6 @@ class GridDetectorGUI(GUI):
             ngl.add_spheres(
                 coords=self.field.grid.coordinates[self.mask],
                 name=name,
-            )
-        if enable_regex:
-            self._gui__toggle_widget_availability(
-                available=True,
-                name_regex=enable_regex,
             )
         return
 
