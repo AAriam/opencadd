@@ -30,10 +30,9 @@ class GridDetector:
         self._field = field
         self._grid_axis_indices = tuple(range(self.field.batch_ndim, self.field.tensor.ndim))
 
-        self._mask_volume = np.logical_not(self.field.tensor)
+        self._mask_morphology = np.logical_not(self.field.tensor)
         self._mask_ligsite: np.ndarray | None = None
         self._mask_custom: np.ndarray | None = None
-        self._mask = self._mask_volume
 
         self._ligsite: LigSite | None = None
         self._gui = None
@@ -47,7 +46,6 @@ class GridDetector:
                 message=f"Mask shape {mask.shape} does not match field shape {self.field.tensor.shape}."
             )
         self._mask_custom = mask
-        self._set_mask()
         return self._mask_custom
 
     def set_mask_ligsite(
@@ -83,64 +81,82 @@ class GridDetector:
             dist_lower_mode=dist_lower_mode,
             dist_upper_mode=dist_upper_mode,
         )
-        self._set_mask()
         return self._mask_ligsite
 
-    def set_mask_volume(
+    def set_mask_morphology(
         self,
+        close: bool = True,
+        fill: bool = True,
         closing_structure: np.ndarray | tuple[int, int] | None = None,
         closing_iterations: int = 1,
         closing_mask: np.ndarray | None = None,
         closing_border_value: Literal[0, 1] = 1,
-        fill_structure: np.ndarray | None = None,
+        fill_structure: np.ndarray | tuple[int, int] | None = None,
     ):
-        if isinstance(closing_structure, tuple):
-            structure_connectivity, structure_iterations = closing_structure
-            # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.generate_binary_structure.html
-            closing_structure_initial = sp.ndimage.generate_binary_structure(
-                rank=3, connectivity=structure_connectivity
+        if close:
+            if isinstance(closing_structure, tuple):
+                structure_connectivity, structure_iterations = closing_structure
+                # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.generate_binary_structure.html
+                closing_structure_initial = sp.ndimage.generate_binary_structure(
+                    rank=3, connectivity=structure_connectivity
+                )
+                # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.iterate_structure.html
+                closing_structure = sp.ndimage.iterate_structure(
+                    structure=closing_structure_initial, iterations=structure_iterations
+                )
+            # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.binary_closing.html
+            volume_closed = sp.ndimage.binary_closing(
+                input=self.field.tensor,
+                structure=closing_structure,
+                iterations=closing_iterations,
+                mask=closing_mask,
+                border_value=closing_border_value,
+                axes=self._grid_axis_indices,
             )
-            # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.iterate_structure.html
-            closing_structure = sp.ndimage.iterate_structure(
-                structure=closing_structure_initial, iterations=structure_iterations
+        else:
+            volume_closed = self.field.tensor
+        if fill:
+            # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.binary_fill_holes.html
+            if isinstance(fill_structure, tuple):
+                structure_connectivity, structure_iterations = fill_structure
+                fill_structure_initial = sp.ndimage.generate_binary_structure(
+                    rank=3, connectivity=structure_connectivity
+                )
+                fill_structure = sp.ndimage.iterate_structure(
+                    structure=fill_structure_initial, iterations=structure_iterations
+                )
+            volume_closed_and_filled = sp.ndimage.binary_fill_holes(
+                input=volume_closed,
+                structure=fill_structure,
+                axes=self._grid_axis_indices,
             )
-        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.binary_closing.html
-        volume_closed = sp.ndimage.binary_closing(
-            input=self.field.tensor,
-            structure=closing_structure,
-            iterations=closing_iterations,
-            mask=closing_mask,
-            border_value=closing_border_value,
-            axes=self._grid_axis_indices,
-        )
-        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.binary_fill_holes.html
-        volume_closed_and_filled = sp.ndimage.binary_fill_holes(
-            input=volume_closed,
-            structure=fill_structure,
-            axes=self._grid_axis_indices,
-        )
-        self._mask_volume = jnp.logical_not(volume_closed_and_filled)
-        self._set_mask()
-        return self._mask_volume
+        else:
+            volume_closed_and_filled = volume_closed
+        self._mask_morphology = jnp.logical_not(volume_closed_and_filled)
+        return self._mask_morphology
 
-    def unset_mask(self, *args: Literal["volume", "ligsite", "custom"]):
-        args = set(args or ("volume", "ligsite", "custom"))
-        if "volume" in args:
-            self._mask_volume = np.logical_not(self.field.tensor)
+    def unset_mask(self, *args: Literal["morphology", "ligsite", "custom"]) -> None:
+        args = set(args or ("morphology", "ligsite", "custom"))
+        if "morphology" in args:
+            self._mask_morphology = np.logical_not(self.field.tensor)
         if "ligsite" in args:
             self._mask_ligsite = None
         if "custom" in args:
             self._mask_custom = None
-        self._set_mask()
-        return self._mask
+        return
 
     @property
     def mask(self) -> jax.Array:
-        return self._mask
+        masks = [self._mask_morphology]
+        if self._mask_ligsite is not None:
+            masks.append(self._mask_ligsite)
+        if self._mask_custom is not None:
+            masks.append(self._mask_custom)
+        return jnp.logical_and.reduce(jnp.array(masks))
 
     @property
-    def mask_volume(self) -> jax.Array:
-        return self._mask_volume
+    def mask_morphology(self) -> jax.Array:
+        return self._mask_morphology
 
     @property
     def mask_ligsite(self) -> jax.Array | None:
@@ -158,17 +174,10 @@ class GridDetector:
     def field(self) -> Field:
         return self._field
 
-    def _set_mask(self):
-        masks = [self._mask_volume]
-        if self._mask_ligsite is not None:
-            masks.append(self._mask_ligsite)
-        if self._mask_custom is not None:
-            masks.append(self._mask_custom)
-        self._mask = jnp.logical_and.reduce(jnp.array(masks))
-        return
 
+class GridDetectorGUI(GUI):
 
-class GridDetectorGUI(GridDetector, GUI):
+    _BUTTON_WIDTH = "100px"
 
     def __init__(self, receptor: ChemicalSystem, field: Field):
 
@@ -185,7 +194,186 @@ class GridDetectorGUI(GridDetector, GUI):
             self._nglwidget = nglwidget
             return nglwidget
 
-        def make_ligsite():
+        def make_morphology_panel():
+            def make_top_panel():
+                refresh = self._gui__add_widget(
+                    name=f"{name_prefix}refresh",
+                    widget=widgets.Button(
+                        description="Refresh",
+                        tooltip="Recalculate the morphology mask with the current settings.",
+                        button_style="success",
+                        disabled=True,
+                        layout=widgets.Layout(width=self._BUTTON_WIDTH),
+                    )
+                )
+                auto_refresh = self._gui__add_widget(
+                    name=f"{name_prefix}auto_refresh",
+                    widget=widgets.ToggleButton(
+                        description="Auto Refresh",
+                        tooltip="Automatically recalculate the morphology mask when the settings change.",
+                        value=True,
+                        button_style="success",
+                        disabled=True,
+                        layout=widgets.Layout(width=self._BUTTON_WIDTH),
+                    )
+                )
+                reset = self._gui__add_widget(
+                    name=f"{name_prefix}reset",
+                    widget=widgets.Button(
+                        description="Reset",
+                        tooltip="Reset the morphology mask to the default state.",
+                        button_style="danger",
+                        disabled=False,
+                        layout=widgets.Layout(width=self._BUTTON_WIDTH),
+                    )
+                )
+                return widgets.HBox(
+                    [self._status_widget, refresh, auto_refresh, reset],
+                    layout=widgets.Layout(width="100%", align_items="center", justify_content="flex-end")
+                )
+
+            def make_operations_panels():
+                return widgets.HBox(
+                    [make_closing_panel(), make_fill_panel()],
+                    layout=widgets.Layout(
+                        width="100%",
+                        justify_content="space-between",
+                        flex_flow="row wrap",
+                        margin="10px 0 10px 0"
+                    )
+                )
+
+            def make_closing_panel():
+                close = self._gui__add_widget(
+                    name=f"{name_prefix}close",
+                    widget=widgets.ToggleButton(
+                        description="Close",
+                        tooltip="Apply morphological closing to the protein volume.",
+                        value=True,
+                        button_style="success",
+                        disabled=True,
+                    )
+                )
+                structure_connectivity = widgeter.labeled_widget(
+                    value="Structure Connectivity:",
+                    widget=self._gui__add_widget(
+                        name=f"{name_prefix}closing_structure_connectivity",
+                        widget=widgets.Dropdown(
+                            options=[1, 2, 3],
+                            value=2,
+                            layout=widgets.Layout(width="100%"),
+                            disabled=True,
+                        )
+                    )
+                )
+                structure_iterations = widgeter.labeled_widget(
+                    value="Structure Iterations:",
+                    widget=self._gui__add_widget(
+                        name=f"{name_prefix}closing_structure_iterations",
+                        widget=widgets.IntSlider(
+                            value=1,
+                            min=1,
+                            max=100,
+                            step=1,
+                            disabled=True,
+                            continuous_update=False,
+                            orientation="horizontal",
+                            readout=True,
+                            readout_format="d",
+                            layout=widgets.Layout(width="100%"),
+                        )
+                    )
+                )
+                closing_iterations = widgeter.labeled_widget(
+                    value="Closing Iterations:",
+                    widget=self._gui__add_widget(
+                        name=f"{name_prefix}closing_iterations",
+                        widget=widgets.IntSlider(
+                            value=1,
+                            min=1,
+                            max=100,
+                            step=1,
+                            disabled=True,
+                            continuous_update=False,
+                            orientation="horizontal",
+                            readout=True,
+                            readout_format="d",
+                            layout=widgets.Layout(width="100%"),
+                        )
+                    )
+                )
+                return widgets.VBox(
+                    [close, structure_connectivity, structure_iterations, closing_iterations],
+                    layout=widgets.Layout(
+                        flex="1 1 0%",
+                        padding="12px",
+                        border="0.5px solid lightgray",
+                        border_radius="10px",
+                        min_width="0",
+                        overflow="hidden",
+                    )
+                )
+
+            def make_fill_panel():
+                fill = self._gui__add_widget(
+                    name=f"{name_prefix}fill",
+                    widget=widgets.ToggleButton(
+                        description="Fill Holes",
+                        tooltip="Fill holes in the protein volume after closing.",
+                        value=True,
+                        button_style="success",
+                        disabled=True,
+                    )
+                )
+                structure_connectivity = widgeter.labeled_widget(
+                    value="Structure Connectivity:",
+                    widget=self._gui__add_widget(
+                        name=f"{name_prefix}fill_structure_connectivity",
+                        widget=widgets.Dropdown(
+                            options=[1, 2, 3],
+                            value=2,
+                            layout=widgets.Layout(width="100%"),
+                            disabled=True,
+                        )
+                    )
+                )
+                structure_iterations = widgeter.labeled_widget(
+                    value="Structure Iterations:",
+                    widget=self._gui__add_widget(
+                        name=f"{name_prefix}fill_structure_iterations",
+                        widget=widgets.IntSlider(
+                            value=1,
+                            min=1,
+                            max=100,
+                            step=1,
+                            disabled=True,
+                            continuous_update=False,
+                            orientation="horizontal",
+                            readout=True,
+                            readout_format="d",
+                            layout=widgets.Layout(width="100%"),
+                        )
+                    )
+                )
+                return widgets.VBox(
+                    [fill, structure_connectivity, structure_iterations],
+                    layout=widgets.Layout(
+                        flex="1 1 0%",
+                        padding="12px",
+                        border="0.5px solid lightgray",
+                        border_radius="10px",
+                        min_width="0",
+                        overflow="hidden",
+                    )
+                )
+
+            name_prefix = "morphology_"
+            return widgets.VBox(
+                [make_top_panel(), make_operations_panels()],
+                layout=widgets.Layout(width="100%", overflow="hidden"),
+            )
+
+        def make_ligsite_panel():
             def make_top_panel():
                 directions = widgeter.labeled_widget(
                     value="Directions:",
@@ -204,6 +392,7 @@ class GridDetectorGUI(GridDetector, GUI):
                         tooltip="Recalculate the LIGSITE mask with the current settings.",
                         button_style="success",
                         disabled=True,
+                        layout=widgets.Layout(width=self._BUTTON_WIDTH),
                     )
                 )
                 auto_refresh = self._gui__add_widget(
@@ -214,6 +403,7 @@ class GridDetectorGUI(GridDetector, GUI):
                         value=True,
                         button_style="success",
                         disabled=True,
+                        layout=widgets.Layout(width=self._BUTTON_WIDTH),
                     )
                 )
                 reset = self._gui__add_widget(
@@ -223,6 +413,7 @@ class GridDetectorGUI(GridDetector, GUI):
                         tooltip="Reset the LIGSITE mask to the default state.",
                         button_style="danger",
                         disabled=False,
+                        layout=widgets.Layout(width=self._BUTTON_WIDTH),
                     )
                 )
                 return widgets.HBox(
@@ -313,7 +504,7 @@ class GridDetectorGUI(GridDetector, GUI):
                 layout=widgets.Layout(width="100%", overflow="hidden"),
             )
 
-        def make_logger():
+        def make_logger_panel():
             self._gui__logger = widgets.Output()
             return widgets.Accordion(
                 children=[self._gui__logger],
@@ -321,8 +512,9 @@ class GridDetectorGUI(GridDetector, GUI):
                 selected_index=None,
             )
 
-        GridDetector.__init__(self, receptor=receptor, field=field)
-        GUI.__init__(self)
+        super().__init__()
+        self._detector = GridDetector(receptor=receptor, field=field)
+
 
         self._status_widget = widgets.Label(
             value="",
@@ -340,12 +532,12 @@ class GridDetectorGUI(GridDetector, GUI):
             ),
         )
         top_panel = widgets.Tab(
-            children=[make_ligsite()],
-            titles=["LIGSITE"],
+            children=[make_morphology_panel(), make_ligsite_panel()],
+            titles=["Morphology", "LIGSITE"],
             selected_index=0,
         )
 
-        self._gui__set_main_widget((top_panel, make_ngl(), make_logger()))
+        self._gui__set_main_widget((top_panel, make_ngl(), make_logger_panel()))
         return
 
     @property
@@ -353,42 +545,77 @@ class GridDetectorGUI(GridDetector, GUI):
         """The NGLWidget containing the protein structure and the pocket volume."""
         return self._nglwidget
 
-    def _ovc__ligsite_psp_dirs(self, change: dict):
+    def _oc__morphology_auto_refresh(self, change: dict):
+        enabled = change["new"]
         with self._gui__logger:
-            print(f"LIGSITE directions changed to {change['new']}.")
+            print(f"Morphology auto-refresh {'enabled' if enabled else 'disabled'}.")
+        button = change["owner"]
+        button.button_style = "success" if enabled else "danger"
+        self._gui__toggle_widget_observation(
+            observe=enabled,
+            name_regex="^morphology_.+",
+        )
+        return
+
+    def _oc__morphology_refresh(self, _: widgets.Button):
+        with self._gui__logger:
+            print("Refreshing morphology mask with current settings.")
         with self._show_status():
-            value = change["new"]
-            if not value:
-                # If no directions are selected, disable controls and unset the mask.
-                self._gui__toggle_widget_availability(
-                    available=False,
-                    name_regex="^ligsite_psp_(?!dirs$).+",
-                )
-                self.unset_mask("ligsite")
-                return {}
-            with self._gui__temporary_toggle():
-                    # Calculate mask to get new PSP min/max values.
-                    self.set_mask_ligsite(directions=tuple(range(1, value + 1)))
-                    # Reset the sliders to the new min/max values.
-                    self._gui__reset_slider_minmax(
-                        slider=self._gui__get_widget("ligsite_psp_count_slider"),
-                        minimum=self.ligsite.psp_count.min().item(),
-                        maximum=self.ligsite.psp_count.max().item(),
-                    )
-                    self._gui__reset_slider_minmax(
-                        slider=self._gui__get_widget("ligsite_psp_dist_slider"),
-                        minimum=jnp.nanmin(self.ligsite.psp_distance).item(),
-                        maximum=jnp.nanmax(self.ligsite.psp_distance).item(),
-                    )
-                    auto_refresh = self._gui__get_widget("ligsite_auto_refresh").value
-                    if auto_refresh:
-                        # Recalculate mask with the current min/max values when auto-refresh is enabled.
-                        self._ligsite__recalculate_mask(pass_directions=False)
-            self._gui__toggle_widget_availability(
-                available=True,
-                name_regex="^ligsite_psp_.+",
+            close = self._gui__get_widget("morphology_close").value
+            fill = self._gui__get_widget("morphology_fill").value
+            closing_structure = (
+                self._gui__get_widget("morphology_closing_structure_connectivity").value,
+                self._gui__get_widget("morphology_closing_structure_iterations").value,
             )
-        return {} if auto_refresh else None
+            closing_iterations = self._gui__get_widget("morphology_closing_iterations").value
+            fill_structure = (
+                self._gui__get_widget("morphology_fill_structure_connectivity").value,
+                self._gui__get_widget("morphology_fill_structure_iterations").value,
+            )
+            with self._gui__temporary_toggle():
+                self.set_mask_morphology(
+                    close=close,
+                    fill=fill,
+                    closing_structure=closing_structure,
+                    closing_iterations=closing_iterations,
+                    fill_structure=fill_structure,
+                )
+        return {}
+
+    def _oc__morphology_reset(self, _: widgets.Button):
+        with self._gui__logger:
+            print("Morphology mask reset to default state.")
+        with self._show_status(), self._gui__temporary_toggle():
+            self._gui__get_widget("morphology_close").value = True
+            self._gui__get_widget("morphology_fill").value = True
+            self._gui__get_widget("morphology_closing_structure_connectivity").value = 2
+            self._gui__get_widget("morphology_closing_structure_iterations").value = 1
+            self._gui__get_widget("morphology_closing_iterations").value = 1
+            self._gui__get_widget("morphology_fill_structure_connectivity").value = 2
+            self._gui__get_widget("morphology_fill_structure_iterations").value = 1
+            self.set_mask_morphology(
+                close=True,
+                fill=True,
+                closing_structure=(2, 1),
+                closing_iterations=1,
+            )
+        self._gui__toggle_widget_availability(
+            available=True,
+            name_regex="^morphology_.+",
+        )
+        return {}
+
+    def _oc__ligsite_auto_refresh(self, change: dict):
+        enabled = change["new"]
+        with self._gui__logger:
+            print(f"LIGSITE auto-refresh {'enabled' if enabled else 'disabled'}.")
+        button = change["owner"]
+        button.button_style = "success" if enabled else "danger"
+        self._gui__toggle_widget_observation(
+            observe=enabled,
+            name_regex="^ligsite_.*",
+        )
+        return
 
     def _oc__ligsite_refresh(self, _: widgets.Button):
         with self._gui__logger:
@@ -405,18 +632,6 @@ class GridDetectorGUI(GridDetector, GUI):
                 )
                 self.unset_mask("ligsite")
         return {}
-
-    def _oc__ligsite_auto_refresh(self, change: dict):
-        enabled = change["new"]
-        with self._gui__logger:
-            print(f"LIGSITE auto-refresh {'enabled' if enabled else 'disabled'}.")
-        button = change["owner"]
-        button.button_style = "success" if enabled else "danger"
-        self._gui__toggle_widget_observation(
-            observe=enabled,
-            name_regex="^ligsite_psp_.*",
-        )
-        return
 
     def _oc__ligsite_reset(self, _: widgets.Button):
         with self._gui__logger:
@@ -452,6 +667,43 @@ class GridDetectorGUI(GridDetector, GUI):
             name_regex="^ligsite_psp_.+",
         )
         return {}
+
+    def _ovc__ligsite_psp_dirs(self, change: dict):
+        with self._gui__logger:
+            print(f"LIGSITE directions changed to {change['new']}.")
+        with self._show_status():
+            value = change["new"]
+            if not value:
+                # If no directions are selected, disable controls and unset the mask.
+                self._gui__toggle_widget_availability(
+                    available=False,
+                    name_regex="^ligsite_psp_(?!dirs$).+",
+                )
+                self.unset_mask("ligsite")
+                return {}
+            with self._gui__temporary_toggle():
+                    # Calculate mask to get new PSP min/max values.
+                    self.set_mask_ligsite(directions=tuple(range(1, value + 1)))
+                    # Reset the sliders to the new min/max values.
+                    self._gui__reset_slider_minmax(
+                        slider=self._gui__get_widget("ligsite_psp_count_slider"),
+                        minimum=self.ligsite.psp_count.min().item(),
+                        maximum=self.ligsite.psp_count.max().item(),
+                    )
+                    self._gui__reset_slider_minmax(
+                        slider=self._gui__get_widget("ligsite_psp_dist_slider"),
+                        minimum=jnp.nanmin(self.ligsite.psp_distance).item(),
+                        maximum=jnp.nanmax(self.ligsite.psp_distance).item(),
+                    )
+                    auto_refresh = self._gui__get_widget("ligsite_auto_refresh").value
+                    if auto_refresh:
+                        # Recalculate mask with the current min/max values when auto-refresh is enabled.
+                        self._ligsite__recalculate_mask(pass_directions=False)
+            self._gui__toggle_widget_availability(
+                available=True,
+                name_regex="^ligsite_.+",
+            )
+        return {} if auto_refresh else None
 
     def _ovc__ligsite_psp_count_slider(self, change: dict):
         with self._gui__logger:
@@ -525,6 +777,25 @@ class GridDetectorGUI(GridDetector, GUI):
             )
         return {}
 
+    def _ligsite__recalculate_mask(self, pass_directions: bool):
+        psp_directions = self._gui__get_widget("ligsite_psp_dirs")
+        psp_count_slider = self._gui__get_widget("ligsite_psp_count_slider")
+        psp_dist_slider = self._gui__get_widget("ligsite_psp_dist_slider")
+        psp_count_min = self._gui__get_widget("ligsite_psp_count_min")
+        psp_count_max = self._gui__get_widget("ligsite_psp_count_max")
+        psp_dist_min = self._gui__get_widget("ligsite_psp_dist_min")
+        psp_dist_max = self._gui__get_widget("ligsite_psp_dist_max")
+        self.set_mask_ligsite(
+            count_lower=psp_count_slider.lower if psp_count_min.value else True,
+            count_upper=psp_count_slider.upper if psp_count_max.value else True,
+            dist_lower=psp_dist_slider.lower if psp_dist_min.value else True,
+            dist_upper=psp_dist_slider.upper if psp_dist_max.value else True,
+            dist_lower_mode=psp_dist_min.value,
+            dist_upper_mode=psp_dist_max.value,
+            directions=tuple(range(1, psp_directions.value + 1)) if pass_directions else None,
+        )
+        return
+
     def _gui__render(self, enable_regex: str | None = None):
         """Update the NGLWidget with the current mask.
 
@@ -543,25 +814,6 @@ class GridDetectorGUI(GridDetector, GUI):
                 available=True,
                 name_regex=enable_regex,
             )
-        return
-
-    def _ligsite__recalculate_mask(self, pass_directions: bool):
-        psp_directions = self._gui__get_widget("ligsite_psp_dirs")
-        psp_count_slider = self._gui__get_widget("ligsite_psp_count_slider")
-        psp_dist_slider = self._gui__get_widget("ligsite_psp_dist_slider")
-        psp_count_min = self._gui__get_widget("ligsite_psp_count_min")
-        psp_count_max = self._gui__get_widget("ligsite_psp_count_max")
-        psp_dist_min = self._gui__get_widget("ligsite_psp_dist_min")
-        psp_dist_max = self._gui__get_widget("ligsite_psp_dist_max")
-        self.set_mask_ligsite(
-            count_lower=psp_count_slider.lower if psp_count_min.value else True,
-            count_upper=psp_count_slider.upper if psp_count_max.value else True,
-            dist_lower=psp_dist_slider.lower if psp_dist_min.value else True,
-            dist_upper=psp_dist_slider.upper if psp_dist_max.value else True,
-            dist_lower_mode=psp_dist_min.value,
-            dist_upper_mode=psp_dist_max.value,
-            directions=tuple(range(1, psp_directions.value + 1)) if pass_directions else None,
-        )
         return
 
     @contextmanager
