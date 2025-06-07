@@ -828,10 +828,13 @@ class GridDetectorGUI(GUI):
         return
 
 
-
 def from_chemsys(
     system: ChemicalSystem,
+    *,
+    field: Field | None = None,
     grid: int | float | Sequence[int | float] | Grid = 0.5,
+    minimize_aabb: bool = True,
+    gui: bool = False,
 ) -> GridDetectorGUI:
     """Create a grid-based pocket detector from a chemical system.
 
@@ -839,9 +842,27 @@ def from_chemsys(
     ----------
     system
         A `ChemicalSystem` object containing the receptor structure.
+    field
+        An optional `Field` representing the receptor's voxel grid.
+        If provided, it will be used directly
+        and all other parameters below will be ignored.
+        If not provided, the field will be generated from the receptor.
     grid
         The grid spacing for the voxel grid.
         This can be a single value (e.g. `0.5` for 0.5 Ångstrom spacing),
         or a Grid object specifying the grid.
+    minimize_aabb
+        Whether to minimize the axis-aligned bounding box (AABB) of the receptor
+        before creating the voxel grid, in order to reduce the size of the grid.
+    gui
+        Whether to create a GUI for the grid detector.
     """
-    return GridDetectorGUI(receptor=system, field=system.toxelate(grid=grid))
+    if not field:
+        if minimize_aabb:
+            system = system.new(trajectory=system.trajectory.minimize_aabb())
+        field = system.toxelate(grid=grid)
+    if gui:
+        detector = GridDetectorGUI(receptor=system, field=field)
+        detector.display()
+        return detector
+    return GridDetector(receptor=system, field=field)
