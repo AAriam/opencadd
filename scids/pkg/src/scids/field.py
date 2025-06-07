@@ -286,3 +286,101 @@ def from_tensor(
         destination = tuple(range(len(axis_order)))
         tensor = jnp.moveaxis(tensor, source=tuple(axis_order), destination=destination)
     return Field(tensor=tensor, grid=grid, batch=batch)
+
+
+
+import jax
+import jax.numpy as jnp
+from jax import jit, lax, vmap
+from typing import Callable, Sequence, Union
+
+# High-performance JAX implementation of `nearest_target_distances`.
+# Assumes `predicate` is a pure JAX function returning a boolean array.
+
+def nearest_target_distances_jax(
+    tensor: jnp.ndarray,
+    predicate: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
+    direction_vectors: jnp.ndarray,
+    vector_multipliers: Union[Sequence[int], int, None] = None,
+) -> jnp.ndarray:
+    # Number of directions
+    D = direction_vectors.shape[0]
+    ndim = tensor.ndim
+
+    # Prepare vector_multipliers as a JAX array of length D
+    if vector_multipliers is None:
+        # Default to largest tensor dimension if not provided
+        max_dim = int(jnp.max(jnp.array(tensor.shape)))
+        vm = jnp.full((D,), max_dim, dtype=jnp.int32)
+    elif isinstance(vector_multipliers, int):
+        vm = jnp.full((D,), vector_multipliers, dtype=jnp.int32)
+    else:
+        vm = jnp.array(vector_multipliers, dtype=jnp.int32)
+
+    @jit(static_argnums=(2,))  # direction_vectors is static for XLA
+    def _compute(
+        t: jnp.ndarray,
+        vm_arr: jnp.ndarray,
+        dvs: jnp.ndarray,
+    ) -> jnp.ndarray:
+        # Compute maximum possible multipliers per direction based on tensor bounds
+        shape = jnp.array(t.shape)
+        # how many steps before hitting boundary along each axis
+        max_axis = (shape - 1) / jnp.abs(dvs)
+        max_axis = jnp.where(jnp.isfinite(max_axis), max_axis, jnp.inf)
+        max_dir = max_axis.min(axis=1)
+        # Cap by user-specified multipliers, cast to integer and add 1 for inclusive scan
+        max_mult = (jnp.minimum(max_dir, vm_arr).astype(jnp.int32) + 1)
+
+        def scan_one(dvec: jnp.ndarray, max_m: jnp.ndarray) -> jnp.ndarray:
+            # Initialize per-element "still searching" mask and result distances
+            mask = jnp.ones(t.shape, dtype=jnp.bool_)
+            res = jnp.zeros(t.shape, dtype=jnp.uint32)
+
+            def body(carry, m):
+                mask, res = carry
+                # Compute shift for this step: list of ints length=ndim
+                shift = tuple((dvec * m).tolist())
+                # Roll tensor by shift (wrap-around) then mask invalid entries
+                rolled = jnp.roll(t, shift, axis=tuple(range(ndim)))
+
+                # Build a "valid" mask to exclude wrap-around artifacts
+                valid = jnp.ones(t.shape, dtype=jnp.bool_)
+                for ax, s in enumerate(shift):
+                    if s > 0:
+                        # positions shifted out at end of axis are invalid
+                        slc_good = [slice(None)] * ndim
+                        slc_good[ax] = slice(None, -s)
+                        slc_bad = [slice(None)] * ndim
+                        slc_bad[ax] = slice(-s, None)
+                        valid = valid.at[tuple(slc_good)].set(True)
+                        valid = valid.at[tuple(slc_bad)].set(False)
+                    elif s < 0:
+                        # positions shifted out at start of axis are invalid
+                        slc_good = [slice(None)] * ndim
+                        slc_good[ax] = slice(-s, None)
+                        slc_bad = [slice(None)] * ndim
+                        slc_bad[ax] = slice(None, -(-s))
+                        valid = valid.at[tuple(slc_good)].set(True)
+                        valid = valid.at[tuple(slc_bad)].set(False)
+                    # s == 0: no change needed
+
+                # Apply predicate, only where still searching and valid
+                hit = predicate(t, rolled) & valid & mask
+                # Where hit, set distance = m
+                res = jnp.where(hit, m.astype(jnp.uint32), res)
+                # Update mask: stop searching where we've hit
+                mask = mask & (~hit)
+                return (mask, res), None
+
+            # Scan m = 1 .. max_m-1; stops at boundary of range
+            _, final_res = lax.scan(body, (mask, res), jnp.arange(1, max_m))
+            return final_res
+
+        # Vectorize over directions: outputs shape (D, *tensor.shape)
+        all_res = vmap(scan_one, in_axes=(0, 0))(dvs, max_mult)
+        # Move directions axis to last: (*tensor.shape, D)
+        return jnp.moveaxis(all_res, 0, -1)
+
+    # Invoke compiled function
+    return _compute(tensor, vm, direction_vectors)
