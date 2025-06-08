@@ -30,13 +30,15 @@ class GridDetector:
     def __init__(self, receptor: ChemicalSystem, field: Field):
         self._receptor = receptor
         self._field = field
-        self._grid_axis_indices = tuple(range(self.field.batch_ndim, self.field.tensor.ndim))
 
-        self._mask_morphology = np.logical_not(self.field.tensor)
+        self._grid_axis_indices = tuple(range(self.field.batch_ndim, self.field.tensor.ndim))
+        self._original_volume_receptor = self.field.tensor.astype(bool)
+        self._original_volume_solvent = jnp.logical_not(self._original_volume_receptor)
+        self._ligsite = LigSite(field=self.field, directions=(1, 2, 3))
+        self._receptor_volume = self._original_volume_receptor
+        self._mask_morphology = self._original_volume_solvent
         self._mask_ligsite: np.ndarray | None = None
         self._mask_custom: np.ndarray | None = None
-
-        self._ligsite: LigSite | None = None
         self._gui = None
         return
 
@@ -89,6 +91,7 @@ class GridDetector:
             )
         else:
             volume_closed_and_filled = volume_closed
+        self._receptor_volume = volume_closed_and_filled.astype(bool)
         self._mask_morphology = jnp.logical_not(volume_closed_and_filled)
         return self._mask_morphology
 
@@ -100,23 +103,7 @@ class GridDetector:
         dist_upper: float | bool | None = None,
         dist_lower_mode: Literal["any", "all", "max", "min", "mean"] = "all",
         dist_upper_mode: Literal["any", "all", "max", "min", "mean"] = "any",
-        directions: Literal[1, 2, 3] | Sequence[Literal[1, 2, 3]] | np.ndarray | None = None,
     ):
-        if self._ligsite is None and directions is None:
-            raise exception.InputError(
-                name="directions",
-                message="Directions must be specified when setting the mask for the first time.",
-            )
-        if self._ligsite is None or (
-            directions is not None and not np.array_equiv(
-                self._ligsite.direction,
-                LigSite.calculate_direction_vectors(field=self.field, directions=directions),
-            )
-        ):
-            self._ligsite = LigSite(
-                field=self.field,
-                directions=directions,
-            )
         self._mask_ligsite = self._ligsite.psp_mask(
             count_lower=count_lower,
             count_upper=count_upper,
@@ -169,6 +156,24 @@ class GridDetector:
         return self._mask_custom
 
     @property
+    def receptor_volume(self) -> jax.Array:
+        """The receptor volume tensor after morphological transformation.
+
+        This is the inverse of `mask_morphology`.
+        """
+        return self._receptor_volume
+
+    @property
+    def receptor_volume_added(self) -> jax.Array:
+        """The volume added to the receptor after morphological transformation."""
+        return jnp.logical_and(self.receptor_volume, self._original_volume_solvent)
+
+    @property
+    def receptor_volume_removed(self) -> jax.Array:
+        """The volume removed from the receptor after morphological transformation."""
+        return jnp.logical_and(self.mask_morphology, self._original_volume_receptor)
+
+    @property
     def ligsite(self) -> LigSite | None:
         return self._ligsite
 
@@ -184,6 +189,7 @@ class GridDetector:
 class _WPrefix(Enum):
     MORPH = "morph_"
     LIGSITE = "ligsite_"
+
 
 class _WName(Enum):
     """Widget names for the GUI."""
@@ -212,6 +218,22 @@ class _WName(Enum):
     # LIGSITE
     LIGSITE_REFRESH = f"_{_WPrefix.LIGSITE.value}refresh"
     LIGSITE_RESET = f"_{_WPrefix.LIGSITE.value}reset"
+
+    # LIGSITE Directions
+    LIGSITE_DIR = f"{_WPrefix.LIGSITE.value}dir"
+    LIGSITE_DIR_CUSTOM = f"{_WPrefix.LIGSITE.value}dir_custom"
+
+    # LIGSITE PSP Count
+    LIGSITE_COUNT = f"{_WPrefix.LIGSITE.value}count"
+    LIGSITE_COUNT_RANGE = f"{_WPrefix.LIGSITE.value}count_range"
+    LIGSITE_COUNT_MIN = f"{_WPrefix.LIGSITE.value}count_min"
+    LIGSITE_COUNT_MAX = f"{_WPrefix.LIGSITE.value}count_max"
+
+    # LIGSITE PSP Distance
+    LIGSITE_DIST = f"{_WPrefix.LIGSITE.value}dist"
+    LIGSITE_DIST_RANGE = f"{_WPrefix.LIGSITE.value}dist_range"
+    LIGSITE_DIST_MIN = f"{_WPrefix.LIGSITE.value}dist_min"
+    LIGSITE_DIST_MAX = f"{_WPrefix.LIGSITE.value}dist_max"
 
 
 class GridDetectorGUI(scishow.widgets.GUI):
@@ -256,6 +278,10 @@ class GridDetectorGUI(scishow.widgets.GUI):
         def make_ngl() -> NGLWidget:
             nglwidget = scishow.nglview.NGLWidget().display(gui=True)
             nglwidget.add_trajectory(receptor, name="Receptor")
+            nglwidget.add_spheres(
+                coords=self.field.grid.coordinates[self.field.tensor.astype(bool)],
+                name="Receptor Volume (Original)",
+            )
             # nglwidget.component_0.add_surface(
             #     color="rgb(100,20,20)",
             #     opacity=0.5,
@@ -267,7 +293,6 @@ class GridDetectorGUI(scishow.widgets.GUI):
             return nglwidget
 
         def make_morphology_panel():
-
             def make_closing_panel():
                 def on_close_button_value_change(change: dict):
                     disabled = not change["new"]
@@ -486,73 +511,39 @@ class GridDetectorGUI(scishow.widgets.GUI):
             )
 
         def make_ligsite_panel():
-            def make_psp_panels():
-                return widgets.HBox(
-                    [make_psp_panel(panel_type) for panel_type in ("count", "dist")],
-                    layout=widgets.Layout(
-                        width="100%",
-                        justify_content="space-between",
-                        flex_flow="row wrap",
-                        margin="10px 0 10px 0"
+            def count_panel():
+                def on_toggle(change: dict):
+                    slider.disabled = not change["new"]
+                    return
+                toggle = self._gui__add_widget(
+                    name=_WName.LIGSITE_COUNT,
+                    widget=scishow.widgets.toggle_button(
+                        "PSP Count",
+                        value=False,
+                        disabled=False,
+                        tooltip="Apply PSP count mask to the protein volume.",
                     )
                 )
-
-            def make_psp_panel(panel_type: Literal["count", "dist"]):
-                title = widgets.HBox(
-                    [widgets.HTML(f"<b>PSP {"Count" if panel_type == 'count' else 'Distance'}</b>")],
-                    layout=widgets.Layout(justify_content="center", width="100%")
-                )
-                slider_class = widgets.IntRangeSlider if panel_type == "count" else widgets.FloatRangeSlider
+                count_min = jnp.min(self.ligsite.psp_count).item()
+                count_max = jnp.max(self.ligsite.psp_count).item()
                 slider = self._gui__add_widget(
-                    name=f"{name_prefix}psp_{panel_type}_slider",
-                    widget=slider_class(
-                        value=(0, 13) if panel_type == "count" else (0.0, 100.0),
-                        min=0 if panel_type == "count" else 0.0,
-                        max=13 if panel_type == "count" else 100.0,
-                        step=1 if panel_type == "count" else 0.01,
+                    name=_WName.LIGSITE_COUNT_RANGE.value,
+                    widget=widgets.IntRangeSlider(
+                        value=(count_min, count_max),
+                        min=count_min,
+                        max=count_max,
+                        step=1,
                         disabled=True,
                         continuous_update=False,
                         orientation="horizontal",
                         readout=True,
-                        readout_format="d" if panel_type == "count" else ".2f",
+                        readout_format="d",
                         layout=widgets.Layout(width="100%"),
                     )
                 )
-                dropdown_options = {"Enabled": True, "Disabled": False} if panel_type == "count" else {
-                    "Any": "any",
-                    "All": "all",
-                    "Max": "max",
-                    "Min": "min",
-                    "Mean": "mean",
-                    "Disabled": False
-                }
-                minmax_dropdowns = []
-                for side in ("min", "max"):
-                    dropdown = self._gui__add_widget(
-                        name=f"{name_prefix}psp_{panel_type}_{side}",
-                        widget=widgets.Dropdown(
-                            options=dropdown_options,
-                            value=True if panel_type == "count" else ("all" if side == "min" else "any"),
-                            layout=widgets.Layout(width="100%"),
-                            disabled=True,
-                        )
-                    )
-                    minmax_dropdowns.append(
-                        scishow.widgets.labeled_widget(
-                            value=f"{side.capitalize()}:",
-                            widget=dropdown
-                        )
-                    )
-                minmax_dropdowns.insert(
-                    1,
-                    widgets.Box(layout=widgets.Layout(flex="1 1 50px"))
-                )
-                minmax_settings = widgets.HBox(
-                    minmax_dropdowns,
-                    layout=widgets.Layout(width="100%", align_items="center")
-                )
+                toggle.observe(on_toggle, names="value")
                 return widgets.VBox(
-                    [title, slider, minmax_settings],
+                    [toggle, slider],
                     layout=widgets.Layout(
                         flex="1 1 0%",
                         padding="12px",
@@ -563,21 +554,96 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     )
                 )
 
-            name_prefix = "ligsite_"
-
-            directions = scishow.widgets.labeled_widget(
-                    value="Directions:",
-                    widget=self._gui__add_widget(
-                        name=f"{name_prefix}psp_dirs",
+            def dist_panel():
+                def on_toggle(change: dict):
+                    disabled = not change["new"]
+                    for widget in (slider, *minmax_dropdowns):
+                        widget.disabled = disabled
+                    return
+                toggle = self._gui__add_widget(
+                    name=_WName.LIGSITE_DIST,
+                    widget=scishow.widgets.toggle_button(
+                        "PSP Distance",
+                        value=False,
+                        disabled=False,
+                        tooltip="Apply PSP distance mask to the protein volume.",
+                    )
+                )
+                dist_min = jnp.nanmin(self.ligsite.psp_distance).item()
+                dist_max = jnp.nanmax(self.ligsite.psp_distance).item()
+                slider = self._gui__add_widget(
+                    name=_WName.LIGSITE_DIST_RANGE.value,
+                    widget=widgets.FloatRangeSlider(
+                        value=(dist_min, dist_max),
+                        min=dist_min,
+                        max=dist_max,
+                        step=0.01,
+                        disabled=True,
+                        continuous_update=False,
+                        orientation="horizontal",
+                        readout=True,
+                        readout_format=".2f",
+                        layout=widgets.Layout(width="100%"),
+                    )
+                )
+                minmax_dropdowns = []
+                minmax_dropdowns_labeled = []
+                for side in ("min", "max"):
+                    dropdown = self._gui__add_widget(
+                        name=_WName[f"LIGSITE_DIST_{side.upper()}"].value,
                         widget=widgets.Dropdown(
-                            options={"None": None, "1D": 1, "2D": 2, "3D": 3},
-                            layout=widgets.Layout(width="flex-grow", min_width="20px"),
+                            options={
+                                "Any": "any",
+                                "All": "all",
+                                "Max": "max",
+                                "Min": "min",
+                                "Mean": "mean",
+                                "Disabled": False
+                            },
+                            value="all" if side == "min" else "any",
+                            layout=widgets.Layout(width="100%"),
+                            disabled=True,
                         )
+                    )
+                    minmax_dropdowns.append(dropdown)
+                    minmax_dropdowns_labeled.append(
+                        scishow.widgets.labeled_widget(
+                            value=f"{side.capitalize()}:",
+                            widget=dropdown
+                        )
+                    )
+                minmax_dropdowns_labeled.insert(
+                    1,
+                    widgets.Box(layout=widgets.Layout(flex="1 1 50px"))
+                )
+                minmax_settings = widgets.HBox(
+                    minmax_dropdowns_labeled,
+                    layout=widgets.Layout(width="100%", align_items="center")
+                )
+                toggle.observe(on_toggle, names="value")
+                return widgets.VBox(
+                    [toggle, slider, minmax_settings],
+                    layout=widgets.Layout(
+                        flex="1 1 0%",
+                        padding="12px",
+                        border="0.5px solid lightgray",
+                        border_radius="10px",
+                        min_width="0",
+                        overflow="hidden",
                     )
                 )
 
+            panels = widgets.HBox(
+                    [count_panel(), dist_panel()],
+                    layout=widgets.Layout(
+                        width="100%",
+                        justify_content="space-between",
+                        flex_flow="row wrap",
+                        margin="10px 0 10px 0"
+                    )
+                )
             return widgets.VBox(
-                [make_top_panel(_WPrefix.LIGSITE), make_psp_panels()],
+                [make_top_panel(_WPrefix.LIGSITE), panels],
                 layout=widgets.Layout(width="100%", overflow="hidden"),
             )
 
@@ -676,7 +742,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 closing_border_value=closing_border_value,
                 fill_structure=fill_structure,
             )
-        self._gui__render()
+        self._gui__render(receptor_volume=True)
         return
 
     def set_mask_ligsite(
@@ -688,17 +754,24 @@ class GridDetectorGUI(scishow.widgets.GUI):
         dist_lower_mode: Literal["any", "all", "max", "min", "mean"] = "all",
         dist_upper_mode: Literal["any", "all", "max", "min", "mean"] = "any",
         directions: Literal[1, 2, 3] | Sequence[Literal[1, 2, 3]] | np.ndarray | None = None,
-    ):
-        mask = self._detector.set_mask_ligsite(
-            count_lower=count_lower,
-            count_upper=count_upper,
-            dist_lower=dist_lower,
-            dist_upper=dist_upper,
-            dist_lower_mode=dist_lower_mode,
-            dist_upper_mode=dist_upper_mode,
-            directions=directions,
-        )
-        return mask
+    ) -> None:
+        with self._gui__logger:
+            print("Setting LIGSITE mask.")
+        with self._show_status(), self._gui__temporary_observation_toggle():
+            if directions is not None:
+                if isinstance(directions, np.ndarray):
+                    pass
+
+            self._detector.set_mask_ligsite(
+                count_lower=count_lower,
+                count_upper=count_upper,
+                dist_lower=dist_lower,
+                dist_upper=dist_upper,
+                dist_lower_mode=dist_lower_mode,
+                dist_upper_mode=dist_upper_mode,
+                directions=directions,
+            )
+        return
 
     def set_mask_custom(self, mask: np.ndarray):
         mask = self._detector.set_mask_custom(mask=mask)
@@ -752,8 +825,8 @@ class GridDetectorGUI(scishow.widgets.GUI):
         if not enabled:
             return
         with self._show_status():
-            self._morph_set_mask()
-        return {}
+            self._morph__set_mask()
+        return
 
     def _oc___morph_reset(self, _: widgets.Button):
         with self._gui__logger:
@@ -767,32 +840,32 @@ class GridDetectorGUI(scishow.widgets.GUI):
             self._gui__get_widget(_WName.MORPH_CLOSE_BORDER.value).value = 1
             self._gui__get_widget(_WName.MORPH_CLOSE_MASK.value).layout.display = "none"
             self._custom_input[_WName.MORPH_CLOSE_MASK] = None
-            self._morph_set_mask()
-        return {}
+            self._morph__set_mask()
+        return
 
     def _ovc__morph_close(self, change: dict):
         enabled = change["new"]
         with self._gui__logger:
             print(f"Morphological closing {'enabled' if enabled else 'disabled'}.")
         with self._show_status():
-            self._morph_set_mask()
-        return {}
+            self._morph__set_mask()
+        return
 
     def _ovc__morph_close_border(self, change: dict):
         value = change["new"]
         with self._gui__logger:
             print(f"Morphological closing border value set to {value}.")
         with self._show_status():
-            self._morph_set_mask()
-        return {}
+            self._morph__set_mask()
+        return
 
     def _ovc__morph_close_iter(self, change: dict):
         value = change["new"]
         with self._gui__logger:
             print(f"Morphological closing iterations set to {value}.")
         with self._show_status():
-            self._morph_set_mask()
-        return {}
+            self._morph__set_mask()
+        return
 
     def _oc__morph_close_mask(self, _: widgets.Button):
         """Set a custom mask for morphological closing."""
@@ -801,8 +874,8 @@ class GridDetectorGUI(scishow.widgets.GUI):
         self._custom_input[_WName.MORPH_CLOSE_MASK] = None
         self._gui__get_widget(_WName.MORPH_CLOSE_MASK.value).layout.display = "none"
         with self._show_status():
-            self._morph_set_mask()
-        return {}
+            self._morph__set_mask()
+        return
 
     def _ovc__morph_close_struct_connect(self, change: dict):
         value = change["new"]
@@ -813,8 +886,8 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 _WName.MORPH_CLOSE.name,
                 structure=(value, self._gui__get_widget(_WName.MORPH_CLOSE_STRUCT_ITER.value).value)
             )
-            self._morph_set_mask()
-        return {}
+            self._morph__set_mask()
+        return
 
     def _ovc__morph_close_struct_iter(self, change: dict):
         value = change["new"]
@@ -828,8 +901,8 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     value
                 )
             )
-            self._morph_set_mask()
-        return {}
+            self._morph__set_mask()
+        return
 
     def _oc__morph_close_struct_custom(self, _: widgets.Button):
         """Set a custom structuring element for morphological closing."""
@@ -838,66 +911,97 @@ class GridDetectorGUI(scishow.widgets.GUI):
         self._custom_input[_WName.MORPH_CLOSE_STRUCT_CUSTOM] = None
         self._gui__get_widget(_WName.MORPH_CLOSE_STRUCT_CUSTOM.value).layout.display = "none"
         with self._show_status():
-            self._morph_set_mask()
-        return {}
+            self._morph__set_mask()
+        return
 
-    def _oc__ligsite_auto_refresh(self, change: dict):
+    def _ovc__morph_fill(self, change: dict):
+        enabled = change["new"]
+        with self._gui__logger:
+            print(f"Morphological filling {'enabled' if enabled else 'disabled'}.")
+        with self._show_status():
+            self._morph__set_mask()
+        return
+
+    def _ovc__morph_fill_struct_connect(self, change: dict):
+        value = change["new"]
+        with self._gui__logger:
+            print(f"Morphological filling structure connectivity set to {value}.")
+        with self._show_status():
+            self._set_structuring_element(
+                _WName.MORPH_FILL.name,
+                structure=(value, self._gui__get_widget(_WName.MORPH_FILL_STRUCT_ITER.value).value)
+            )
+            self._morph__set_mask()
+        return
+
+    def _ovc__morph_fill_struct_iter(self, change: dict):
+        value = change["new"]
+        with self._gui__logger:
+            print(f"Morphological filling structure iterations set to {value}.")
+        with self._show_status():
+            self._set_structuring_element(
+                _WName.MORPH_FILL.name,
+                structure=(
+                    self._gui__get_widget(_WName.MORPH_FILL_STRUCT_CONNECT.value).value,
+                    value
+                )
+            )
+            self._morph__set_mask()
+        return
+
+    def _oc__morph_fill_struct_custom(self, _: widgets.Button):
+        """Set a custom structuring element for morphological filling."""
+        with self._gui__logger:
+            print("Deleting custom structuring element for morphological filling.")
+        self._custom_input[_WName.MORPH_FILL_STRUCT_CUSTOM] = None
+        self._gui__get_widget(_WName.MORPH_FILL_STRUCT_CUSTOM.value).layout.display = "none"
+        with self._show_status():
+            self._morph__set_mask()
+        return
+
+    def _ovc__ligsite_refresh(self, change: dict):
         enabled = change["new"]
         with self._gui__logger:
             print(f"LIGSITE auto-refresh {'enabled' if enabled else 'disabled'}.")
-        button = change["owner"]
-        button.button_style = "success" if enabled else "danger"
         self._gui__toggle_widget_observation(
             observe=enabled,
-            name_regex="^ligsite_.*",
+            name_regex=f"^{_WPrefix.LIGSITE.value}.+",
         )
-        return
-
-    def _oc__ligsite_refresh(self, _: widgets.Button):
-        with self._gui__logger:
-            print("Refreshing LIGSITE mask with current settings.")
+        if not enabled:
+            return
         with self._show_status():
-            directions = self._gui__get_widget("ligsite_psp_dirs")
-            if directions.value:
-                with self._gui__temporary_toggle():
-                    self._ligsite__recalculate_mask(pass_directions=True)
-            else:
-                self._gui__toggle_widget_availability(
-                    available=False,
-                    name_regex="^ligsite_psp_(?!dirs$).+",
-                )
-                self.unset_mask("ligsite")
-        return {}
+            self._ligsite__set_mask()
+        return
 
     def _oc__ligsite_reset(self, _: widgets.Button):
         with self._gui__logger:
-            print("Resetting LIGSITE mask to default state.")
+            print("LIGSITE mask reset to default state.")
         with self._show_status(), self._gui__temporary_toggle():
-            self._gui__get_widget("ligsite_psp_dirs").value = 3
-            self.set_mask_ligsite(directions=tuple(range(1, 4)))
-            count_slider = self._gui__get_widget("ligsite_psp_count_slider")
-            count_slider_min = self.ligsite.psp_count.min().item()
-            count_slider_max = self.ligsite.psp_count.max().item()
-            dist_slider = self._gui__get_widget("ligsite_psp_dist_slider")
-            dist_slider_min = jnp.nanmin(self.ligsite.psp_distance).item()
-            dist_slider_max = jnp.nanmax(self.ligsite.psp_distance).item()
+            self._gui__get_widget(_WName.LIGSITE_DIR_CUSTOM.value).layout.display = "none"
+            self._gui__get_widget(_WName.LIGSITE_DIR.value).value = 3
+            # Calculate an initial mask with possible new directions to get new PSP min/max values.
+            self._detector.set_mask_ligsite(directions=tuple(range(1, 4)))
+            count_min = self.ligsite.psp_count.min().item()
+            count_max = self.ligsite.psp_count.max().item()
+            dist_min = jnp.nanmin(self.ligsite.psp_distance).item()
+            dist_max = jnp.nanmax(self.ligsite.psp_distance).item()
             self._gui__reset_slider_minmax(
-                slider=count_slider,
-                minimum=count_slider_min,
-                maximum=count_slider_max,
+                slider=_WName.LIGSITE_COUNT_RANGE.value,
+                minimum=count_min,
+                maximum=count_max,
+                value=(max(count_min, 4), count_max),
             )
             self._gui__reset_slider_minmax(
-                slider=dist_slider,
-                minimum=dist_slider_min,
-                maximum=dist_slider_max,
+                slider=_WName.LIGSITE_DIST_RANGE.value,
+                minimum=dist_min,
+                maximum=dist_max,
+                value=(max(dist_min, 1.7), min(dist_max, 12.0)),
             )
-            count_slider.lower = max(count_slider.lower, 5)
-            dist_slider.upper = min(dist_slider.upper, 10.0)
-            self._gui__get_widget("ligsite_psp_count_min").value = True
-            self._gui__get_widget("ligsite_psp_count_max").value = False
-            self._gui__get_widget("ligsite_psp_dist_min").value = "all"
-            self._gui__get_widget("ligsite_psp_dist_max").value = "any"
-            self._ligsite__recalculate_mask(pass_directions=False)
+            self._gui__get_widget(_WName.LIGSITE_COUNT_MIN).value = True
+            self._gui__get_widget(_WName.LIGSITE_COUNT_MAX).value = False
+            self._gui__get_widget(_WName.LIGSITE_DIST_MIN).value = "all"
+            self._gui__get_widget(_WName.LIGSITE_DIST_MAX).value = "any"
+            self._ligsite__set_mask()
         self._gui__toggle_widget_availability(
             available=True,
             name_regex="^ligsite_psp_.+",
@@ -934,7 +1038,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     auto_refresh = self._gui__get_widget("ligsite_auto_refresh").value
                     if auto_refresh:
                         # Recalculate mask with the current min/max values when auto-refresh is enabled.
-                        self._ligsite__recalculate_mask(pass_directions=False)
+                        self._ligsite__set_mask(pass_directions=False)
             self._gui__toggle_widget_availability(
                 available=True,
                 name_regex="^ligsite_.+",
@@ -1013,10 +1117,10 @@ class GridDetectorGUI(scishow.widgets.GUI):
             )
         return {}
 
-    def _morph_set_mask(self):
+    def _morph__set_mask(self):
         """Set the morphology mask based on the current GUI settings."""
         with self._gui__logger:
-            print("Refreshing morphology mask with current settings.")
+            print("Recalculating morphology mask with current settings.")
         custom_closing_structure = self._custom_input[_WName.MORPH_CLOSE_STRUCT_CUSTOM]
         custom_fill_structure = self._custom_input[_WName.MORPH_FILL_STRUCT_CUSTOM]
         closing_structure = (
@@ -1036,24 +1140,28 @@ class GridDetectorGUI(scishow.widgets.GUI):
             closing_border_value=self._gui__get_widget(_WName.MORPH_CLOSE_BORDER.value).value,
             fill_structure=fill_structure,
         )
+        self._gui__render(receptor_volume=True)
         return
 
-    def _ligsite__recalculate_mask(self, pass_directions: bool):
-        psp_directions = self._gui__get_widget("ligsite_psp_dirs")
-        psp_count_slider = self._gui__get_widget("ligsite_psp_count_slider")
-        psp_dist_slider = self._gui__get_widget("ligsite_psp_dist_slider")
-        psp_count_min = self._gui__get_widget("ligsite_psp_count_min")
-        psp_count_max = self._gui__get_widget("ligsite_psp_count_max")
-        psp_dist_min = self._gui__get_widget("ligsite_psp_dist_min")
-        psp_dist_max = self._gui__get_widget("ligsite_psp_dist_max")
-        self.set_mask_ligsite(
-            count_lower=psp_count_slider.lower if psp_count_min.value else True,
-            count_upper=psp_count_slider.upper if psp_count_max.value else True,
-            dist_lower=psp_dist_slider.lower if psp_dist_min.value else True,
-            dist_upper=psp_dist_slider.upper if psp_dist_max.value else True,
-            dist_lower_mode=psp_dist_min.value,
-            dist_upper_mode=psp_dist_max.value,
-            directions=tuple(range(1, psp_directions.value + 1)) if pass_directions else None,
+    def _ligsite__set_mask(self, pass_directions: bool):
+        """Set the LIGSITE mask based on the current GUI settings."""
+        with self._gui__logger:
+            print("Recalculating LIGSITE mask with current settings.")
+        dirs = self._gui__get_widget(_WName.LIGSITE_DIR.value)
+        count_range = self._gui__get_widget(_WName.LIGSITE_PSP_COUNT_RANGE.value)
+        dist_range = self._gui__get_widget(_WName.LIGSITE_PSP_DIST_RANGE.value)
+        count_min = self._gui__get_widget(_WName.LIGSITE_PSP_COUNT_MIN.value)
+        count_max = self._gui__get_widget(_WName.LIGSITE_PSP_COUNT_MAX.value)
+        dist_min = self._gui__get_widget(_WName.LIGSITE_PSP_DIST_MIN.value)
+        dist_max = self._gui__get_widget(_WName.LIGSITE_PSP_DIST_MAX.value)
+        self._detector.set_mask_ligsite(
+            count_lower=count_range.lower if count_min.value else True,
+            count_upper=count_range.upper if count_max.value else True,
+            dist_lower=dist_range.lower if dist_min.value else True,
+            dist_upper=dist_range.upper if dist_max.value else True,
+            dist_lower_mode=dist_min.value,
+            dist_upper_mode=dist_max.value,
+            directions=tuple(range(1, dirs.value + 1)) if pass_directions else None,
         )
         return
 
@@ -1079,33 +1187,52 @@ class GridDetectorGUI(scishow.widgets.GUI):
             w_custom.layout.display = ""
         return
 
-    def _gui__render(self):
+    def _gui__render(self, receptor_volume: bool = False):
         """Update the NGLWidget with the current mask.
 
         This method is automatically called by the `GUI` parent class when needed.
         """
         with self._show_status("Rendering..."):
-            name = "Volume"
+            name = "Pocket Selection"
             ngl = self.nglwidget
             ngl.remove_component_by_name(name)
             ngl.add_spheres(
                 coords=self.field.grid.coordinates[self.mask],
                 name=name,
             )
+            if receptor_volume:
+                receptor_volume_added_name = "Receptor Volume (Added)"
+                ngl.remove_component_by_name(receptor_volume_added_name)
+                ngl.add_spheres(
+                    name=receptor_volume_added_name,
+                    coords=self.field.grid.coordinates[self._detector.receptor_volume_added],
+                    colors=(0, 100, 0)
+                )
+                receptor_volume_removed_name = "Receptor Volume (Removed)"
+                ngl.remove_component_by_name(receptor_volume_removed_name)
+                ngl.add_spheres(
+                    name=receptor_volume_removed_name,
+                    coords=self.field.grid.coordinates[self._detector.receptor_volume_removed],
+                    colors=(100, 0, 0)
+                )
         return
 
     @contextmanager
     def _show_status(self, status: str = "Calculating..."):
         """Show the status."""
+        current_status = self._status_widget.value
+        is_idle = current_status == "Idle"
         self._status_widget.value = status
-        self._status_widget.remove_class("statusbar-idle")
-        self._status_widget.add_class("statusbar-running")
+        if is_idle:
+            self._status_widget.remove_class("statusbar-idle")
+            self._status_widget.add_class("statusbar-running")
         try:
             yield
         finally:
-            self._status_widget.value = "Idle"
-            self._status_widget.remove_class("statusbar-running")
-            self._status_widget.add_class("statusbar-idle")
+            self._status_widget.value = current_status
+            if is_idle:
+                self._status_widget.remove_class("statusbar-running")
+                self._status_widget.add_class("statusbar-idle")
         return
 
 
