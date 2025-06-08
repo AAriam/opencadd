@@ -182,13 +182,32 @@ class GUI:
 
     def _gui__reset_slider_minmax(
         self,
-        slider: IntSlider | FloatSlider | IntRangeSlider | FloatRangeSlider,
+        slider: IntSlider | FloatSlider | IntRangeSlider | FloatRangeSlider | str,
         minimum: int | float,
         maximum: int | float,
-        value: int | float | tuple[int, int] | tuple[float, float] | bool = True,
+        value: int | float | tuple[int | None, int | None] | tuple[float | None, float | None] | None = None,
         disable_observe: bool = False,
     ):
-        """Reset the slider's min and max values."""
+        """Reset a numeric slider's minimum/maximum values.
+
+        Parameters
+        ----------
+        slider
+            Numeric slider widget to reset.
+            This can be an instance of `IntSlider`, `FloatSlider`, `IntRangeSlider`, or `FloatRangeSlider`,
+            or a string representing the slider widget's name.
+        minimum
+            Minimum value to set for the slider.
+        maximum
+            Maximum value to set for the slider.
+        value
+            Optional initial value to set for the slider.
+            If set to `None`, the slider value will not be changed.
+        disable_observe
+            Whether to temporarily disable observing the slider widget's events
+        """
+        if isinstance(slider, str):
+            slider = self._gui__get_widget(slider)
         if disable_observe:
             self._gui__toggle_widget_observation(False, widget=slider)
         if slider.min >= maximum:
@@ -197,10 +216,15 @@ class GUI:
         else:
             slider.max = maximum
             slider.min = minimum
-        if value is not False:
-            slider.value = ((minimum + maximum) // 2) if isinstance(
-                value, IntSlider | FloatSlider
-            ) else (minimum, maximum)
+        if value is not None:
+            if isinstance(slider, IntSlider | FloatSlider):
+                slider.value = value
+            else:
+                lower, upper = value
+                if lower is not None:
+                    slider.lower = lower
+                if upper is not None:
+                    slider.upper = upper
         if disable_observe:
             self._gui__toggle_widget_observation(True, widget=slider)
         return slider
