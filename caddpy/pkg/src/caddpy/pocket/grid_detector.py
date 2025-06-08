@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
+from enum import Enum
 
 from IPython import display
 import jax
@@ -179,6 +180,40 @@ class GridDetector:
     def receptor(self) -> ChemicalSystem:
         return self._receptor
 
+
+class _WPrefix(Enum):
+    MORPH = "morph_"
+    LIGSITE = "ligsite_"
+
+class _WName(Enum):
+    """Widget names for the GUI."""
+    # Morphological
+    MORPH_REFRESH = f"_{_WPrefix.MORPH.value}refresh"
+    MORPH_RESET = f"_{_WPrefix.MORPH.value}reset"
+
+    # Morphological Closing
+    MORPH_CLOSE = f"{_WPrefix.MORPH.value}close"
+    MORPH_CLOSE_BORDER = f"{_WPrefix.MORPH.value}close_border"
+    MORPH_CLOSE_ITER = f"{_WPrefix.MORPH.value}close_iter"
+    MORPH_CLOSE_MASK = f"{_WPrefix.MORPH.value}close_mask"
+    # Morphological Closing Structure
+    MORPH_CLOSE_STRUCT_CONNECT = f"{_WPrefix.MORPH.value}close_struct_connect"
+    MORPH_CLOSE_STRUCT_ITER = f"{_WPrefix.MORPH.value}close_struct_iter"
+    MORPH_CLOSE_STRUCT_CUSTOM = f"{_WPrefix.MORPH.value}close_struct_custom"
+
+    # Morphological Filling
+    MORPH_FILL = f"{_WPrefix.MORPH.value}fill"
+    # Morphological Filling Structure
+    MORPH_FILL_STRUCT_CONNECT = f"{_WPrefix.MORPH.value}fill_struct_connect"
+    MORPH_FILL_STRUCT_ITER = f"{_WPrefix.MORPH.value}fill_struct_iter"
+    MORPH_FILL_STRUCT_CUSTOM = f"{_WPrefix.MORPH.value}fill_struct_custom"
+
+
+    # LIGSITE
+    LIGSITE_REFRESH = f"_{_WPrefix.LIGSITE.value}refresh"
+    LIGSITE_RESET = f"_{_WPrefix.LIGSITE.value}reset"
+
+
 class GridDetectorGUI(scishow.widgets.GUI):
 
     _CSS_STYLE = """<style>
@@ -201,6 +236,10 @@ class GridDetectorGUI(scishow.widgets.GUI):
         .button-bold {
             color: #fff;
             font-weight: bold;
+        }
+        .resetbutton {
+            background-color: rgb(100 0 0) !important;
+            color: white !important;
         }
         .togglebutton-on {
             background-color: rgb(0 100 0) !important;
@@ -244,7 +283,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     return
 
                 close = self._gui__add_widget(
-                    name=f"{name_prefix}close",
+                    name=_WName.MORPH_CLOSE.value,
                     widget=scishow.widgets.toggle_button(
                         "Close",
                         value=False,
@@ -253,7 +292,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     )
                 )
                 structure_connectivity = self._gui__add_widget(
-                    name=f"{name_prefix}closing_structure_connectivity",
+                    name=_WName.MORPH_CLOSE_STRUCT_CONNECT.value,
                     widget=widgets.Dropdown(
                         options=[1, 2, 3],
                         value=2,
@@ -262,22 +301,22 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     )
                 )
                 structure_iterations = self._gui__add_widget(
-                        name=f"{name_prefix}closing_structure_iterations",
-                        widget=widgets.IntSlider(
-                            value=1,
-                            min=1,
-                            max=100,
-                            step=1,
-                            disabled=True,
-                            continuous_update=False,
-                            orientation="horizontal",
-                            readout=True,
-                            readout_format="d",
-                            layout=widgets.Layout(width="100%"),
-                        )
+                    name=_WName.MORPH_CLOSE_STRUCT_ITER.value,
+                    widget=widgets.IntSlider(
+                        value=1,
+                        min=1,
+                        max=100,
+                        step=1,
+                        disabled=True,
+                        continuous_update=False,
+                        orientation="horizontal",
+                        readout=True,
+                        readout_format="d",
+                        layout=widgets.Layout(width="100%"),
                     )
+                )
                 closing_iterations = self._gui__add_widget(
-                    name=f"{name_prefix}closing_iterations",
+                    name=_WName.MORPH_CLOSE_ITER.value,
                     widget=widgets.IntSlider(
                         value=1,
                         min=1,
@@ -292,7 +331,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     )
                 )
                 border_value = self._gui__add_widget(
-                    name=f"{name_prefix}closing_border_value",
+                    name=_WName.MORPH_CLOSE_BORDER.value,
                     widget=widgets.Dropdown(
                         options=[0, 1],
                         value=1,
@@ -301,7 +340,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     )
                 )
                 custom_structure = self._gui__add_widget(
-                    name=f"{name_prefix}closing_structure_custom",
+                    name=_WName.MORPH_CLOSE_STRUCT_CUSTOM.value,
                     widget=widgets.Button(
                         description="Custom Structure",
                         disabled=True,
@@ -309,8 +348,9 @@ class GridDetectorGUI(scishow.widgets.GUI):
                         layout=widgets.Layout(display="none")
                     )
                 )
+                custom_structure.add_class("resetbutton")
                 custom_mask = self._gui__add_widget(
-                    name=f"{name_prefix}closing_mask",
+                    name=_WName.MORPH_CLOSE_MASK.value,
                     widget=widgets.Button(
                         description="Custom Mask",
                         disabled=True,
@@ -318,6 +358,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                         layout=widgets.Layout(display="none")
                     )
                 )
+                custom_mask.add_class("resetbutton")
                 close.observe(on_close_button_value_change, names="value")
                 structure_connectivity_labeled = scishow.widgets.labeled_widget(
                     value="Structure Connectivity:",
@@ -368,7 +409,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     return
 
                 fill = self._gui__add_widget(
-                    name=f"{name_prefix}fill",
+                    name=_WName.MORPH_FILL.value,
                     widget=scishow.widgets.toggle_button(
                         "Fill Holes",
                         value=False,
@@ -377,7 +418,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     )
                 )
                 structure_connectivity = self._gui__add_widget(
-                    name=f"{name_prefix}fill_structure_connectivity",
+                    name=_WName.MORPH_FILL_STRUCT_CONNECT.value,
                     widget=widgets.Dropdown(
                         options=[1, 2, 3],
                         value=1,
@@ -386,22 +427,22 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     )
                 )
                 structure_iterations = self._gui__add_widget(
-                        name=f"{name_prefix}fill_structure_iterations",
-                        widget=widgets.IntSlider(
-                            value=1,
-                            min=1,
-                            max=100,
-                            step=1,
-                            disabled=True,
-                            continuous_update=False,
-                            orientation="horizontal",
-                            readout=True,
-                            readout_format="d",
-                            layout=widgets.Layout(width="100%"),
-                        )
+                    name=_WName.MORPH_FILL_STRUCT_ITER.value,
+                    widget=widgets.IntSlider(
+                        value=1,
+                        min=1,
+                        max=100,
+                        step=1,
+                        disabled=True,
+                        continuous_update=False,
+                        orientation="horizontal",
+                        readout=True,
+                        readout_format="d",
+                        layout=widgets.Layout(width="100%"),
                     )
+                )
                 custom_structure = self._gui__add_widget(
-                    name=f"{name_prefix}closing_structure_custom",
+                    name=_WName.MORPH_FILL_STRUCT_CUSTOM.value,
                     widget=widgets.Button(
                         description="Custom Structure",
                         disabled=True,
@@ -430,7 +471,6 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     )
                 )
 
-            name_prefix = "morphology_"
             panels = widgets.HBox(
                     [make_closing_panel(), make_fill_panel()],
                     layout=widgets.Layout(
@@ -441,7 +481,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     )
                 )
             return widgets.VBox(
-                [make_top_panel(name_prefix), panels],
+                [make_top_panel(_WPrefix.MORPH), panels],
                 layout=widgets.Layout(width="100%", overflow="hidden"),
             )
 
@@ -537,7 +577,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 )
 
             return widgets.VBox(
-                [make_top_panel(name_prefix), make_psp_panels()],
+                [make_top_panel(_WPrefix.LIGSITE), make_psp_panels()],
                 layout=widgets.Layout(width="100%", overflow="hidden"),
             )
 
@@ -549,10 +589,10 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 selected_index=None,
             )
 
-        def make_top_panel(name_prefix: str):
+        def make_top_panel(prefix: str):
             button_layout = widgets.Layout(min_width="70px", max_width="70px", flex="0 0 auto")
             refresh = self._gui__add_widget(
-                name=f"{name_prefix}refresh",
+                name=_WName[f"{prefix.name}_REFRESH"].value,
                 widget=scishow.widgets.toggle_button(
                     "Refresh",
                     value=True,
@@ -563,16 +603,16 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 )
             )
             reset = self._gui__add_widget(
-                name=f"{name_prefix}reset",
+                name=_WName[f"{prefix.name}_RESET"].value,
                 widget=widgets.Button(
                     description="Reset",
                     tooltip="Reset the morphology mask to the default state.",
-                    button_style="danger",
                     disabled=False,
                     layout=button_layout,
                 )
             )
             reset.add_class("button-bold")
+            reset.add_class("resetbutton")
             buttons_box = widgets.HBox(
                 [refresh, reset],
                 layout=widgets.Layout(justify_content="flex-end", flex="0 0 auto")
@@ -595,9 +635,12 @@ class GridDetectorGUI(scishow.widgets.GUI):
         )
         css_style = display.HTML(self._CSS_STYLE)
         self._gui__set_main_widget((css_style, control_tabs, make_ngl(), make_logger_panel()))
-        self._morphology_closing_structure_custom = None
-        self._morphology_closing_mask = None
-        self._morphology_fill_structure_custom = None
+
+        self._custom_input = {
+            _WName.MORPH_CLOSE_STRUCT_CUSTOM: None,
+            _WName.MORPH_FILL_STRUCT_CUSTOM: None,
+            _WName.MORPH_CLOSE_MASK: None,
+        }
         return
 
     def set_mask_morphology(
@@ -610,46 +653,20 @@ class GridDetectorGUI(scishow.widgets.GUI):
         closing_border_value: Literal[0, 1] = 1,
         fill_structure: np.ndarray | tuple[int, int] = (1, 1),
     ) -> None:
-
         with self._gui__logger:
             print("Setting morphology mask.")
-        w_close_struct_connect = self._gui__get_widget("morphology_closing_structure_connectivity")
-        w_close_struct_iter = self._gui__get_widget("morphology_closing_structure_iterations")
-        w_close_iter = self._gui__get_widget("morphology_closing_iterations")
-        w_close_struct_custom = self._gui__get_widget("morphology_closing_structure_custom")
-        w_close_mask = self._gui__get_widget("morphology_closing_mask")
-        w_fill_struct_connect = self._gui__get_widget("morphology_fill_structure_connectivity")
-        w_fill_struct_iter = self._gui__get_widget("morphology_fill_structure_iterations")
-        w_fill_struct_custom = self._gui__get_widget("morphology_fill_structure_custom")
         with self._show_status(), self._gui__temporary_observation_toggle():
-            self._gui__get_widget("morphology_close").value = close
-            self._gui__get_widget("morphology_fill").value = fill
+            self._gui__get_widget(_WName.MORPH_CLOSE.value).value = close
+            self._gui__get_widget(_WName.MORPH_FILL.value).value = fill
             if close:
-                w_close_iter.value = closing_iterations
-                if isinstance(closing_structure, tuple):
-                    self._morphology_closing_structure_custom = None
-                    w_close_struct_connect.value = closing_structure[0]
-                    w_close_struct_iter.value = closing_structure[1]
-                    w_close_struct_custom.layout.display = "none"
-                else:
-                    self._morphology_closing_structure_custom = closing_structure
-                    w_close_struct_connect.disabled = True
-                    w_close_struct_iter.disabled = True
-                    w_close_struct_custom.layout.display = ""
-            # Set closing mask
-            self._morphology_closing_mask = closing_mask
-            w_close_mask.layout.display = "none" if closing_mask is None else ""
+                self._set_structuring_element(_WName.MORPH_CLOSE.name, closing_structure)
+                self._gui__get_widget(_WName.MORPH_CLOSE_ITER.value).value = closing_iterations
+                self._gui__get_widget(_WName.MORPH_CLOSE_BORDER.value).value = closing_border_value
+                # Set closing mask
+                self._custom_input[_WName.MORPH_CLOSE_MASK] = closing_mask
+                self._gui__get_widget(_WName.MORPH_CLOSE_MASK.value).layout.display = "none" if closing_mask is None else ""
             if fill:
-                if isinstance(fill_structure, tuple):
-                    self._morphology_fill_structure_custom = None
-                    w_fill_struct_connect.value = fill_structure[0]
-                    w_fill_struct_iter.value = fill_structure[1]
-                    w_fill_struct_custom.layout.display = "none"
-                else:
-                    self._morphology_fill_structure_custom = fill_structure
-                    w_fill_struct_connect.disabled = True
-                    w_fill_struct_iter.disabled = True
-                    w_fill_struct_custom.layout.display = ""
+                self._set_structuring_element(_WName.MORPH_FILL.name, fill_structure)
             self._detector.set_mask_morphology(
                 close=close,
                 fill=fill,
@@ -724,62 +741,104 @@ class GridDetectorGUI(scishow.widgets.GUI):
         """The NGLWidget containing the protein structure and the pocket volume."""
         return self._nglwidget
 
-    def _ovc__morphology_refresh(self, change: dict):
+    def _ovc___morph_refresh(self, change: dict):
         enabled = change["new"]
         with self._gui__logger:
             print(f"Morphology auto-refresh {'enabled' if enabled else 'disabled'}.")
-        button = change["owner"]
-        button.button_style = "success" if enabled else "danger"
         self._gui__toggle_widget_observation(
             observe=enabled,
-            name_regex="^morphology_.+",
+            name_regex=f"^{_WPrefix.MORPH.value}.+",
         )
-
-        with self._gui__logger:
-            print("Refreshing morphology mask with current settings.")
+        if not enabled:
+            return
         with self._show_status():
-            close = self._gui__get_widget("morphology_close").value
-            fill = self._gui__get_widget("morphology_fill").value
-            closing_structure = (
-                self._gui__get_widget("morphology_closing_structure_connectivity").value,
-                self._gui__get_widget("morphology_closing_structure_iterations").value,
-            )
-            closing_iterations = self._gui__get_widget("morphology_closing_iterations").value
-            fill_structure = (
-                self._gui__get_widget("morphology_fill_structure_connectivity").value,
-                self._gui__get_widget("morphology_fill_structure_iterations").value,
-            )
-            with self._gui__temporary_toggle():
-                self.set_mask_morphology(
-                    close=close,
-                    fill=fill,
-                    closing_structure=closing_structure,
-                    closing_iterations=closing_iterations,
-                    fill_structure=fill_structure,
-                )
+            self._morph_set_mask()
         return {}
 
-    def _oc__morphology_reset(self, _: widgets.Button):
+    def _oc___morph_reset(self, _: widgets.Button):
         with self._gui__logger:
             print("Morphology mask reset to default state.")
         with self._show_status(), self._gui__temporary_toggle():
-            self._gui__get_widget("morphology_close").value = True
-            self._gui__get_widget("morphology_fill").value = True
-            self._gui__get_widget("morphology_closing_structure_connectivity").value = 2
-            self._gui__get_widget("morphology_closing_structure_iterations").value = 1
-            self._gui__get_widget("morphology_closing_iterations").value = 1
-            self._gui__get_widget("morphology_fill_structure_connectivity").value = 1
-            self._gui__get_widget("morphology_fill_structure_iterations").value = 1
-            self.set_mask_morphology(
-                close=True,
-                fill=True,
-                closing_structure=(2, 1),
-                closing_iterations=1,
+            self._set_structuring_element(_WName.MORPH_CLOSE.name, (2, 1))
+            self._set_structuring_element(_WName.MORPH_FILL.name, (1, 1))
+            self._gui__get_widget(_WName.MORPH_CLOSE.value).value = True
+            self._gui__get_widget(_WName.MORPH_FILL.value).value = True
+            self._gui__get_widget(_WName.MORPH_CLOSE_ITER.value).value = 1
+            self._gui__get_widget(_WName.MORPH_CLOSE_BORDER.value).value = 1
+            self._gui__get_widget(_WName.MORPH_CLOSE_MASK.value).layout.display = "none"
+            self._custom_input[_WName.MORPH_CLOSE_MASK] = None
+            self._morph_set_mask()
+        return {}
+
+    def _ovc__morph_close(self, change: dict):
+        enabled = change["new"]
+        with self._gui__logger:
+            print(f"Morphological closing {'enabled' if enabled else 'disabled'}.")
+        with self._show_status():
+            self._morph_set_mask()
+        return {}
+
+    def _ovc__morph_close_border(self, change: dict):
+        value = change["new"]
+        with self._gui__logger:
+            print(f"Morphological closing border value set to {value}.")
+        with self._show_status():
+            self._morph_set_mask()
+        return {}
+
+    def _ovc__morph_close_iter(self, change: dict):
+        value = change["new"]
+        with self._gui__logger:
+            print(f"Morphological closing iterations set to {value}.")
+        with self._show_status():
+            self._morph_set_mask()
+        return {}
+
+    def _oc__morph_close_mask(self, _: widgets.Button):
+        """Set a custom mask for morphological closing."""
+        with self._gui__logger:
+            print("Deleting custom mask for morphological closing.")
+        self._custom_input[_WName.MORPH_CLOSE_MASK] = None
+        self._gui__get_widget(_WName.MORPH_CLOSE_MASK.value).layout.display = "none"
+        with self._show_status():
+            self._morph_set_mask()
+        return {}
+
+    def _ovc__morph_close_struct_connect(self, change: dict):
+        value = change["new"]
+        with self._gui__logger:
+            print(f"Morphological closing structure connectivity set to {value}.")
+        with self._show_status():
+            self._set_structuring_element(
+                _WName.MORPH_CLOSE.name,
+                structure=(value, self._gui__get_widget(_WName.MORPH_CLOSE_STRUCT_ITER.value).value)
             )
-        self._gui__toggle_widget_availability(
-            available=True,
-            name_regex="^morphology_.+",
-        )
+            self._morph_set_mask()
+        return {}
+
+    def _ovc__morph_close_struct_iter(self, change: dict):
+        value = change["new"]
+        with self._gui__logger:
+            print(f"Morphological closing structure iterations set to {value}.")
+        with self._show_status():
+            self._set_structuring_element(
+                _WName.MORPH_CLOSE.name,
+                structure=(
+                    self._gui__get_widget(_WName.MORPH_CLOSE_STRUCT_CONNECT.value).value,
+                    value
+                )
+            )
+            self._morph_set_mask()
+        return {}
+
+    def _oc__morph_close_struct_custom(self, _: widgets.Button):
+        """Set a custom structuring element for morphological closing."""
+        with self._gui__logger:
+            print("Deleting custom structuring element for morphological closing.")
+        self._custom_input[_WName.MORPH_CLOSE_STRUCT_CUSTOM] = None
+        self._gui__get_widget(_WName.MORPH_CLOSE_STRUCT_CUSTOM.value).layout.display = "none"
+        with self._show_status():
+            self._morph_set_mask()
         return {}
 
     def _oc__ligsite_auto_refresh(self, change: dict):
@@ -954,27 +1013,29 @@ class GridDetectorGUI(scishow.widgets.GUI):
             )
         return {}
 
-    def _morphology_set_mask(self):
+    def _morph_set_mask(self):
         """Set the morphology mask based on the current GUI settings."""
-        custom_closing_structure = self._morphology_closing_structure_custom
-        custom_fill_structure = self._morphology_fill_structure_custom
+        with self._gui__logger:
+            print("Refreshing morphology mask with current settings.")
+        custom_closing_structure = self._custom_input[_WName.MORPH_CLOSE_STRUCT_CUSTOM]
+        custom_fill_structure = self._custom_input[_WName.MORPH_FILL_STRUCT_CUSTOM]
         closing_structure = (
-            self._gui__get_widget("morphology_closing_structure_connectivity").value,
-            self._gui__get_widget("morphology_closing_structure_iterations").value,
+            self._gui__get_widget(_WName.MORPH_CLOSE_STRUCT_CONNECT.value).value,
+            self._gui__get_widget(_WName.MORPH_CLOSE_STRUCT_ITER.value).value,
         ) if custom_closing_structure is None else custom_closing_structure
         fill_structure = (
-            self._gui__get_widget("morphology_fill_structure_connectivity").value,
-            self._gui__get_widget("morphology_fill_structure_iterations").value,
+            self._gui__get_widget(_WName.MORPH_FILL_STRUCT_CONNECT.value).value,
+            self._gui__get_widget(_WName.MORPH_FILL_STRUCT_ITER.value).value,
         ) if custom_fill_structure is None else custom_fill_structure
         self._detector.set_mask_morphology(
-                close=self._gui__get_widget("morphology_close").value,
-                fill=self._gui__get_widget("morphology_fill").value,
-                closing_structure=closing_structure,
-                closing_iterations=self._gui__get_widget("morphology_closing_iterations").value,
-                closing_mask=self._morphology_closing_mask,
-                closing_border_value=self._gui__get_widget("morphology_closing_border_value").value,
-                fill_structure=fill_structure,
-            )
+            close=self._gui__get_widget(_WName.MORPH_CLOSE.value).value,
+            fill=self._gui__get_widget(_WName.MORPH_FILL.value).value,
+            closing_structure=closing_structure,
+            closing_iterations=self._gui__get_widget(_WName.MORPH_CLOSE_ITER.value).value,
+            closing_mask=self._custom_input[_WName.MORPH_CLOSE_MASK],
+            closing_border_value=self._gui__get_widget(_WName.MORPH_CLOSE_BORDER.value).value,
+            fill_structure=fill_structure,
+        )
         return
 
     def _ligsite__recalculate_mask(self, pass_directions: bool):
@@ -994,6 +1055,28 @@ class GridDetectorGUI(scishow.widgets.GUI):
             dist_upper_mode=psp_dist_max.value,
             directions=tuple(range(1, psp_directions.value + 1)) if pass_directions else None,
         )
+        return
+
+    def _set_structuring_element(
+        self,
+        enum_prefix: str,
+        structure: np.ndarray | tuple[int, int],
+    ) -> None:
+        enum_prefix = f"{enum_prefix.upper()}_STRUCT_"
+        custom_structure_enum = _WName[f"{enum_prefix}CUSTOM"]
+        w_connect = self._gui__get_widget(_WName[f"{enum_prefix}CONNECT"].value)
+        w_iter = self._gui__get_widget(_WName[f"{enum_prefix}ITER"].value)
+        w_custom = self._gui__get_widget(custom_structure_enum.value)
+        if isinstance(structure, tuple):
+            self._custom_input[custom_structure_enum] = None
+            w_connect.value = structure[0]
+            w_iter.value = structure[1]
+            w_custom.layout.display = "none"
+        else:
+            self._custom_input[custom_structure_enum] = structure
+            w_connect.disabled = True
+            w_iter.disabled = True
+            w_custom.layout.display = ""
         return
 
     def _gui__render(self):
