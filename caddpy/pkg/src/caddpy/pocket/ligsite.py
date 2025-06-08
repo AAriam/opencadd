@@ -109,6 +109,12 @@ class LigSite:
             "dist_lower": None,
             "dist_upper": None,
         }
+        self._last_mask_spec = {
+            "count_lower": None,
+            "count_upper": None,
+            "dist_lower": None,
+            "dist_upper": None,
+        }
         return
 
     def psp_mask(
@@ -220,18 +226,22 @@ class LigSite:
                 reduction_op = {"max": jnp.nanmax, "min": jnp.nanmin, "mean": jnp.nanmean}[mode]
                 return comparison_op(reduction_op(arr, axis=-1), threshold)
             raise ValueError(f"Unknown mode: {mode}")
-        if count_lower is not None:
+        if count_lower is not None and count_lower != self._last_mask_spec["count_lower"]:
             self._psp_mask["count_lower"] = None if count_lower is True else self.psp_count >= count_lower
-        if count_upper is not None:
+            self._last_mask_spec["count_lower"] = None if count_lower is True else count_lower
+        if count_upper is not None and count_upper != self._last_mask_spec["count_upper"]:
             self._psp_mask["count_upper"] = None if count_upper is True else self.psp_count <= count_upper
-        if dist_lower is not None:
+            self._last_mask_spec["count_upper"] = None if count_upper is True else count_upper
+        if dist_lower is not None and (dist_lower, dist_lower_mode) != self._last_mask_spec["dist_lower"]:
             self._psp_mask["dist_lower"] = None if dist_lower is True else make_mask(
                 self.psp_distance, threshold=dist_lower, side="lower", mode=dist_lower_mode
             )
-        if dist_upper is not None:
+            self._last_mask_spec["dist_lower"] = None if dist_lower is True else (dist_lower, dist_lower_mode)
+        if dist_upper is not None and (dist_upper, dist_upper_mode) != self._last_mask_spec["dist_upper"]:
             self._psp_mask["dist_upper"] = None if dist_upper is True else make_mask(
                 self.psp_distance, threshold=dist_upper, side="upper", mode=dist_upper_mode
             )
+            self._last_mask_spec["dist_upper"] = None if dist_upper is True else (dist_upper, dist_upper_mode)
         active_masks = [mask for mask in self._psp_mask.values() if mask is not None]
         return jnp.logical_and.reduce(jnp.array(active_masks)) if active_masks else None
 
