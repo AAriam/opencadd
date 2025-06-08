@@ -97,12 +97,12 @@ class GridDetector:
 
     def set_mask_ligsite(
         self,
-        count_lower: int | bool | None = None,
-        count_upper: int | bool | None = None,
-        dist_lower: float | bool | None = None,
-        dist_upper: float | bool | None = None,
-        dist_lower_mode: Literal["any", "all", "max", "min", "mean"] = "all",
-        dist_upper_mode: Literal["any", "all", "max", "min", "mean"] = "any",
+        count_lower: int | None = None,
+        count_upper: int | None = None,
+        dist_lower: float | None = None,
+        dist_upper: float | None = None,
+        dist_lower_mode: Literal["any", "all", "max", "min", "mean", "off"] = "all",
+        dist_upper_mode: Literal["any", "all", "max", "min", "mean", "off"] = "any",
     ):
         self._mask_ligsite = self._ligsite.psp_mask(
             count_lower=count_lower,
@@ -524,14 +524,12 @@ class GridDetectorGUI(scishow.widgets.GUI):
                         tooltip="Apply PSP count mask to the protein volume.",
                     )
                 )
-                count_min = jnp.min(self.ligsite.psp_count).item()
-                count_max = jnp.max(self.ligsite.psp_count).item()
                 slider = self._gui__add_widget(
                     name=_WName.LIGSITE_COUNT_RANGE.value,
                     widget=widgets.IntRangeSlider(
-                        value=(count_min, count_max),
-                        min=count_min,
-                        max=count_max,
+                        value=(self.ligsite.psp_count_min, self.ligsite.psp_count_max),
+                        min=self.ligsite.psp_count_min,
+                        max=self.ligsite.psp_count_max,
                         step=1,
                         disabled=True,
                         continuous_update=False,
@@ -569,14 +567,12 @@ class GridDetectorGUI(scishow.widgets.GUI):
                         tooltip="Apply PSP distance mask to the protein volume.",
                     )
                 )
-                dist_min = jnp.nanmin(self.ligsite.psp_distance).item()
-                dist_max = jnp.nanmax(self.ligsite.psp_distance).item()
                 slider = self._gui__add_widget(
                     name=_WName.LIGSITE_DIST_RANGE.value,
                     widget=widgets.FloatRangeSlider(
-                        value=(dist_min, dist_max),
-                        min=dist_min,
-                        max=dist_max,
+                        value=(self.ligsite.psp_dist_min, self.ligsite.psp_dist_max),
+                        min=self.ligsite.psp_dist_min,
+                        max= self.ligsite.psp_dist_max,
                         step=0.01,
                         disabled=True,
                         continuous_update=False,
@@ -598,7 +594,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                                 "Max": "max",
                                 "Min": "min",
                                 "Mean": "mean",
-                                "Disabled": False
+                                "Off": "off"
                             },
                             value="all" if side == "min" else "any",
                             layout=widgets.Layout(width="100%"),
@@ -721,18 +717,19 @@ class GridDetectorGUI(scishow.widgets.GUI):
     ) -> None:
         with self._gui__logger:
             print("Setting morphology mask.")
-        with self._show_status(), self._gui__temporary_observation_toggle():
-            self._gui__get_widget(_WName.MORPH_CLOSE.value).value = close
-            self._gui__get_widget(_WName.MORPH_FILL.value).value = fill
-            if close:
-                self._set_structuring_element(_WName.MORPH_CLOSE.name, closing_structure)
-                self._gui__get_widget(_WName.MORPH_CLOSE_ITER.value).value = closing_iterations
-                self._gui__get_widget(_WName.MORPH_CLOSE_BORDER.value).value = closing_border_value
-                # Set closing mask
-                self._custom_input[_WName.MORPH_CLOSE_MASK] = closing_mask
-                self._gui__get_widget(_WName.MORPH_CLOSE_MASK.value).layout.display = "none" if closing_mask is None else ""
-            if fill:
-                self._set_structuring_element(_WName.MORPH_FILL.name, fill_structure)
+        with self._show_status():
+            with self._gui__temporary_observation_toggle():
+                self._gui__get_widget(_WName.MORPH_CLOSE.value).value = close
+                self._gui__get_widget(_WName.MORPH_FILL.value).value = fill
+                if close:
+                    self._set_structuring_element(_WName.MORPH_CLOSE.name, closing_structure)
+                    self._gui__get_widget(_WName.MORPH_CLOSE_ITER.value).value = closing_iterations
+                    self._gui__get_widget(_WName.MORPH_CLOSE_BORDER.value).value = closing_border_value
+                    # Set closing mask
+                    self._custom_input[_WName.MORPH_CLOSE_MASK] = closing_mask
+                    self._gui__get_widget(_WName.MORPH_CLOSE_MASK.value).layout.display = "none" if closing_mask is None else ""
+                if fill:
+                    self._set_structuring_element(_WName.MORPH_FILL.name, fill_structure)
             self._detector.set_mask_morphology(
                 close=close,
                 fill=fill,
@@ -742,18 +739,17 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 closing_border_value=closing_border_value,
                 fill_structure=fill_structure,
             )
-        self._gui__render(receptor_volume=True)
+            self._gui__render(receptor_volume=True)
         return
 
     def set_mask_ligsite(
         self,
-        count_lower: int | bool | None = None,
-        count_upper: int | bool | None = None,
-        dist_lower: float | bool | None = None,
-        dist_upper: float | bool | None = None,
-        dist_lower_mode: Literal["any", "all", "max", "min", "mean"] = "all",
-        dist_upper_mode: Literal["any", "all", "max", "min", "mean"] = "any",
-        directions: Literal[1, 2, 3] | Sequence[Literal[1, 2, 3]] | np.ndarray | None = None,
+        count_lower: int | None = None,
+        count_upper: int | None = None,
+        dist_lower: float | None = None,
+        dist_upper: float | None = None,
+        dist_lower_mode: Literal["any", "all", "max", "min", "mean", "off"] = "all",
+        dist_upper_mode: Literal["any", "all", "max", "min", "mean", "off"] = "any",
     ) -> None:
         with self._gui__logger:
             print("Setting LIGSITE mask.")
@@ -769,7 +765,6 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 dist_upper=dist_upper,
                 dist_lower_mode=dist_lower_mode,
                 dist_upper_mode=dist_upper_mode,
-                directions=directions,
             )
         return
 
