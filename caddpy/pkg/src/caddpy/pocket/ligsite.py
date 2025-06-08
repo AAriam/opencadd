@@ -58,7 +58,10 @@ class LigSite:
           corresponding to directions along the x, y, and z axes, respectively.
         - A non-repeating sequence of integers within the range `[1, 3]`,
           to combine 1D, 2D, and 3D directions.
-          For example, `(1, 2)` will generate all 1D and 2D directions.
+          For example, the default value `(1, 2, 3)`
+          will generate all 1D, 2D, and 3D directions,
+          corresponding to all 26 directions from
+          one grid point to each of its 26 neighbors in a 3x3x3 grid.
     """
 
     def __init__(
@@ -107,6 +110,7 @@ class LigSite:
         self._psp_count_max = self._psp_count.max().item()
         self._psp_dist_min = jnp.nanmin(self._psp_dist).item()
         self._psp_dist_max = jnp.nanmax(self._psp_dist).item()
+        self._psp_dist_nan = jnp.isnan(self._psp_dist)
 
         self._psp_mask: dict[str, jnp.ndarray | None] = {
             "count_lower": None,
@@ -128,8 +132,8 @@ class LigSite:
         count_upper: int | None = None,
         dist_lower: float | None = None,
         dist_upper: float | None = None,
-        dist_lower_mode: Literal["any", "all", "max", "min", "mean", "off"] = "all",
-        dist_upper_mode: Literal["any", "all", "max", "min", "mean", "off"] = "any",
+        dist_lower_mode: Literal["any", "all", "max", "min", "mean"] = "all",
+        dist_upper_mode: Literal["any", "all", "max", "min", "mean"] = "any",
     ) -> Bool[JAXArray, "*field.shape"] | None:
         """Generate a volume mask based on PSP events.
 
@@ -146,10 +150,10 @@ class LigSite:
 
         To improve performance when generating multiple masks based on slight variations,
         the last submask calculated for each condition is cached, and will be reused in
-        subsequent calls to this method if the corresponding parameter is set to `None` (default).
-        Providing a value of `True` for any parameter will exclude that condition from the mask,
+        subsequent calls to this method if the corresponding argument is the same as the last one.
+        Providing a different value will generate a new submask for that condition and update the cache.
+        Providing a value of `None` for any parameter (default) will exclude that condition from the mask,
         and will also clear the corresponding cached submask.
-        Providing another value will generate a new submask for that condition and update the cache.
 
         Since each grid point has multiple PSP distances (one for each direction),
         the distance masks are calculated by reducing the PSP distances along the direction axis,
@@ -180,20 +184,12 @@ class LigSite:
         ----------
         count_lower
             Minimum number of PSP events for each grid point.
-            Set to `True` to exclude this condition from the mask,
-            or set to `None` (default) to reuse the last generated mask (if any).
         count_upper
             Maximum number of PSP events for each grid point.
-            Set to `True` to exclude this condition from the mask,
-            or set to `None` (default) to reuse the last generated mask (if any).
         dist_lower
             Minimum PSP distance for each grid point.
-            Set to `True` to exclude this condition from the mask,
-            or set to `None` (default) to reuse the last generated mask (if any).
         dist_upper
             Maximum PSP distance for each grid point.
-            Set to `True` to exclude this condition from the mask,
-            or set to `None` (default) to reuse the last generated mask (if any).
         dist_lower_mode
             Reduction mode for calculating the lower PSP distance mask.
         dist_upper_mode
@@ -213,53 +209,41 @@ class LigSite:
         To obtain a mask that is only `True` for unoccupied grid points (i.e., solvent/free space),
         you must simply combine this mask with a mask for unoccupied grid points using logical AND.
         """
-        def make_mask(
-            arr: jnp.ndarray,
-            threshold: int | float,
-            side: Literal["lower", "upper"],
-            mode: Literal["any", "all", "max", "min", "mean"],
+        # PSP count
+        for input_name, input_count, cap_count, test_op, mask_op in (
+            ("count_lower", count_lower, self.psp_count_min, operator.le, operator.ge),
+            ("count_upper", count_upper, self.psp_count_max, operator.ge, operator.le),
         ):
-            comparison_op = operator.le if side == "upper" else operator.ge
-            if mode == "any":
-                return jnp.any(comparison_op(arr, threshold), axis=-1)
-            if mode == "all":
-                return np.all(
-                    jnp.logical_or(comparison_op(arr, threshold), jnp.isnan(arr)),
-                    axis=-1
-                )
-            if mode in ("max", "min", "mean"):
-                reduction_op = {"max": jnp.nanmax, "min": jnp.nanmin, "mean": jnp.nanmean}[mode]
-                return comparison_op(reduction_op(arr, axis=-1), threshold)
-            raise ValueError(f"Unknown mode: {mode}")
-        for dist, dist_mode, dist_name in (
-            (dist_lower, dist_lower_mode, "lower"),
-            (dist_upper, dist_upper_mode, "upper"),
+            if input_count is None or test_op(input_count, cap_count):
+                self._psp_mask[input_name] = None
+                self._last_mask_spec[input_name] = None
+            elif input_count != self._last_mask_spec[input_name]:
+                self._psp_mask[input_name] = mask_op(self.psp_count, input_count)
+                self._last_mask_spec[input_name] = input_count
+
+        # PSP distance
+        for input_name, input_dist, input_mode, cap_dist, test_op, mask_op in (
+            ("dist_lower", dist_lower, dist_lower_mode, self.psp_distance_min, operator.le, operator.ge),
+            ("dist_upper", dist_upper, dist_upper_mode, self.psp_distance_max, operator.ge, operator.le),
         ):
-            if dist is not None and dist_mode == "off":
-                raise exception.InputError(
-                    name=f"dist_{dist_name}",
-                    message=f"Mode set to 'off' while a threshold is provided: {dist}."
-                )
-        if count_lower is not None and count_lower != self._last_mask_spec["count_lower"]:
-            no_count_lower = count_lower <= self.psp_count_min
-            self._psp_mask["count_lower"] = None if no_count_lower else self.psp_count >= count_lower
-            self._last_mask_spec["count_lower"] = None if no_count_lower else count_lower
-        if count_upper is not None and count_upper != self._last_mask_spec["count_upper"]:
-            no_count_upper = count_upper >= self.psp_count_max
-            self._psp_mask["count_upper"] = None if no_count_upper else self.psp_count <= count_upper
-            self._last_mask_spec["count_upper"] = None if no_count_upper else count_upper
-        if dist_lower is not None and (dist_lower, dist_lower_mode) != self._last_mask_spec["dist_lower"]:
-            no_dist_lower = dist_lower_mode == "off"
-            self._psp_mask["dist_lower"] = None if no_dist_lower else make_mask(
-                self.psp_distance, threshold=dist_lower, side="lower", mode=dist_lower_mode
-            )
-            self._last_mask_spec["dist_lower"] = None if no_dist_lower else (dist_lower, dist_lower_mode)
-        if dist_upper is not None and (dist_upper, dist_upper_mode) != self._last_mask_spec["dist_upper"]:
-            no_dist_upper = dist_upper_mode == "off"
-            self._psp_mask["dist_upper"] = None if no_dist_upper else make_mask(
-                self.psp_distance, threshold=dist_upper, side="upper", mode=dist_upper_mode
-            )
-            self._last_mask_spec["dist_upper"] = None if no_dist_upper else (dist_upper, dist_upper_mode)
+            if input_dist is None or test_op(input_dist, cap_dist):
+                self._psp_mask[input_name] = None
+                self._last_mask_spec[input_name] = None
+            elif (input_dist, input_mode) != self._last_mask_spec[input_name]:
+                self._last_mask_spec[input_name] = (input_dist, input_mode)
+                if input_mode == "any":
+                    self._psp_mask[input_name] = jnp.any(mask_op(self.psp_distance, input_dist), axis=-1)
+                elif input_mode == "all":
+                    self._psp_mask[input_name] = np.all(
+                        jnp.logical_or(mask_op(self.psp_distance, input_dist), self.psp_distance_nan),
+                        axis=-1
+                    )
+                elif input_mode in ("max", "min", "mean"):
+                    reduction_op = {"max": jnp.nanmax, "min": jnp.nanmin, "mean": jnp.nanmean}[input_mode]
+                    self._psp_mask[input_name] = mask_op(reduction_op(self.psp_distance, axis=-1), input_dist)
+                else:
+                    raise ValueError(f"Unknown mode: {input_mode}")
+        # Combine all masks
         active_masks = [mask for mask in self._psp_mask.values() if mask is not None]
         return jnp.logical_and.reduce(jnp.array(active_masks)) if active_masks else None
 
@@ -299,6 +283,11 @@ class LigSite:
     def psp_distance_max(self) -> float:
         """Maximum PSP distance in any direction."""
         return self._psp_dist_max
+
+    @property
+    def psp_distance_nan(self) -> Bool[JAXArray, "*field.shape {self.direction.shape[0] / 2}"]:
+        """Boolean mask indicating which PSP distances are NaN."""
+        return self._psp_dist_nan
 
     @property
     def ps_distance(self) -> Float[JAXArray, "*field.shape {self.direction.shape[0]}"]:
