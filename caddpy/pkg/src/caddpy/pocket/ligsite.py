@@ -103,6 +103,11 @@ class LigSite:
         self._psp_dist = self._ps_dist[..., :ndir] + self._ps_dist[..., -1:-(ndir+1):-1]
         self._psp_count = jnp.count_nonzero(~jnp.isnan(self._psp_dist), axis=-1)
 
+        self._psp_count_min = self._psp_count.min().item()
+        self._psp_count_max = self._psp_count.max().item()
+        self._psp_dist_min = jnp.nanmin(self._psp_dist).item()
+        self._psp_dist_max = jnp.nanmax(self._psp_dist).item()
+
         self._psp_mask: dict[str, jnp.ndarray | None] = {
             "count_lower": None,
             "count_upper": None,
@@ -119,12 +124,12 @@ class LigSite:
 
     def psp_mask(
         self,
-        count_lower: int | bool | None = None,
-        count_upper: int | bool | None = None,
-        dist_lower: float | bool | None = None,
-        dist_upper: float | bool | None = None,
-        dist_lower_mode: Literal["any", "all", "max", "min", "mean"] = "all",
-        dist_upper_mode: Literal["any", "all", "max", "min", "mean"] = "any",
+        count_lower: int | None = None,
+        count_upper: int | None = None,
+        dist_lower: float | None = None,
+        dist_upper: float | None = None,
+        dist_lower_mode: Literal["any", "all", "max", "min", "mean", "off"] = "all",
+        dist_upper_mode: Literal["any", "all", "max", "min", "mean", "off"] = "any",
     ) -> Bool[JAXArray, "*field.shape"] | None:
         """Generate a volume mask based on PSP events.
 
@@ -226,22 +231,35 @@ class LigSite:
                 reduction_op = {"max": jnp.nanmax, "min": jnp.nanmin, "mean": jnp.nanmean}[mode]
                 return comparison_op(reduction_op(arr, axis=-1), threshold)
             raise ValueError(f"Unknown mode: {mode}")
+        for dist, dist_mode, dist_name in (
+            (dist_lower, dist_lower_mode, "lower"),
+            (dist_upper, dist_upper_mode, "upper"),
+        ):
+            if dist is not None and dist_mode == "off":
+                raise exception.InputError(
+                    name=f"dist_{dist_name}",
+                    message=f"Mode set to 'off' while a threshold is provided: {dist}."
+                )
         if count_lower is not None and count_lower != self._last_mask_spec["count_lower"]:
-            self._psp_mask["count_lower"] = None if count_lower is True else self.psp_count >= count_lower
-            self._last_mask_spec["count_lower"] = None if count_lower is True else count_lower
+            no_count_lower = count_lower <= self.psp_count_min
+            self._psp_mask["count_lower"] = None if no_count_lower else self.psp_count >= count_lower
+            self._last_mask_spec["count_lower"] = None if no_count_lower else count_lower
         if count_upper is not None and count_upper != self._last_mask_spec["count_upper"]:
-            self._psp_mask["count_upper"] = None if count_upper is True else self.psp_count <= count_upper
-            self._last_mask_spec["count_upper"] = None if count_upper is True else count_upper
+            no_count_upper = count_upper >= self.psp_count_max
+            self._psp_mask["count_upper"] = None if no_count_upper else self.psp_count <= count_upper
+            self._last_mask_spec["count_upper"] = None if no_count_upper else count_upper
         if dist_lower is not None and (dist_lower, dist_lower_mode) != self._last_mask_spec["dist_lower"]:
-            self._psp_mask["dist_lower"] = None if dist_lower is True else make_mask(
+            no_dist_lower = dist_lower_mode == "off"
+            self._psp_mask["dist_lower"] = None if no_dist_lower else make_mask(
                 self.psp_distance, threshold=dist_lower, side="lower", mode=dist_lower_mode
             )
-            self._last_mask_spec["dist_lower"] = None if dist_lower is True else (dist_lower, dist_lower_mode)
+            self._last_mask_spec["dist_lower"] = None if no_dist_lower else (dist_lower, dist_lower_mode)
         if dist_upper is not None and (dist_upper, dist_upper_mode) != self._last_mask_spec["dist_upper"]:
-            self._psp_mask["dist_upper"] = None if dist_upper is True else make_mask(
+            no_dist_upper = dist_upper_mode == "off"
+            self._psp_mask["dist_upper"] = None if no_dist_upper else make_mask(
                 self.psp_distance, threshold=dist_upper, side="upper", mode=dist_upper_mode
             )
-            self._last_mask_spec["dist_upper"] = None if dist_upper is True else (dist_upper, dist_upper_mode)
+            self._last_mask_spec["dist_upper"] = None if no_dist_upper else (dist_upper, dist_upper_mode)
         active_masks = [mask for mask in self._psp_mask.values() if mask is not None]
         return jnp.logical_and.reduce(jnp.array(active_masks)) if active_masks else None
 
@@ -254,6 +272,16 @@ class LigSite:
         return self._psp_count
 
     @property
+    def psp_count_min(self) -> int:
+        """Minimum number of PSP events in any direction."""
+        return self._psp_count_min
+
+    @property
+    def psp_count_max(self) -> int:
+        """Maximum number of PSP events in any direction."""
+        return self._psp_count_max
+
+    @property
     def psp_distance(self) -> Float[JAXArray, "*field.shape {self.direction.shape[0] / 2}"]:
         """Protein–solvent–protein (PSP) distances in each direction, in units of grid spacings (e.g. Ångstrom).
 
@@ -261,6 +289,16 @@ class LigSite:
         A distance of `numpy.nan` means that no PSP/SPS event was found in that direction.
         """
         return self._psp_dist
+
+    @property
+    def psp_distance_min(self) -> float:
+        """Minimum PSP distance in any direction."""
+        return self._psp_dist_min
+
+    @property
+    def psp_distance_max(self) -> float:
+        """Maximum PSP distance in any direction."""
+        return self._psp_dist_max
 
     @property
     def ps_distance(self) -> Float[JAXArray, "*field.shape {self.direction.shape[0]}"]:
