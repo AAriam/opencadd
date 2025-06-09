@@ -86,25 +86,31 @@ class GUI:
         self._gui__widget_name_to_widget: dict[str, Widget] = {}
         self._gui__widget_id_to_name: dict[int, str] = {}
         self._gui__main_widget = None
+        self._gui__display_kwargs: dict[str, Any] = {}
         return
 
     def display(self) -> None:
         """Display the GUI in the current Jupyter notebook cell."""
         if self._gui__main_widget is None:
             raise RuntimeError("GUI has not been initialized.")
-        self._gui__render()
+        self._gui__render(**self._gui__display_kwargs)
         if isinstance(self._gui__main_widget, Widget):
             display(self._gui__main_widget)
         else:
             display(*self._gui__main_widget)
         return
 
-    def _gui__set_main_widget(self, widget: Widget | Sequence[Widget]) -> None:
+    def _gui__set_main_widget(
+        self,
+        widget: Widget | Sequence[Widget],
+        **kwargs: Any,
+    ) -> None:
         """Set the main GUI widget that will be displayed.
 
         This method should be called in the subclass's `__init__` method.
         """
         self._gui__main_widget = widget
+        self._gui__display_kwargs = kwargs
         return
 
     def _gui__add_widget(
@@ -630,7 +636,8 @@ def label(
     kwargs = locals()
     layout = {
         "min_width": "fit-content",
-        "margin": "0 5px 0 0"
+        "margin": "0 5px 0 0",
+        "align_self": "center"
     } | (layout or {})
     return Label(
         value=value,
@@ -661,6 +668,7 @@ def labeled_widget(
     kwargs = locals()
     kwargs.pop('widget')
     widget_label = label(**kwargs)
+    widget.layout.flex = "1 1 auto"
     return HBox(
         [widget_label, widget],
         layout=Layout(
