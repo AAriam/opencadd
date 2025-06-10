@@ -41,7 +41,6 @@ class _Default(metaclass=_DefaultMeta):
     # Closing
     MORPH_CLOSE = True
     MORPH_CLOSE_ITER = 1
-    MORPH_CLOSE_BORDER = 0
     # Closing Structure
     MORPH_CLOSE_STRUCT_CONNECT = 1
     MORPH_CLOSE_STRUCT_ITER = 1
@@ -73,7 +72,6 @@ class _Default(metaclass=_DefaultMeta):
     # Morphological Opening
     EXTRACT_OPEN = True
     EXTRACT_OPEN_ITER = 1
-    EXTRACT_OPEN_BORDER = 0
     # Opening Structure
     EXTRACT_OPEN_STRUCT_CONNECT = 1
     EXTRACT_OPEN_STRUCT_ITER = 1
@@ -123,7 +121,6 @@ class GridDetector:
         ),
         opening_iterations: int = _Default.EXTRACT_OPEN_ITER,
         opening_mask: np.ndarray | None = None,
-        opening_border_value: Literal[0, 1] = _Default.EXTRACT_OPEN_BORDER,
         label_structure: np.ndarray | tuple[int, int] = (
             _Default.EXTRACT_LABEL_STRUCT_CONNECT,
             _Default.EXTRACT_LABEL_STRUCT_ITER
@@ -135,7 +132,7 @@ class GridDetector:
             structure=self._create_structuring_element(opening_structure),
             iterations=opening_iterations,
             mask=opening_mask,
-            border_value=opening_border_value,
+            border_value=0,
             axes=self._grid_axis_indices,
         ) if open else self.mask
 
@@ -159,7 +156,6 @@ class GridDetector:
         ),
         closing_iterations: int = _Default.MORPH_CLOSE_ITER,
         closing_mask: np.ndarray | None = None,
-        closing_border_value: Literal[0, 1] = _Default.MORPH_CLOSE_BORDER,
         fill_structure: np.ndarray | tuple[int, int] = (
             _Default.MORPH_FILL_STRUCT_CONNECT,
             _Default.MORPH_FILL_STRUCT_ITER,
@@ -171,7 +167,7 @@ class GridDetector:
             structure=self._create_structuring_element(closing_structure),
             iterations=closing_iterations,
             mask=closing_mask,
-            border_value=closing_border_value,
+            border_value=0,
             axes=self._grid_axis_indices,
         ) if close else self.field.tensor
 
@@ -290,6 +286,7 @@ class GridDetector:
         )
         return structure_iterated
 
+
 class _WPrefix(Enum):
     MORPH = "morph_"
     LIGSITE = "ligsite_"
@@ -305,7 +302,6 @@ class _WName(Enum):
 
     # Morphological Closing
     MORPH_CLOSE = f"{_WPrefix.MORPH.value}close"
-    MORPH_CLOSE_BORDER = f"{_WPrefix.MORPH.value}close_border"
     MORPH_CLOSE_ITER = f"{_WPrefix.MORPH.value}close_iter"
     MORPH_CLOSE_MASK = f"{_WPrefix.MORPH.value}close_mask"
     # Morphological Closing Structure
@@ -342,7 +338,6 @@ class _WName(Enum):
 
     # Morphological Opening
     EXTRACT_OPEN = f"{_WPrefix.EXTRACT.value}open"
-    EXTRACT_OPEN_BORDER = f"{_WPrefix.EXTRACT.value}open_border"
     EXTRACT_OPEN_ITER = f"{_WPrefix.EXTRACT.value}open_iter"
     EXTRACT_OPEN_MASK = f"{_WPrefix.EXTRACT.value}open_mask"
     # Morphological Opening Structure
@@ -675,15 +670,6 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     layout=widgets.Layout(width="100%"),
                 )
             )
-            border_value = self._gui__add_widget(
-                name=_WName[f"{enum_prefix}_BORDER"].value,
-                widget=widgets.Dropdown(
-                    options=[0, 1],
-                    value=_Default[f"{enum_prefix}_BORDER"],
-                    layout=widgets.Layout(width="100%"),
-                    disabled=toggle_disabled,
-                )
-            )
             custom_mask = self._gui__add_widget(
                 name=_WName[f"{enum_prefix}_MASK"].value,
                 widget=widgets.Button(
@@ -697,21 +683,15 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 value="Iterations:",
                 widget=iterations
             )
-            border_value_labeled = scishow.widgets.labeled_widget(
-                value="Border Value:",
-                widget=border_value
-            )
             return make_structure_panel(
                 title=typ,
                 enum_prefix=enum_prefix,
                 on_toggle_widgets=(
                     iterations,
-                    border_value,
                     custom_mask,
                 ),
                 add_widgets=(
                     iterations_labeled,
-                    border_value_labeled,
                     custom_mask
                 ),
                 tooltip=tooltip,
@@ -876,7 +856,6 @@ class GridDetectorGUI(scishow.widgets.GUI):
         ),
         opening_iterations: int = _Default.EXTRACT_OPEN_ITER,
         opening_mask: np.ndarray | None = None,
-        opening_border_value: Literal[0, 1] = _Default.EXTRACT_OPEN_BORDER,
         label_structure: np.ndarray | tuple[int, int] = (
             _Default.EXTRACT_LABEL_STRUCT_CONNECT,
             _Default.EXTRACT_LABEL_STRUCT_ITER
@@ -891,7 +870,6 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 if open:
                     self._set_structuring_element(_WName.EXTRACT_OPEN.name, opening_structure)
                     self._gui__get_widget(_WName.EXTRACT_OPEN_ITER.value).value = opening_iterations
-                    self._gui__get_widget(_WName.EXTRACT_OPEN_BORDER.value).value = opening_border_value
                     # Set opening mask
                     self._custom_input[_WName.EXTRACT_OPEN_MASK] = opening_mask
                     self._gui__get_widget(_WName.EXTRACT_OPEN_MASK.value).layout.display = "none" if opening_mask is None else ""
@@ -900,7 +878,6 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     opening_structure=opening_structure,
                     opening_iterations=opening_iterations,
                     opening_mask=opening_mask,
-                    opening_border_value=opening_border_value,
                     label_structure=label_structure,
                 )
         self._gui__render()
@@ -916,7 +893,6 @@ class GridDetectorGUI(scishow.widgets.GUI):
         ),
         closing_iterations: int = _Default.MORPH_CLOSE_ITER,
         closing_mask: np.ndarray | None = None,
-        closing_border_value: Literal[0, 1] = _Default.MORPH_CLOSE_BORDER,
         fill_structure: np.ndarray | tuple[int, int] = (
             _Default.MORPH_FILL_STRUCT_CONNECT,
             _Default.MORPH_FILL_STRUCT_ITER,
@@ -931,7 +907,6 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 if close:
                     self._set_structuring_element(_WName.MORPH_CLOSE.name, closing_structure)
                     self._gui__get_widget(_WName.MORPH_CLOSE_ITER.value).value = closing_iterations
-                    self._gui__get_widget(_WName.MORPH_CLOSE_BORDER.value).value = closing_border_value
                     # Set closing mask
                     self._custom_input[_WName.MORPH_CLOSE_MASK] = closing_mask
                     self._gui__get_widget(_WName.MORPH_CLOSE_MASK.value).layout.display = "none" if closing_mask is None else ""
@@ -943,7 +918,6 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 closing_structure=closing_structure,
                 closing_iterations=closing_iterations,
                 closing_mask=closing_mask,
-                closing_border_value=closing_border_value,
                 fill_structure=fill_structure,
             )
         self._gui__render(receptor_volume=True)
@@ -1051,7 +1025,6 @@ class GridDetectorGUI(scishow.widgets.GUI):
             self._gui__get_widget(_WName.MORPH_CLOSE.value).value = _Default.MORPH_CLOSE
             self._gui__get_widget(_WName.MORPH_FILL.value).value = _Default.MORPH_FILL
             self._gui__get_widget(_WName.MORPH_CLOSE_ITER.value).value = _Default.MORPH_CLOSE_ITER
-            self._gui__get_widget(_WName.MORPH_CLOSE_BORDER.value).value = _Default.MORPH_CLOSE_BORDER
             self._gui__get_widget(_WName.MORPH_CLOSE_MASK.value).layout.display = "none"
             self._custom_input[_WName.MORPH_CLOSE_MASK] = None
             self._set_structuring_element(
@@ -1289,7 +1262,6 @@ class GridDetectorGUI(scishow.widgets.GUI):
             self._gui__get_widget(_WName.EXTRACT_OPEN.value).value = _Default.EXTRACT_OPEN
             self._gui__get_widget(_WName.EXTRACT_LABEL.value).value = _Default.EXTRACT_LABEL
             self._gui__get_widget(_WName.EXTRACT_OPEN_ITER.value).value = _Default.EXTRACT_OPEN_ITER
-            self._gui__get_widget(_WName.EXTRACT_OPEN_BORDER.value).value = _Default.EXTRACT_OPEN_BORDER
             self._gui__get_widget(_WName.EXTRACT_OPEN_MASK.value).layout.display = "none"
             self._custom_input[_WName.EXTRACT_OPEN_MASK] = None
             self._set_structuring_element(
@@ -1444,7 +1416,6 @@ class GridDetectorGUI(scishow.widgets.GUI):
             closing_structure=closing_structure,
             closing_iterations=self._gui__get_widget(_WName.MORPH_CLOSE_ITER.value).value,
             closing_mask=self._custom_input[_WName.MORPH_CLOSE_MASK],
-            closing_border_value=self._gui__get_widget(_WName.MORPH_CLOSE_BORDER.value).value,
             fill_structure=fill_structure,
         )
         self._extract__set_mask(receptor_volume=True)
@@ -1489,7 +1460,6 @@ class GridDetectorGUI(scishow.widgets.GUI):
             ) if custom_opening_structure is None else custom_opening_structure,
             opening_iterations=self._gui__get_widget(_WName.EXTRACT_OPEN_ITER.value).value,
             opening_mask=self._custom_input[_WName.EXTRACT_OPEN_MASK],
-            opening_border_value=self._gui__get_widget(_WName.EXTRACT_OPEN_BORDER.value).value,
             label_structure=(
                 self._gui__get_widget(_WName.EXTRACT_LABEL_STRUCT_CONNECT.value).value,
                 self._gui__get_widget(_WName.EXTRACT_LABEL_STRUCT_ITER.value).value,
