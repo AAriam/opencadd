@@ -155,7 +155,7 @@ class PointCloud(dataset.DataSet):
         self,
         grid: float | Sequence[float] | Grid,
         point_radii: float | ArrayLike,
-        padding: float | ArrayLike = 0,
+        padding: float | None = None,
         instance_selection: Any = None,
         error_tolerance: NonNegativeFloat = 0,
     ) -> Field:
@@ -177,9 +177,36 @@ class PointCloud(dataset.DataSet):
             If an array is provided, it must have the same length
             as the number of points in the point cloud.
         padding
-
+            Padding to add to the grid bounds.
+            If `None`, the padding is set to the maximum radius
+            of the points in the point cloud plus one spacing,
+            guaranteeing that all outermost toxels are unoccupied.
         """
+        single_radius = any(np.issubdtype(type(point_radii), scalar_type) for scalar_type in (np.integer, np.floating))
+        if single_radius:
+            if point_radii <= 0:
+                raise exception.InputError(
+                    name="point_radii",
+                    message=f"A positive real number is expected, but got {point_radii}."
+                )
+        else:
+            point_radii = np.asarray(point_radii)
+            if point_radii.ndim != 1 or point_radii.shape[0] != self.point_count:
+                raise exception.InputError(
+                    name="point_radii",
+                    message=f"An array of shape ({self.point_count},) is expected, "
+                            f"but got {point_radii.shape}."
+                )
+            if np.any(point_radii <= 0):
+                raise exception.InputError(
+                    name="point_radii",
+                    message=f"All radii must be positive, but got {point_radii}."
+                )
+        max_radius = point_radii if single_radius else point_radii.max()
         if not isinstance(grid, Grid):
+            if padding is None:
+                spacing = grid if isinstance(grid, (int, float)) else np.asarray(grid).max()
+                padding = max_radius + spacing  # Guarantee that all outermost toxels are unoccupied
             # Get the bounding box of all instances superposed.
             total_bounding_box = self.aabb(per_instance=False)
             # Create a grid the size of the total bounding box, with given resolution
@@ -190,15 +217,7 @@ class PointCloud(dataset.DataSet):
             )
         # If `point_radii` is a scalar (i.e. int or float), it means all points have the same
         # radius, and thus we only need to query for the first nearest neighbor of each point:
-        radii_type = type(point_radii)
-        if any(np.issubdtype(radii_type, scalar_type) for scalar_type in (np.integer, np.floating)):
-            # Radius must be positive:
-            if point_radii <= 0:
-                raise exception.InputError(
-                    name="point_radii",
-                    message=f"A positive real number is expected, but got {point_radii}."
-                )
-
+        if single_radius:
             dists, indices = self.nearest_neighbors(
                 points=grid.coordinates,
                 count=1,
@@ -219,20 +238,17 @@ class PointCloud(dataset.DataSet):
         # first nearest neighbors, since it is possible that the first k nearest neighbors have
         # small radii and do not overlap with the toxel, while the (k+1)-th neighbor has a large
         # enough radius to overlap.
-        radii_array = np.asarray(point_radii)
-        max_radius = radii_array.max()
-        min_radius = radii_array.min()
         toxel_tensor = np.zeros(shape=(*self.batch_shape, *grid.shape), dtype=np.uint64)
         dists, (*ind_batch, ind_point), ind_grid = self.distance_matrix_sparse(
             points=grid.coordinates, max_distance=max_radius
         )
-        definitely_occupied = dists <= min_radius
+        definitely_occupied = dists <= point_radii.min()
         toxel_tensor[
             tuple(axis_ind[definitely_occupied] for ind in (ind_batch, ind_grid) for axis_ind in ind)
         ] = ind_point[definitely_occupied] + 1  # +1 to avoid 0 index
         maybe_occupied = jnp.logical_not(definitely_occupied)
         dists_from_surface = (
-            dists[maybe_occupied] - radii_array[ind_point[maybe_occupied]]
+            dists[maybe_occupied] - point_radii[ind_point[maybe_occupied]]
         )
         occupied = dists_from_surface <= 0
         toxel_tensor[
