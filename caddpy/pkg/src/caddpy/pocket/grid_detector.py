@@ -23,10 +23,17 @@ from caddpy import exception
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from typing import Literal
+    from typing import Literal, Callable, Any
     from scishow.nglview import NGLWidget
 
-class _Default:
+class _DefaultMeta(type):
+    def __getitem__(cls, key: str):
+        key_upper = key.upper()
+        if key_upper in cls.__dict__:
+            return cls.__dict__[key_upper]
+        raise KeyError(f"{cls.__name__!r} has no attribute {key_upper!r}")
+
+class _Default(metaclass=_DefaultMeta):
     """Default values for the grid detector."""
 
     # Morphological Transformations
@@ -61,6 +68,22 @@ class _Default:
     LIGSITE_DIST_UPPER_MODE = "any"
 
 
+    # Extraction
+
+    # Morphological Opening
+    EXTRACT_OPEN = True
+    EXTRACT_OPEN_ITER = 1
+    EXTRACT_OPEN_BORDER = 1
+    # Opening Structure
+    EXTRACT_OPEN_STRUCT_CONNECT = 1
+    EXTRACT_OPEN_STRUCT_ITER = 1
+
+    # Labeling
+    EXTRACT_LABEL = True
+    # Labeling Structure
+    EXTRACT_LABEL_STRUCT_CONNECT = 1
+    EXTRACT_LABEL_STRUCT_ITER = 1
+
 class GridDetector:
     def __init__(self, receptor: ChemicalSystem, field: Field):
         self._receptor = receptor
@@ -76,6 +99,38 @@ class GridDetector:
         self._mask_custom: np.ndarray | None = None
         self._gui = None
         return
+
+    def extract_pockets(
+        self,
+        open: bool = _Default.EXTRACT_OPEN,
+        opening_structure: np.ndarray | tuple[int, int] = (
+            _Default.EXTRACT_OPEN_STRUCT_CONNECT,
+            _Default.EXTRACT_OPEN_STRUCT_ITER
+        ),
+        opening_iterations: int = _Default.EXTRACT_OPEN_ITER,
+        opening_mask: np.ndarray | None = None,
+        opening_border_value: Literal[0, 1] = _Default.EXTRACT_OPEN_BORDER,
+        label_structure: np.ndarray | tuple[int, int] = (
+            _Default.EXTRACT_LABEL_STRUCT_CONNECT,
+            _Default.EXTRACT_LABEL_STRUCT_ITER
+        ),
+    ):
+        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.binary_opening.html
+        mask_opened = sp.ndimage.binary_opening(
+            input=self.mask,
+            structure=self._create_structuring_element(opening_structure),
+            iterations=opening_iterations,
+            mask=opening_mask,
+            border_value=opening_border_value,
+            axes=self._grid_axis_indices,
+        ) if open else self.mask
+
+        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.label.html
+        label_tensor, num_features = sp.ndimage.label(
+            input=mask_opened,
+            structure=self._create_structuring_element(label_structure),
+        )
+        return label_tensor, num_features
 
     def set_mask_morphology(
         self,
@@ -93,45 +148,22 @@ class GridDetector:
             _Default.MORPH_FILL_STRUCT_ITER,
         )
     ):
-        if close:
-            if isinstance(closing_structure, tuple):
-                structure_connectivity, structure_iterations = closing_structure
-                # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.generate_binary_structure.html
-                closing_structure_initial = sp.ndimage.generate_binary_structure(
-                    rank=3, connectivity=structure_connectivity
-                )
-                # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.iterate_structure.html
-                closing_structure = sp.ndimage.iterate_structure(
-                    structure=closing_structure_initial, iterations=structure_iterations
-                )
-            # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.binary_closing.html
-            volume_closed = sp.ndimage.binary_closing(
-                input=self.field.tensor,
-                structure=closing_structure,
-                iterations=closing_iterations,
-                mask=closing_mask,
-                border_value=closing_border_value,
-                axes=self._grid_axis_indices,
-            )
-        else:
-            volume_closed = self.field.tensor
-        if fill:
-            # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.binary_fill_holes.html
-            if isinstance(fill_structure, tuple):
-                structure_connectivity, structure_iterations = fill_structure
-                fill_structure_initial = sp.ndimage.generate_binary_structure(
-                    rank=3, connectivity=structure_connectivity
-                )
-                fill_structure = sp.ndimage.iterate_structure(
-                    structure=fill_structure_initial, iterations=structure_iterations
-                )
-            volume_closed_and_filled = sp.ndimage.binary_fill_holes(
-                input=volume_closed,
-                structure=fill_structure,
-                axes=self._grid_axis_indices,
-            )
-        else:
-            volume_closed_and_filled = volume_closed
+        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.binary_closing.html
+        volume_closed = sp.ndimage.binary_closing(
+            input=self.field.tensor,
+            structure=self._create_structuring_element(closing_structure),
+            iterations=closing_iterations,
+            mask=closing_mask,
+            border_value=closing_border_value,
+            axes=self._grid_axis_indices,
+        ) if close else self.field.tensor
+
+        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.binary_fill_holes.html
+        volume_closed_and_filled = sp.ndimage.binary_fill_holes(
+            input=volume_closed,
+            structure=self._create_structuring_element(fill_structure),
+            axes=self._grid_axis_indices,
+        ) if fill else volume_closed
         self._receptor_volume = volume_closed_and_filled.astype(bool)
         self._mask_morphology = jnp.logical_not(volume_closed_and_filled)
         return self._mask_morphology
@@ -168,7 +200,7 @@ class GridDetector:
     def unset_mask(self, *args: Literal["morphology", "ligsite", "custom"]) -> None:
         args = set(args or ("morphology", "ligsite", "custom"))
         if "morphology" in args:
-            self._mask_morphology = np.logical_not(self.field.tensor)
+            self.set_mask_morphology(close=False, fill=False)
         if "ligsite" in args:
             self._mask_ligsite = None
         if "custom" in args:
@@ -226,10 +258,25 @@ class GridDetector:
     def receptor(self) -> ChemicalSystem:
         return self._receptor
 
+    @staticmethod
+    def _create_structuring_element(structure: np.ndarray | tuple[int, int]) -> np.ndarray:
+        if not isinstance(structure, tuple):
+            return structure
+        structure_connectivity, structure_iterations = structure
+        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.generate_binary_structure.html
+        structure_initial = sp.ndimage.generate_binary_structure(
+            rank=3, connectivity=structure_connectivity
+        )
+        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.iterate_structure.html
+        structure_iterated = sp.ndimage.iterate_structure(
+            structure=structure_initial, iterations=structure_iterations
+        )
+        return structure_iterated
 
 class _WPrefix(Enum):
     MORPH = "morph_"
     LIGSITE = "ligsite_"
+    EXTRACT = "extract_"
 
 
 class _WName(Enum):
@@ -272,6 +319,27 @@ class _WName(Enum):
     LIGSITE_DIST_MAX = f"{_WPrefix.LIGSITE.value}dist_max"
 
 
+    # Extraction
+    EXTRACT_REFRESH = f"_{_WPrefix.MORPH.value}refresh"
+    EXTRACT_RESET = f"_{_WPrefix.MORPH.value}reset"
+
+    # Morphological Opening
+    EXTRACT_OPEN = f"{_WPrefix.EXTRACT.value}open"
+    EXTRACT_OPEN_BORDER = f"{_WPrefix.EXTRACT.value}open_border"
+    EXTRACT_OPEN_ITER = f"{_WPrefix.EXTRACT.value}open_iter"
+    EXTRACT_OPEN_MASK = f"{_WPrefix.EXTRACT.value}open_mask"
+    # Morphological Opening Structure
+    EXTRACT_OPEN_STRUCT_CONNECT = f"{_WPrefix.EXTRACT.value}open_struct_connect"
+    EXTRACT_OPEN_STRUCT_ITER = f"{_WPrefix.EXTRACT.value}open_struct_iter"
+    EXTRACT_OPEN_STRUCT_CUSTOM = f"{_WPrefix.EXTRACT.value}open_struct_custom"
+
+    # Labeling
+    EXTRACT_LABEL = f"{_WPrefix.EXTRACT.value}label"
+    EXTRACT_LABEL_STRUCT_CONNECT = f"{_WPrefix.EXTRACT.value}label_struct_connect"
+    EXTRACT_LABEL_STRUCT_ITER = f"{_WPrefix.EXTRACT.value}label_struct_iter"
+    EXTRACT_LABEL_STRUCT_CUSTOM = f"{_WPrefix.EXTRACT.value}label_struct_custom"
+
+
 class GridDetectorGUI(scishow.widgets.GUI):
 
     _CSS_STYLE = """<style>
@@ -309,7 +377,15 @@ class GridDetectorGUI(scishow.widgets.GUI):
         }
     </style>"""
 
-    def __init__(self, detector: GridDetector):
+    def __init__(
+        self,
+        detector: GridDetector,
+        ngl_name_receptor: str = "Receptor",
+        ngl_name_receptor_volume_original: str = "Volume (Original)",
+        ngl_name_receptor_volume_added: str = "Volume (Added)",
+        ngl_name_receptor_volume_removed: str = "Volume (Removed)",
+        ngl_name_mask: str = "Pockets"
+    ):
 
         def widget_status() -> widgets.Label:
             """Create a status widget to display the current status of the detector."""
@@ -320,10 +396,10 @@ class GridDetectorGUI(scishow.widgets.GUI):
 
         def widget_ngl() -> NGLWidget:
             nglwidget = scishow.nglview.NGLWidget().display(gui=True)
-            nglwidget.add_trajectory(self.receptor, name="Receptor")
+            nglwidget.add_trajectory(self.receptor, name=ngl_name_receptor)
             nglwidget.add_spheres(
                 coords=self.field.grid.coordinates[self.field.tensor.astype(bool)],
-                name="Receptor Volume (Original)",
+                name=ngl_name_receptor_volume_original,
             )
             # nglwidget.component_0.add_surface(
             #     color="rgb(100,20,20)",
@@ -332,219 +408,29 @@ class GridDetectorGUI(scishow.widgets.GUI):
             #     scale_factor=10,
             #     smooth=10
             # )
-
             return nglwidget
 
         def tab_morph():
-            def panel_close():
-                def on_close_button_value_change(change: dict):
-                    disabled = not change["new"]
-                    for widget in (
-                        structure_connectivity,
-                        structure_iterations,
-                        closing_iterations,
-                        border_value,
-                        custom_structure,
-                        custom_mask,
-                    ):
-                        widget.disabled = disabled
-                    return
-
-                close = self._gui__add_widget(
-                    name=_WName.MORPH_CLOSE.value,
-                    widget=scishow.widgets.toggle_button(
-                        "Close",
-                        value=_Default.MORPH_CLOSE,
-                        disabled=False,
-                        tooltip="Apply morphological closing to the protein volume.",
-                    )
-                )
-                structure_connectivity = self._gui__add_widget(
-                    name=_WName.MORPH_CLOSE_STRUCT_CONNECT.value,
-                    widget=widgets.Dropdown(
-                        options=[1, 2, 3],
-                        value=_Default.MORPH_CLOSE_STRUCT_CONNECT,
-                        layout=widgets.Layout(width="100%"),
-                        disabled=not _Default.MORPH_CLOSE,
-                    )
-                )
-                structure_iterations = self._gui__add_widget(
-                    name=_WName.MORPH_CLOSE_STRUCT_ITER.value,
-                    widget=widgets.IntSlider(
-                        value=_Default.MORPH_CLOSE_STRUCT_ITER,
-                        min=1,
-                        max=100,
-                        step=1,
-                        disabled=not _Default.MORPH_CLOSE,
-                        continuous_update=False,
-                        orientation="horizontal",
-                        readout=True,
-                        readout_format="d",
-                        layout=widgets.Layout(width="100%"),
-                    )
-                )
-                closing_iterations = self._gui__add_widget(
-                    name=_WName.MORPH_CLOSE_ITER.value,
-                    widget=widgets.IntSlider(
-                        value=_Default.MORPH_CLOSE_ITER,
-                        min=1,
-                        max=100,
-                        step=1,
-                        disabled=not _Default.MORPH_CLOSE,
-                        continuous_update=False,
-                        orientation="horizontal",
-                        readout=True,
-                        readout_format="d",
-                        layout=widgets.Layout(width="100%"),
-                    )
-                )
-                border_value = self._gui__add_widget(
-                    name=_WName.MORPH_CLOSE_BORDER.value,
-                    widget=widgets.Dropdown(
-                        options=[0, 1],
-                        value=_Default.MORPH_CLOSE_BORDER,
-                        layout=widgets.Layout(width="100%"),
-                        disabled=not _Default.MORPH_CLOSE,
-                    )
-                )
-                custom_structure = self._gui__add_widget(
-                    name=_WName.MORPH_CLOSE_STRUCT_CUSTOM.value,
-                    widget=widgets.Button(
-                        description="Custom Structure",
-                        icon="trash",
-                        layout=widgets.Layout(display="none")
-                    )
-                )
-                custom_structure.add_class("resetbutton")
-                custom_mask = self._gui__add_widget(
-                    name=_WName.MORPH_CLOSE_MASK.value,
-                    widget=widgets.Button(
-                        description="Custom Mask",
-                        icon="trash",
-                        layout=widgets.Layout(display="none")
-                    )
-                )
-                custom_mask.add_class("resetbutton")
-                close.observe(on_close_button_value_change, names="value")
-                structure_connectivity_labeled = scishow.widgets.labeled_widget(
-                    value="Structure Connectivity:",
-                    widget=structure_connectivity
-                )
-                structure_iterations_labeled = scishow.widgets.labeled_widget(
-                    value="Structure Iterations:",
-                    widget=structure_iterations
-                )
-                closing_iterations_labeled = scishow.widgets.labeled_widget(
-                    value="Closing Iterations:",
-                    widget=closing_iterations
-                )
-                border_value_labeled = scishow.widgets.labeled_widget(
-                    value="Border Value:",
-                    widget=border_value
-                )
-                children = [
-                    close,
-                    structure_connectivity_labeled,
-                    structure_iterations_labeled,
-                    closing_iterations_labeled,
-                    border_value_labeled,
-                    custom_structure,
-                    custom_mask
-                ]
-                return widgets.VBox(
-                    children,
-                    layout=widgets.Layout(
-                        flex="1 1 0%",
-                        padding="12px",
-                        border="0.5px solid lightgray",
-                        border_radius="10px",
-                        min_width="0",
-                        overflow="hidden",
-                    )
-                )
-
-            def panel_fill():
-                def on_fill_button_value_change(change: dict):
-                    disabled = not change["new"]
-                    for widget in (
-                        structure_connectivity,
-                        structure_iterations,
-                        custom_structure,
-                    ):
-                        widget.disabled = disabled
-                    return
-
-                fill = self._gui__add_widget(
-                    name=_WName.MORPH_FILL.value,
-                    widget=scishow.widgets.toggle_button(
-                        "Fill Holes",
-                        value=_Default.MORPH_FILL,
-                        disabled=False,
-                        tooltip="Fill holes in the protein volume after closing.",
-                    )
-                )
-                structure_connectivity = self._gui__add_widget(
-                    name=_WName.MORPH_FILL_STRUCT_CONNECT.value,
-                    widget=widgets.Dropdown(
-                        options=[1, 2, 3],
-                        value=_Default.MORPH_FILL_STRUCT_CONNECT,
-                        layout=widgets.Layout(width="100%"),
-                        disabled=not _Default.MORPH_FILL,
-                    )
-                )
-                structure_iterations = self._gui__add_widget(
-                    name=_WName.MORPH_FILL_STRUCT_ITER.value,
-                    widget=widgets.IntSlider(
-                        value=_Default.MORPH_FILL_STRUCT_ITER,
-                        min=1,
-                        max=100,
-                        step=1,
-                        disabled=not _Default.MORPH_FILL,
-                        continuous_update=False,
-                        orientation="horizontal",
-                        readout=True,
-                        readout_format="d",
-                        layout=widgets.Layout(width="100%"),
-                    )
-                )
-                custom_structure = self._gui__add_widget(
-                    name=_WName.MORPH_FILL_STRUCT_CUSTOM.value,
-                    widget=widgets.Button(
-                        description="Custom Structure",
-                        icon="trash",
-                        layout=widgets.Layout(display="none")
-                    )
-                )
-                fill.observe(on_fill_button_value_change, names="value")
-                structure_connectivity_labeled = scishow.widgets.labeled_widget(
-                    value="Structure Connectivity:",
-                    widget=structure_connectivity
-                )
-                structure_iterations_labeled = scishow.widgets.labeled_widget(
-                    value="Structure Iterations:",
-                    widget=structure_iterations
-                )
-                return widgets.VBox(
-                    [fill, structure_connectivity_labeled, structure_iterations_labeled, custom_structure],
-                    layout=widgets.Layout(
-                        flex="1 1 0%",
-                        padding="12px",
-                        border="0.5px solid lightgray",
-                        border_radius="10px",
-                        min_width="0",
-                        overflow="hidden",
-                    )
-                )
-
             panels = widgets.HBox(
-                    [panel_close(), panel_fill()],
-                    layout=widgets.Layout(
-                        width="100%",
-                        justify_content="space-between",
-                        flex_flow="row wrap",
-                        margin="10px 0 10px 0"
+                [
+                    make_morphology_panel(
+                        "closing",
+                        enum_prefix="MORPH_CLOSE",
+                        tooltip=f"Apply morphological closing to the protein volume."
+                    ),
+                    make_structure_panel(
+                        title="hole filling",
+                        enum_prefix="MORPH_FILL",
+                        tooltip="Fill holes in the protein volume after morphological closing."
                     )
+                ],
+                layout=widgets.Layout(
+                    width="100%",
+                    justify_content="space-between",
+                    flex_flow="row wrap",
+                    margin="10px 0 10px 0"
                 )
+            )
             return widgets.VBox(
                 [panel_top(_WPrefix.MORPH), panels],
                 layout=widgets.Layout(width="100%", overflow="hidden"),
@@ -555,15 +441,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 def on_toggle(change: dict):
                     slider.disabled = not change["new"]
                     return
-                toggle = self._gui__add_widget(
-                    name=_WName.LIGSITE_COUNT,
-                    widget=scishow.widgets.toggle_button(
-                        "PSP Count",
-                        value=_Default.LIGSITE_COUNT,
-                        disabled=False,
-                        tooltip="Apply PSP count mask to the protein volume.",
-                    )
-                )
+
                 slider = self._gui__add_widget(
                     name=_WName.LIGSITE_COUNT_RANGE.value,
                     widget=widgets.IntRangeSlider(
@@ -582,9 +460,17 @@ class GridDetectorGUI(scishow.widgets.GUI):
                         layout=widgets.Layout(width="100%"),
                     )
                 )
-                toggle.observe(on_toggle, names="value")
                 return widgets.VBox(
-                    [toggle, slider],
+                    [
+                        toggle_button(
+                            name=_WName.LIGSITE_COUNT,
+                            text="PSP Count",
+                            value=_Default.LIGSITE_COUNT,
+                            tooltip="Apply PSP count mask to the protein volume.",
+                            observer=on_toggle,
+                        ),
+                        slider
+                    ],
                     layout=widgets.Layout(
                         flex="1 1 0%",
                         padding="12px",
@@ -601,15 +487,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     for widget in (slider, *minmax_dropdowns):
                         widget.disabled = disabled
                     return
-                toggle = self._gui__add_widget(
-                    name=_WName.LIGSITE_DIST,
-                    widget=scishow.widgets.toggle_button(
-                        "PSP Distance",
-                        value=_Default.LIGSITE_DIST,
-                        disabled=False,
-                        tooltip="Apply PSP distance mask to the protein volume.",
-                    )
-                )
+
                 slider = self._gui__add_widget(
                     name=_WName.LIGSITE_DIST_RANGE.value,
                     widget=widgets.FloatRangeSlider(
@@ -642,9 +520,9 @@ class GridDetectorGUI(scishow.widgets.GUI):
                                 "Max": "max",
                                 "Min": "min",
                                 "Mean": "mean",
-                                "Off": None,
+                                "Off": False,
                             },
-                            value=None if default_dist is None else default_mode,
+                            value=False if default_dist is None else default_mode,
                             layout=widgets.Layout(width="100%"),
                             disabled=not _Default.LIGSITE_DIST,
                         )
@@ -664,9 +542,18 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     minmax_dropdowns_labeled,
                     layout=widgets.Layout(width="100%", align_items="center")
                 )
-                toggle.observe(on_toggle, names="value")
                 return widgets.VBox(
-                    [toggle, slider, minmax_settings],
+                    [
+                        toggle_button(
+                            name=_WName.LIGSITE_DIST,
+                            text="PSP Distance",
+                            value=_Default.LIGSITE_DIST,
+                            tooltip="Apply PSP distance mask to the protein volume.",
+                            observer=on_toggle,
+                        ),
+                        slider,
+                        minmax_settings
+                    ],
                     layout=widgets.Layout(
                         flex="1 1 0%",
                         padding="12px",
@@ -688,6 +575,31 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 )
             return widgets.VBox(
                 [panel_top(_WPrefix.LIGSITE), panels],
+                layout=widgets.Layout(width="100%", overflow="hidden"),
+            )
+
+        def tab_extract():
+            panels = widgets.HBox(
+                [
+                    make_morphology_panel(
+                        typ="opening",
+                        enum_prefix="EXTRACT_OPEN",
+                        tooltip="Apply morphological opening to the pocket mask."
+                    ),
+                    make_structure_panel(
+                        title="labeling",
+                        enum_prefix="EXTRACT_LABEL",
+                    )
+                ],
+                layout=widgets.Layout(
+                    width="100%",
+                    justify_content="space-between",
+                    flex_flow="row wrap",
+                    margin="10px 0 10px 0"
+                )
+            )
+            return widgets.VBox(
+                [panel_top(_WPrefix.EXTRACT), panels],
                 layout=widgets.Layout(width="100%", overflow="hidden"),
             )
 
@@ -724,8 +636,185 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 layout=widgets.Layout(width="100%", align_items="center", justify_content="space-between")
             )
 
+        def make_morphology_panel(
+            typ: Literal["dilation", "erosion", "closing", "opening"],
+            enum_prefix: str,
+            tooltip: str,
+        ):
+            toggle_disabled = not _Default[enum_prefix]
+            iterations = self._gui__add_widget(
+                name=_WName[f"{enum_prefix}_ITER"].value,
+                widget=widgets.IntSlider(
+                    value=_Default[f"{enum_prefix}_ITER"],
+                    min=1,
+                    max=100,
+                    step=1,
+                    disabled=toggle_disabled,
+                    continuous_update=False,
+                    orientation="horizontal",
+                    readout=True,
+                    readout_format="d",
+                    layout=widgets.Layout(width="100%"),
+                )
+            )
+            border_value = self._gui__add_widget(
+                name=_WName[f"{enum_prefix}_BORDER"].value,
+                widget=widgets.Dropdown(
+                    options=[0, 1],
+                    value=_Default[f"{enum_prefix}_BORDER"],
+                    layout=widgets.Layout(width="100%"),
+                    disabled=toggle_disabled,
+                )
+            )
+            custom_mask = self._gui__add_widget(
+                name=_WName[f"{enum_prefix}_MASK"].value,
+                widget=widgets.Button(
+                    description="Custom Mask",
+                    icon="trash",
+                    layout=widgets.Layout(display="none")
+                )
+            )
+            custom_mask.add_class("resetbutton")
+            iterations_labeled = scishow.widgets.labeled_widget(
+                value="Iterations:",
+                widget=iterations
+            )
+            border_value_labeled = scishow.widgets.labeled_widget(
+                value="Border Value:",
+                widget=border_value
+            )
+            return make_structure_panel(
+                title=typ,
+                enum_prefix=enum_prefix,
+                on_toggle_widgets=(
+                    iterations,
+                    border_value,
+                    custom_mask,
+                ),
+                add_widgets=(
+                    iterations_labeled,
+                    border_value_labeled,
+                    custom_mask
+                ),
+                tooltip=tooltip,
+            )
+
+        def make_structure_panel(
+            title: str,
+            enum_prefix: str,
+            on_toggle_widgets: Sequence[widgets.Widget] | None = None,
+            add_widgets: Sequence[widgets.Widget] | None = None,
+            tooltip: str = "",
+        ):
+            def on_toggle(change: dict):
+                disabled = not change["new"]
+                for widget in (
+                    structure_connectivity,
+                    structure_iterations,
+                    custom_structure,
+                    *(on_toggle_widgets or []),
+                ):
+                    widget.disabled = disabled
+                return
+
+            toggle_disabled = not _Default[enum_prefix]
+            structure_connectivity = self._gui__add_widget(
+                name=_WName[f"{enum_prefix}_STRUCT_CONNECT"].value,
+                widget=widgets.Dropdown(
+                    options=[1, 2, 3],
+                    value=_Default[f"{enum_prefix}_STRUCT_CONNECT"],
+                    layout=widgets.Layout(width="100%"),
+                    disabled=toggle_disabled,
+                )
+            )
+            structure_iterations = self._gui__add_widget(
+                name=_WName[f"{enum_prefix}_STRUCT_ITER"].value,
+                widget=widgets.IntSlider(
+                    value=_Default[f"{enum_prefix}_STRUCT_ITER"],
+                    min=1,
+                    max=100,
+                    step=1,
+                    disabled=toggle_disabled,
+                    continuous_update=False,
+                    orientation="horizontal",
+                    readout=True,
+                    readout_format="d",
+                    layout=widgets.Layout(width="100%"),
+                )
+            )
+            custom_structure = self._gui__add_widget(
+                name=_WName[f"{enum_prefix}_STRUCT_CUSTOM"].value,
+                widget=widgets.Button(
+                    description="Custom Structure",
+                    icon="trash",
+                    layout=widgets.Layout(display="none")
+                )
+            )
+            custom_structure.add_class("resetbutton")
+            structure_connectivity_labeled = scishow.widgets.labeled_widget(
+                value="Structure Connectivity:",
+                widget=structure_connectivity
+            )
+            structure_iterations_labeled = scishow.widgets.labeled_widget(
+                value="Structure Iterations:",
+                widget=structure_iterations
+            )
+            return widgets.VBox(
+                [
+                    toggle_button(
+                        name=_WName[enum_prefix],
+                        text=title.capitalize(),
+                        value=not toggle_disabled,
+                        tooltip=tooltip,
+                        observer=on_toggle,
+                    ),
+                    custom_structure,
+                    structure_connectivity_labeled,
+                    structure_iterations_labeled,
+                    *(add_widgets or [])
+                ],
+                layout=widgets.Layout(
+                    flex="1 1 0%",
+                    padding="12px",
+                    border="0.5px solid lightgray",
+                    border_radius="10px",
+                    min_width="0",
+                    overflow="hidden",
+                )
+            )
+
+        def toggle_button(
+            name: _WName | str,
+            text: str,
+            value: _Default | bool,
+            tooltip: str,
+            observer: Callable[[dict[str, Any]], None] | None = None,
+            disabled: bool = False
+        ):
+            button = self._gui__add_widget(
+                name=name.value if isinstance(name, Enum) else name,
+                widget=scishow.widgets.toggle_button(
+                    text,
+                    value=value.value if isinstance(value, Enum) else value,
+                    disabled=disabled,
+                    tooltip=tooltip,
+                )
+            )
+            if observer:
+                button.observe(observer, names="value")
+            button_centered = widgets.HBox(
+                [button],
+                layout=widgets.Layout(justify_content="center", width="100%")
+            )
+            return button_centered
+
         super().__init__()
         self._detector = detector
+        self._ngl_name_receptor_volume_added = ngl_name_receptor_volume_added
+        self._ngl_name_receptor_volume_removed = ngl_name_receptor_volume_removed
+        self._ngl_name_mask = ngl_name_mask
+        self._detector.set_mask_morphology()
+        self._detector.set_mask_ligsite()
         self._widg_status = widget_status()
         self._widg_ngl = widget_ngl()
         self._widg_log = widgets.Output()
@@ -733,8 +822,8 @@ class GridDetectorGUI(scishow.widgets.GUI):
             (
                 display.HTML(self._CSS_STYLE),
                 widgets.Tab(
-                    children=[tab_morph(), tab_ligsite()],
-                    titles=["Morphology", "LIGSITE"],
+                    children=[tab_morph(), tab_ligsite(), tab_extract()],
+                    titles=["Morphology", "LIGSITE", "Extraction"],
                     selected_index=0,
                 ),
                 self._widg_ngl,
@@ -743,13 +832,56 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     titles=["Logs"],
                     selected_index=None,
                 )
-            )
+            ),
+            receptor_volume=True,
         )
         self._custom_input = {
             _WName.MORPH_CLOSE_STRUCT_CUSTOM: None,
             _WName.MORPH_FILL_STRUCT_CUSTOM: None,
             _WName.MORPH_CLOSE_MASK: None,
+            _WName.EXTRACT_OPEN_STRUCT_CUSTOM: None,
+            _WName.EXTRACT_OPEN_MASK: None,
+            _WName.EXTRACT_LABEL_STRUCT_CUSTOM: None,
         }
+        return
+
+    def extract_pockets(
+        self,
+        open: bool = _Default.EXTRACT_OPEN,
+        opening_structure: np.ndarray | tuple[int, int] = (
+            _Default.EXTRACT_OPEN_STRUCT_CONNECT,
+            _Default.EXTRACT_OPEN_STRUCT_ITER
+        ),
+        opening_iterations: int = _Default.EXTRACT_OPEN_ITER,
+        opening_mask: np.ndarray | None = None,
+        opening_border_value: Literal[0, 1] = _Default.EXTRACT_OPEN_BORDER,
+        label_structure: np.ndarray | tuple[int, int] = (
+            _Default.EXTRACT_LABEL_STRUCT_CONNECT,
+            _Default.EXTRACT_LABEL_STRUCT_ITER
+        ),
+    ):
+        with self._widg_log:
+            print("Extracting pockets.")
+        with self._show_status():
+            with self._gui__temporary_observation_toggle():
+                self._gui__get_widget(_WName.EXTRACT_OPEN.value).value = open
+                self._set_structuring_element(_WName.EXTRACT_LABEL.name, label_structure)
+                if open:
+                    self._set_structuring_element(_WName.EXTRACT_OPEN.name, opening_structure)
+                    self._gui__get_widget(_WName.EXTRACT_OPEN_ITER.value).value = opening_iterations
+                    self._gui__get_widget(_WName.EXTRACT_OPEN_BORDER.value).value = opening_border_value
+                    # Set opening mask
+                    self._custom_input[_WName.EXTRACT_OPEN_MASK] = opening_mask
+                    self._gui__get_widget(_WName.EXTRACT_OPEN_MASK.value).layout.display = "none" if opening_mask is None else ""
+                labels, n_labels = self._detector.extract_pockets(
+                    open=open,
+                    opening_structure=opening_structure,
+                    opening_iterations=opening_iterations,
+                    opening_mask=opening_mask,
+                    opening_border_value=opening_border_value,
+                    label_structure=label_structure,
+                )
+        self._gui__render()
         return
 
     def set_mask_morphology(
@@ -979,11 +1111,13 @@ class GridDetectorGUI(scishow.widgets.GUI):
         return
 
     def _oc__morph_close_struct_custom(self, _: widgets.Button):
-        """Set a custom structuring element for morphological closing."""
+        """Delete the custom structuring element for morphological closing."""
         with self._widg_log:
             print("Deleting custom structuring element for morphological closing.")
         self._custom_input[_WName.MORPH_CLOSE_STRUCT_CUSTOM] = None
         self._gui__get_widget(_WName.MORPH_CLOSE_STRUCT_CUSTOM.value).layout.display = "none"
+        self._gui__get_widget(_WName.MORPH_CLOSE_STRUCT_CONNECT.value).disabled = False
+        self._gui__get_widget(_WName.MORPH_CLOSE_STRUCT_ITER.value).disabled = False
         with self._show_status():
             self._morph__set_mask()
         return
@@ -1033,9 +1167,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
             self._morph__set_mask()
         return
 
-
-
-    def _ovc__ligsite_refresh(self, change: dict):
+    def _ovc___ligsite_refresh(self, change: dict):
         enabled = change["new"]
         with self._widg_log:
             print(f"LIGSITE auto-refresh {'enabled' if enabled else 'disabled'}.")
@@ -1049,7 +1181,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
             self._ligsite__set_mask()
         return
 
-    def _oc__ligsite_reset(self, _: widgets.Button):
+    def _oc___ligsite_reset(self, _: widgets.Button):
         with self._widg_log:
             print("LIGSITE mask reset to default state.")
         with self._show_status(), self._gui__temporary_observation_toggle():
@@ -1066,7 +1198,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
             for side in ("min", "max"):
                 default_dist = _Default.LIGSITE_DIST_LOWER if side == "min" else _Default.LIGSITE_DIST_UPPER
                 default_mode = _Default.LIGSITE_DIST_LOWER_MODE if side == "min" else _Default.LIGSITE_DIST_UPPER_MODE
-                self._gui__get_widget(_WName[f"LIGSITE_DIST_{side.upper()}"].value).value = None if default_dist is None else default_mode
+                self._gui__get_widget(_WName[f"LIGSITE_DIST_{side.upper()}"].value).value = False if default_dist is None else default_mode
             self._ligsite__set_mask()
         return {}
 
@@ -1114,6 +1246,162 @@ class GridDetectorGUI(scishow.widgets.GUI):
             self._ligsite__set_mask()
         return
 
+    def _ovc___extract_refresh(self, change: dict):
+        enabled = change["new"]
+        with self._widg_log:
+            print(f"Extraction auto-refresh {'enabled' if enabled else 'disabled'}.")
+        self._gui__toggle_widget_observation(
+            observe=enabled,
+            name_regex=f"^{_WPrefix.EXTRACT.value}.+",
+        )
+        if not enabled:
+            return
+        with self._show_status():
+            self._extract__set_mask()
+        return
+
+    def _oc___extract_reset(self, _: widgets.Button):
+        with self._widg_log:
+            print("Extraction mask reset to default state.")
+        with self._show_status(), self._gui__temporary_observation_toggle():
+            self._gui__get_widget(_WName.EXTRACT_OPEN.value).value = _Default.EXTRACT_OPEN
+            self._gui__get_widget(_WName.EXTRACT_LABEL.value).value = _Default.EXTRACT_LABEL
+            self._gui__get_widget(_WName.EXTRACT_OPEN_ITER.value).value = _Default.EXTRACT_OPEN_ITER
+            self._gui__get_widget(_WName.EXTRACT_OPEN_BORDER.value).value = _Default.EXTRACT_OPEN_BORDER
+            self._gui__get_widget(_WName.EXTRACT_OPEN_MASK.value).layout.display = "none"
+            self._custom_input[_WName.EXTRACT_OPEN_MASK] = None
+            self._set_structuring_element(
+                enum_prefix=_WName.EXTRACT_OPEN.name,
+                structure=(
+                    _Default.EXTRACT_OPEN_STRUCT_CONNECT,
+                    _Default.EXTRACT_OPEN_STRUCT_ITER
+                )
+            )
+            self._set_structuring_element(
+                enum_prefix=_WName.EXTRACT_LABEL.name,
+                structure=(
+                    _Default.EXTRACT_LABEL_STRUCT_CONNECT,
+                    _Default.EXTRACT_LABEL_STRUCT_ITER
+                )
+            )
+            self._extract__set_mask()
+        return
+
+    def _ovc__extract_open(self, change: dict):
+        enabled = change["new"]
+        with self._widg_log:
+            print(f"Morphological opening {'enabled' if enabled else 'disabled'}.")
+        with self._show_status():
+            self._extract__set_mask()
+        return
+
+    def _ovc__extract_open_border(self, change: dict):
+        value = change["new"]
+        with self._widg_log:
+            print(f"Morphological opening border value set to {value}.")
+        with self._show_status():
+            self._extract__set_mask()
+        return
+
+    def _ovc__extract_open_iter(self, change: dict):
+        value = change["new"]
+        with self._widg_log:
+            print(f"Morphological opening iterations set to {value}.")
+        with self._show_status():
+            self._extract__set_mask()
+        return
+
+    def _oc__extract_open_mask(self, _: widgets.Button):
+        with self._widg_log:
+            print("Deleting custom mask for morphological opening.")
+        self._custom_input[_WName.EXTRACT_OPEN_MASK] = None
+        self._gui__get_widget(_WName.EXTRACT_OPEN_MASK.value).layout.display = "none"
+        with self._show_status():
+            self._extract__set_mask()
+        return
+
+    def _ovc__extract_open_struct_connect(self, change: dict):
+        value = change["new"]
+        with self._widg_log:
+            print(f"Morphological opening structure connectivity set to {value}.")
+        with self._show_status():
+            self._set_structuring_element(
+                _WName.EXTRACT_OPEN.name,
+                structure=(value, self._gui__get_widget(_WName.EXTRACT_OPEN_STRUCT_ITER.value).value)
+            )
+            self._extract__set_mask()
+        return
+
+    def _ovc__extract_open_struct_iter(self, change: dict):
+        value = change["new"]
+        with self._widg_log:
+            print(f"Morphological opening structure iterations set to {value}.")
+        with self._show_status():
+            self._set_structuring_element(
+                _WName.EXTRACT_OPEN.name,
+                structure=(
+                    self._gui__get_widget(_WName.EXTRACT_OPEN_STRUCT_CONNECT.value).value,
+                    value
+                )
+            )
+            self._extract__set_mask()
+        return
+
+    def _oc__extract_open_struct_custom(self, _: widgets.Button):
+        with self._widg_log:
+            print("Deleting custom structuring element for morphological opening.")
+        self._custom_input[_WName.EXTRACT_OPEN_STRUCT_CUSTOM] = None
+        self._gui__get_widget(_WName.EXTRACT_OPEN_STRUCT_CUSTOM.value).layout.display = "none"
+        self._gui__get_widget(_WName.EXTRACT_OPEN_STRUCT_CONNECT.value).disabled = False
+        self._gui__get_widget(_WName.EXTRACT_OPEN_STRUCT_ITER.value).disabled = False
+        with self._show_status():
+            self._extract__set_mask()
+        return
+
+    def _ovc__extract_label(self, change: dict):
+        enabled = change["new"]
+        with self._widg_log:
+            print(f"Labeling {'enabled' if enabled else 'disabled'}.")
+        with self._show_status():
+            self._extract__set_mask()
+        return
+
+    def _ovc__morph_fill_struct_connect(self, change: dict):
+        value = change["new"]
+        with self._widg_log:
+            print(f"Labeling structure connectivity set to {value}.")
+        with self._show_status():
+            self._set_structuring_element(
+                _WName.EXTRACT_LABEL.name,
+                structure=(value, self._gui__get_widget(_WName.EXTRACT_LABEL_STRUCT_ITER.value).value)
+            )
+            self._extract__set_mask()
+        return
+
+    def _ovc__extract_label_struct_iter(self, change: dict):
+        value = change["new"]
+        with self._widg_log:
+            print(f"Labeling structure iterations set to {value}.")
+        with self._show_status():
+            self._set_structuring_element(
+                _WName.EXTRACT_LABEL.name,
+                structure=(
+                    self._gui__get_widget(_WName.EXTRACT_LABEL_STRUCT_CONNECT.value).value,
+                    value
+                )
+            )
+            self._extract__set_mask()
+        return
+
+    def _oc__extract_label_struct_custom(self, _: widgets.Button):
+        with self._widg_log:
+            print("Deleting custom structuring element for labeling.")
+        self._custom_input[_WName.EXTRACT_LABEL_STRUCT_CUSTOM] = None
+        self._gui__get_widget(_WName.EXTRACT_LABEL_STRUCT_CUSTOM.value).layout.display = "none"
+        with self._show_status():
+            self._extract__set_mask()
+        return
+
     def _morph__set_mask(self):
         """Set the morphology mask based on the current GUI settings."""
         with self._widg_log:
@@ -1146,10 +1434,10 @@ class GridDetectorGUI(scishow.widgets.GUI):
             print("Recalculating LIGSITE mask with current settings.")
         count_enabled = self._gui__get_widget(_WName.LIGSITE_COUNT.value).value
         dist_enabled = self._gui__get_widget(_WName.LIGSITE_DIST.value).value
-        count_range = self._gui__get_widget(_WName.LIGSITE_PSP_COUNT_RANGE.value)
-        dist_range = self._gui__get_widget(_WName.LIGSITE_PSP_DIST_RANGE.value)
-        dist_min = self._gui__get_widget(_WName.LIGSITE_PSP_DIST_MIN.value)
-        dist_max = self._gui__get_widget(_WName.LIGSITE_PSP_DIST_MAX.value)
+        count_range = self._gui__get_widget(_WName.LIGSITE_COUNT_RANGE.value)
+        dist_range = self._gui__get_widget(_WName.LIGSITE_DIST_RANGE.value)
+        dist_min = self._gui__get_widget(_WName.LIGSITE_DIST_MIN.value)
+        dist_max = self._gui__get_widget(_WName.LIGSITE_DIST_MAX.value)
         self._detector.set_mask_ligsite(
             count_lower=count_range.lower if count_enabled else None,
             count_upper=count_range.upper if count_enabled else None,
@@ -1157,6 +1445,36 @@ class GridDetectorGUI(scishow.widgets.GUI):
             dist_upper=dist_range.upper if dist_enabled and dist_max.value else None,
             dist_lower_mode=dist_min.value,
             dist_upper_mode=dist_max.value,
+        )
+        self._gui__render()
+        return
+
+    def _extract__set_mask(self):
+        """Set the extraction mask based on the current GUI settings."""
+        with self._widg_log:
+            print("Recalculating extraction mask with current settings.")
+
+
+
+        open = self._gui__get_widget(_WName.EXTRACT_OPEN.value).value
+        opening_structure = (
+            self._gui__get_widget(_WName.EXTRACT_OPEN_STRUCT_CONNECT.value).value,
+            self._gui__get_widget(_WName.EXTRACT_OPEN_STRUCT_ITER.value).value,
+        )
+        opening_iterations = self._gui__get_widget(_WName.EXTRACT_OPEN_ITER.value).value
+        opening_mask = self._custom_input[_WName.EXTRACT_OPEN_MASK]
+        opening_border_value = self._gui__get_widget(_WName.EXTRACT_OPEN_BORDER.value).value
+        label_structure = (
+            self._gui__get_widget(_WName.EXTRACT_LABEL_STRUCT_CONNECT.value).value,
+            self._gui__get_widget(_WName.EXTRACT_LABEL_STRUCT_ITER.value).value,
+        )
+        self._detector.extract_pockets(
+            open=open,
+            opening_structure=opening_structure,
+            opening_iterations=opening_iterations,
+            opening_mask=opening_mask,
+            opening_border_value=opening_border_value,
+            label_structure=label_structure,
         )
         self._gui__render()
         return
@@ -1188,29 +1506,27 @@ class GridDetectorGUI(scishow.widgets.GUI):
 
         This method is automatically called by the `GUI` parent class when needed.
         """
+        ngl = self.nglwidget
         with self._show_status("Rendering..."):
-            name = "Pocket Selection"
-            ngl = self.nglwidget
-            ngl.remove_component_by_name(name)
-            ngl.add_spheres(
-                coords=self.field.grid.coordinates[self.mask],
-                name=name,
-            )
+            ngl.remove_component_by_name(self._ngl_name_mask)
             if receptor_volume:
-                receptor_volume_added_name = "Receptor Volume (Added)"
-                ngl.remove_component_by_name(receptor_volume_added_name)
+                ngl.remove_component_by_name(self._ngl_name_receptor_volume_added)
+                ngl.remove_component_by_name(self._ngl_name_receptor_volume_removed)
                 ngl.add_spheres(
-                    name=receptor_volume_added_name,
+                    name=self._ngl_name_receptor_volume_added,
                     coords=self.field.grid.coordinates[self._detector.receptor_volume_added],
                     colors=(0, 100, 0)
                 )
-                receptor_volume_removed_name = "Receptor Volume (Removed)"
-                ngl.remove_component_by_name(receptor_volume_removed_name)
                 ngl.add_spheres(
-                    name=receptor_volume_removed_name,
+                    name=self._ngl_name_receptor_volume_removed,
                     coords=self.field.grid.coordinates[self._detector.receptor_volume_removed],
                     colors=(100, 0, 0)
                 )
+            ngl.add_spheres(
+                name=self._ngl_name_mask,
+                coords=self.field.grid.coordinates[self.mask],
+                colors=(0, 0, 100),
+            )
         return
 
     @contextmanager
