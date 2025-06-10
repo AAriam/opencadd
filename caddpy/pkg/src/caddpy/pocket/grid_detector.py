@@ -41,7 +41,7 @@ class _Default(metaclass=_DefaultMeta):
     # Closing
     MORPH_CLOSE = True
     MORPH_CLOSE_ITER = 1
-    MORPH_CLOSE_BORDER = 1
+    MORPH_CLOSE_BORDER = 0
     # Closing Structure
     MORPH_CLOSE_STRUCT_CONNECT = 1
     MORPH_CLOSE_STRUCT_ITER = 1
@@ -73,16 +73,30 @@ class _Default(metaclass=_DefaultMeta):
     # Morphological Opening
     EXTRACT_OPEN = True
     EXTRACT_OPEN_ITER = 1
-    EXTRACT_OPEN_BORDER = 1
+    EXTRACT_OPEN_BORDER = 0
     # Opening Structure
     EXTRACT_OPEN_STRUCT_CONNECT = 1
     EXTRACT_OPEN_STRUCT_ITER = 1
 
     # Labeling
     EXTRACT_LABEL = True
+    EXTRACT_LABEL_MIN_POINTS = 350
     # Labeling Structure
     EXTRACT_LABEL_STRUCT_CONNECT = 1
     EXTRACT_LABEL_STRUCT_ITER = 1
+
+
+class Pockets:
+    def __init__(
+        self,
+        labels: jax.Array,
+        num_features: int,
+    ):
+        self.labels = labels
+        self.num_features = num_features
+        self.num_points = jnp.bincount(labels.ravel())
+        return
+
 
 class GridDetector:
     def __init__(self, receptor: ChemicalSystem, field: Field):
@@ -130,7 +144,10 @@ class GridDetector:
             input=mask_opened,
             structure=self._create_structuring_element(label_structure),
         )
-        return label_tensor, num_features
+        return Pockets(
+            labels=jnp.asarray(label_tensor),
+            num_features=num_features
+        )
 
     def set_mask_morphology(
         self,
@@ -320,8 +337,8 @@ class _WName(Enum):
 
 
     # Extraction
-    EXTRACT_REFRESH = f"_{_WPrefix.MORPH.value}refresh"
-    EXTRACT_RESET = f"_{_WPrefix.MORPH.value}reset"
+    EXTRACT_REFRESH = f"_{_WPrefix.EXTRACT.value}refresh"
+    EXTRACT_RESET = f"_{_WPrefix.EXTRACT.value}reset"
 
     # Morphological Opening
     EXTRACT_OPEN = f"{_WPrefix.EXTRACT.value}open"
@@ -384,7 +401,8 @@ class GridDetectorGUI(scishow.widgets.GUI):
         ngl_name_receptor_volume_original: str = "Volume (Original)",
         ngl_name_receptor_volume_added: str = "Volume (Added)",
         ngl_name_receptor_volume_removed: str = "Volume (Removed)",
-        ngl_name_mask: str = "Pockets"
+        ngl_name_mask: str = "Mask",
+        ngl_name_pocket: str = "P "
     ):
 
         def widget_status() -> widgets.Label:
@@ -813,8 +831,10 @@ class GridDetectorGUI(scishow.widgets.GUI):
         self._ngl_name_receptor_volume_added = ngl_name_receptor_volume_added
         self._ngl_name_receptor_volume_removed = ngl_name_receptor_volume_removed
         self._ngl_name_mask = ngl_name_mask
+        self._ngl_name_pocket = ngl_name_pocket
         self._detector.set_mask_morphology()
         self._detector.set_mask_ligsite()
+        self._pockets = self._detector.extract_pockets()
         self._widg_status = widget_status()
         self._widg_ngl = widget_ngl()
         self._widg_log = widgets.Output()
@@ -834,6 +854,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 )
             ),
             receptor_volume=True,
+            pockets=True,
         )
         self._custom_input = {
             _WName.MORPH_CLOSE_STRUCT_CUSTOM: None,
@@ -843,6 +864,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
             _WName.EXTRACT_OPEN_MASK: None,
             _WName.EXTRACT_LABEL_STRUCT_CUSTOM: None,
         }
+        self._ngl_current_pocket_names = []
         return
 
     def extract_pockets(
@@ -1425,7 +1447,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
             closing_border_value=self._gui__get_widget(_WName.MORPH_CLOSE_BORDER.value).value,
             fill_structure=fill_structure,
         )
-        self._gui__render(receptor_volume=True)
+        self._extract__set_mask(receptor_volume=True)
         return
 
     def _ligsite__set_mask(self):
@@ -1446,37 +1468,34 @@ class GridDetectorGUI(scishow.widgets.GUI):
             dist_lower_mode=dist_min.value,
             dist_upper_mode=dist_max.value,
         )
-        self._gui__render()
+        self._extract__set_mask()
         return
 
-    def _extract__set_mask(self):
-        """Set the extraction mask based on the current GUI settings."""
+    def _extract__set_mask(self, receptor_volume: bool = False):
+        """Extract pockets based on the current GUI settings."""
+        refresh = self._gui__get_widget(_WName.EXTRACT_REFRESH.value).value
+        if not refresh:
+            self._gui__render(receptor_volume=receptor_volume)
+            return
         with self._widg_log:
             print("Recalculating extraction mask with current settings.")
-
-
-
-        open = self._gui__get_widget(_WName.EXTRACT_OPEN.value).value
-        opening_structure = (
-            self._gui__get_widget(_WName.EXTRACT_OPEN_STRUCT_CONNECT.value).value,
-            self._gui__get_widget(_WName.EXTRACT_OPEN_STRUCT_ITER.value).value,
+        custom_opening_structure = self._custom_input[_WName.EXTRACT_OPEN_STRUCT_CUSTOM]
+        custom_label_structure = self._custom_input[_WName.EXTRACT_LABEL_STRUCT_CUSTOM]
+        self._pockets = self._detector.extract_pockets(
+            open=self._gui__get_widget(_WName.EXTRACT_OPEN.value).value,
+            opening_structure=(
+                self._gui__get_widget(_WName.EXTRACT_OPEN_STRUCT_CONNECT.value).value,
+                self._gui__get_widget(_WName.EXTRACT_OPEN_STRUCT_ITER.value).value,
+            ) if custom_opening_structure is None else custom_opening_structure,
+            opening_iterations=self._gui__get_widget(_WName.EXTRACT_OPEN_ITER.value).value,
+            opening_mask=self._custom_input[_WName.EXTRACT_OPEN_MASK],
+            opening_border_value=self._gui__get_widget(_WName.EXTRACT_OPEN_BORDER.value).value,
+            label_structure=(
+                self._gui__get_widget(_WName.EXTRACT_LABEL_STRUCT_CONNECT.value).value,
+                self._gui__get_widget(_WName.EXTRACT_LABEL_STRUCT_ITER.value).value,
+            ) if custom_label_structure is None else custom_label_structure,
         )
-        opening_iterations = self._gui__get_widget(_WName.EXTRACT_OPEN_ITER.value).value
-        opening_mask = self._custom_input[_WName.EXTRACT_OPEN_MASK]
-        opening_border_value = self._gui__get_widget(_WName.EXTRACT_OPEN_BORDER.value).value
-        label_structure = (
-            self._gui__get_widget(_WName.EXTRACT_LABEL_STRUCT_CONNECT.value).value,
-            self._gui__get_widget(_WName.EXTRACT_LABEL_STRUCT_ITER.value).value,
-        )
-        self._detector.extract_pockets(
-            open=open,
-            opening_structure=opening_structure,
-            opening_iterations=opening_iterations,
-            opening_mask=opening_mask,
-            opening_border_value=opening_border_value,
-            label_structure=label_structure,
-        )
-        self._gui__render()
+        self._gui__render(receptor_volume=receptor_volume, mask=False, pockets=True)
         return
 
     def _set_structuring_element(
@@ -1501,32 +1520,55 @@ class GridDetectorGUI(scishow.widgets.GUI):
             w_custom.layout.display = ""
         return
 
-    def _gui__render(self, receptor_volume: bool = False):
+    def _gui__render(
+        self,
+        receptor_volume: bool = False,
+        mask: bool = True,
+        pockets: bool = False
+    ):
         """Update the NGLWidget with the current mask.
 
         This method is automatically called by the `GUI` parent class when needed.
         """
         ngl = self.nglwidget
         with self._show_status("Rendering..."):
-            ngl.remove_component_by_name(self._ngl_name_mask)
             if receptor_volume:
                 ngl.remove_component_by_name(self._ngl_name_receptor_volume_added)
                 ngl.remove_component_by_name(self._ngl_name_receptor_volume_removed)
                 ngl.add_spheres(
                     name=self._ngl_name_receptor_volume_added,
                     coords=self.field.grid.coordinates[self._detector.receptor_volume_added],
-                    colors=(0, 100, 0)
+                    colors=(0, 100, 0),
+                    representation_params=scishow.nglview.RepresentationParameters(visible=False, lazy=True)
                 )
                 ngl.add_spheres(
                     name=self._ngl_name_receptor_volume_removed,
                     coords=self.field.grid.coordinates[self._detector.receptor_volume_removed],
-                    colors=(100, 0, 0)
+                    colors=(100, 0, 0),
+                    representation_params=scishow.nglview.RepresentationParameters(visible=False, lazy=True)
                 )
-            ngl.add_spheres(
-                name=self._ngl_name_mask,
-                coords=self.field.grid.coordinates[self.mask],
-                colors=(0, 0, 100),
-            )
+            if mask:
+                ngl.remove_component_by_name(self._ngl_name_mask)
+                ngl.add_spheres(
+                    name=self._ngl_name_mask,
+                    coords=self.field.grid.coordinates[self.mask],
+                    colors=(0, 0, 100),
+                    representation_params=scishow.nglview.RepresentationParameters(visible=False, lazy=True)
+                )
+            if pockets:
+                for pocket_name in self._ngl_current_pocket_names:
+                    ngl.remove_component_by_name(pocket_name)
+                for pocket_idx in range(1, self._pockets.num_features + 1):
+                    pocket_size = self._pockets.num_points[pocket_idx]
+                    if pocket_size < 300:
+                        continue
+                    pocket_name = f"{self._ngl_name_pocket} {pocket_idx}"
+                    ngl.add_spheres(
+                        name=pocket_name,
+                        coords=self.field.grid.coordinates[self._pockets.labels == pocket_idx],
+                        colors=(100, 0, 100),
+                    )
+                    self._ngl_current_pocket_names.append(pocket_name)
         return
 
     @contextmanager
@@ -1555,6 +1597,7 @@ def from_chemsys(
     grid: int | float | Sequence[int | float] | Grid = 0.5,
     minimize_aabb: bool = True,
     gui: bool = False,
+    display: bool = True
 ) -> GridDetector | GridDetectorGUI:
     """Create a grid-based pocket detector from a chemical system.
 
@@ -1585,5 +1628,6 @@ def from_chemsys(
     if not gui:
         return detector
     detector_gui = GridDetectorGUI(detector)
-    detector_gui.display()
+    if display:
+        detector_gui.display()
     return detector_gui
