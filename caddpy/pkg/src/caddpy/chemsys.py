@@ -70,8 +70,8 @@ class ChemicalSystem:
 
     def toxelate(
         self,
-        grid: float | Sequence[float] | Grid = 0.5,
-        padding: float | ArrayLike = 0,
+        grid: float | Sequence[float] | Grid = 0.3,
+        padding: float | None = None,
         instance_selection: Any = None,
     ):
         return self.trajectory.toxelate(
