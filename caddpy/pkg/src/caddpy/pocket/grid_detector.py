@@ -1594,7 +1594,7 @@ def from_chemsys(
     system: ChemicalSystem,
     *,
     field: Field | None = None,
-    grid: int | float | Sequence[int | float] | Grid = 0.5,
+    grid: int | float | Sequence[int | float] | Grid = 0.3,
     minimize_aabb: bool = True,
     gui: bool = False,
     display: bool = True
