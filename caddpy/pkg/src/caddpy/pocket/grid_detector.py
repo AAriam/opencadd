@@ -1388,7 +1388,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
             self._extract__set_mask()
         return
 
-    def _ovc__morph_fill_struct_connect(self, change: dict):
+    def _ovc__extract_label_struct_connect(self, change: dict):
         value = change["new"]
         with self._widg_log:
             print(f"Labeling structure connectivity set to {value}.")
