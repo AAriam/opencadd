@@ -414,13 +414,12 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 coords=self.field.grid.coordinates[self.field.tensor.astype(bool)],
                 name=ngl_name_receptor_volume_original,
             )
-            # nglwidget.component_0.add_surface(
-            #     color="rgb(100,20,20)",
-            #     opacity=0.5,
-            #     surface_type="vws",
-            #     scale_factor=10,
-            #     smooth=10
-            # )
+            nglwidget.component_0.add_surface(
+                color="rgb(100,20,20)",
+                opacity=0.5,
+                surface_type="vws",
+                scale_factor=0,
+            )
             return nglwidget
 
         def tab_morph():
