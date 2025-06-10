@@ -1531,6 +1531,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
         This method is automatically called by the `GUI` parent class when needed.
         """
         ngl = self.nglwidget
+        radii = self.field.grid.spacings[0]/2
         with self._show_status("Rendering..."):
             if receptor_volume:
                 ngl.remove_component_by_name(self._ngl_name_receptor_volume_added)
@@ -1538,12 +1539,14 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 ngl.add_spheres(
                     name=self._ngl_name_receptor_volume_added,
                     coords=self.field.grid.coordinates[self._detector.receptor_volume_added],
+                    radii=radii,
                     colors=(0, 100, 0),
                     representation_params=scishow.nglview.RepresentationParameters(visible=False, lazy=True)
                 )
                 ngl.add_spheres(
                     name=self._ngl_name_receptor_volume_removed,
                     coords=self.field.grid.coordinates[self._detector.receptor_volume_removed],
+                    radii=radii,
                     colors=(100, 0, 0),
                     representation_params=scishow.nglview.RepresentationParameters(visible=False, lazy=True)
                 )
@@ -1552,6 +1555,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 ngl.add_spheres(
                     name=self._ngl_name_mask,
                     coords=self.field.grid.coordinates[self.mask],
+                    radii=radii,
                     colors=(0, 0, 100),
                     representation_params=scishow.nglview.RepresentationParameters(visible=False, lazy=True)
                 )
@@ -1566,6 +1570,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     ngl.add_spheres(
                         name=pocket_name,
                         coords=self.field.grid.coordinates[self._pockets.labels == pocket_idx],
+                        radii=radii,
                         colors=(100, 0, 100),
                     )
                     self._ngl_current_pocket_names.append(pocket_name)
