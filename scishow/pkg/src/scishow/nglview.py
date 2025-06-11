@@ -199,9 +199,11 @@ class NGLWidget(nv.NGLWidget):
         -------
         None
         """
-        self._execute_js_code(
-            f"""this.stage.removeComponent(this.stage.getComponentsByName("{name}").first)"""
-        )
+        command = f"""
+        this.stage.removeComponent(this.stage.getComponentsByName("{name}").first);
+        this.stage.dispose()
+        """
+        self._js(command)
         return
 
     def add_volume(
@@ -521,7 +523,7 @@ class RepresentationParameters:
             val = getattr(self, f.name)
             if val is not None:
                 js_key = _to_camel_case(f.name)
-                js_val = _js_repr(Color(val) if f.name.endswith('color') and not isinstance(val, Color) and isinstance(val, (str, int)) else val)
+                js_val = _js_repr(Color(val) if f.name.endswith('color') and not isinstance(val, Color) else val)
                 js_fields.append(f"{js_key}: {js_val}")
         return f"{{{', '.join(js_fields)}}}"
 
@@ -592,12 +594,20 @@ class SurfaceRepresentationParameters(RepresentationParameters):
 @dataclass
 class Color:
     """A JavaScript `Color` object from three.js."""
-    value: int | str
+    value: str | tuple[int, int, int] | tuple[float, float, float]
 
     def __str__(self):
-        if isinstance(self.value, int):
-            return f"new Color(0x{self.value:06x})"
-        return f"new Color('{self.value}')"
+        if isinstance(self.value, str):
+            return f"'{self.value}'"
+        if len(self.value) != 3:
+            raise ValueError("Color must be a tuple of 3 values (r, g, b).")
+        if any(isinstance(c, float) for c in self.value):
+            if any(c < 0 or c > 1 for c in self.value):
+                raise ValueError("Color values must be in the range [0, 1] for floats.")
+            return f"'rgb({','.join(str(int(round(c * 255))) for c in self.value)})'"
+        if any(c < 0 or c > 255 for c in self.value):
+            raise ValueError("Color values must be in the range [0, 255] for integers.")
+        return f"'rgb({','.join(map(str, self.value))})'"
 
 
 @dataclass
