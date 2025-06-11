@@ -81,6 +81,20 @@ class ChemicalSystem:
             instance_selection=instance_selection,
         )
 
+    def minimize_aabb(
+        self,
+        instance_selection: Any = None,
+        mode: Literal["per_instance", "one_for_all", "one_for_slice"] = "per_instance",
+        algorithm: Literal["pca", "hull", "best"] = "best",
+    ):
+        return self.new(
+            trajectory=self.trajectory.minimize_aabb(
+                instance_selection=instance_selection,
+                mode=mode,
+                algorithm=algorithm,
+            )
+        )
+
     def select(self, selection: ArrayLike | pd.Series):
         selection = np.asarray(selection, dtype=bool)
         atoms = self.composition.atoms[selection]
