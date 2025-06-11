@@ -119,7 +119,26 @@ class GridDetector:
             brute_force=opening_brute_force,
             border_value=0,
             axes=self._grid_axis_indices,
-        ) if open else self.mask
+        ) if opening else self.mask
+
+        # if open:
+        #     structure = self._create_structuring_element(opening_structure)
+        #     eroded = sp.ndimage.binary_erosion(
+        #         input=self.mask,
+        #         structure=structure,
+        #         iterations=opening_iterations,
+        #         mask=opening_mask,
+        #         border_value=opening_border_value,
+        #         axes=self._grid_axis_indices,
+        #     )
+        #     mask_opened = sp.ndimage.binary_propagation(
+        #         input=eroded,
+        #         structure=structure,
+        #         mask=self.mask,
+        #         border_value=opening_border_value,
+        #         axes=self._grid_axis_indices,
+        #     )
+
 
         # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.label.html
         label_tensor, num_features = sp.ndimage.label(mask_opened)
