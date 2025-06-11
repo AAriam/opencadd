@@ -49,7 +49,7 @@ class _Default(metaclass=_DefaultMeta):
 
     # PSP Count
     LIGSITE_COUNT = True
-    LIGSITE_COUNT_LOWER = 6
+    LIGSITE_COUNT_LOWER = 5
     LIGSITE_COUNT_UPPER = 13
 
     # PSP Distance
