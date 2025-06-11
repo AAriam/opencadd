@@ -31,4 +31,3 @@ dependencies:
       - -e scids/pkg
       - -e scifile/pkg
       - -e scishow/pkg
-      - -e t2fpharm/pkg
