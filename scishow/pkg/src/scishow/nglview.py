@@ -201,7 +201,6 @@ class NGLWidget(nv.NGLWidget):
         """
         command = f"""
         this.stage.removeComponent(this.stage.getComponentsByName("{name}").first);
-        this.stage.dispose()
         """
         self._js(command)
         return
