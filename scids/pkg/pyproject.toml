@@ -12,6 +12,7 @@ dependencies = [
     "pandas",
     "scipy",
     "arrayer",
+    "bbo",
     "beartype",   # https://github.com/beartype/beartype
     "jaxtyping",  # https://github.com/patrick-kidger/jaxtyping
 ]
