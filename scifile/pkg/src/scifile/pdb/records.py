@@ -539,11 +539,11 @@ class RemarkDataset:
         return self._related_publications
 
     @property
-    def resolution(self) -> float | None:
+    def resolution(self) -> pd.DataFrame | None:
         return self._resolution
 
     @property
-    def format(self) -> dict[str, str | datetime.date] | None:
+    def format(self) -> pd.DataFrame | None:
         return self._format
 
 
