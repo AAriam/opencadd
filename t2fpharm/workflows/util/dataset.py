@@ -169,7 +169,6 @@ class DatasetManager:
         self._pdb = scifile.pdb.PDBDataset(**styled_params)
         return self._pdb
 
-
     def iter_structures(self):
         """Iterate over the structures in the dataset."""
         for group in self._data.groups:
