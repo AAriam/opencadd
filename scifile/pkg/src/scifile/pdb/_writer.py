@@ -81,12 +81,12 @@ class PDBWriter:
                             variant=variant,
                             is_std=row.res_std,
                             serial=row.serial,
-                            atom_name=row.atom_name,
+                            name=row.name,
                             alt_loc=row.alt_loc,
                             res_name=row.res_name,
                             chain_id=chain_id,
-                            res_num=row.res_num,
-                            res_icode=row.res_icode,
+                            res_seq=row.res_seq,
+                            i_code=row.i_code,
                             x=row.x,
                             y=row.y,
                             z=row.z,
@@ -101,7 +101,7 @@ class PDBWriter:
                     )
                 pdb_lines.append(
                     f"TER   {row.serial + 1:>5}{'':6}{row.res_name:>3} {chain_id:1}"
-                    f"{row.res_num:>4}{row.res_icode:1}{'':53}"
+                    f"{row.res_seq:>4}{row.i_code:1}{'':53}"
                 )
             hets = model[~model.res_poly]
             for i in hets.index:
@@ -111,12 +111,12 @@ class PDBWriter:
                         variant=variant,
                         is_std=False,
                         serial=row.serial,
-                        atom_name=row.atom_name,
+                        name=row.name,
                         alt_loc=row.alt_loc,
                         res_name=row.res_name,
                         chain_id=chain_id,
-                        res_num=row.res_num,
-                        res_icode=row.res_icode,
+                        res_seq=row.res_seq,
+                        i_code=row.i_code,
                         x=row.x,
                         y=row.y,
                         z=row.z,
@@ -141,7 +141,7 @@ class PDBWriter:
         header = self._pdbfile.header
         classification = "/".join(", ".join(entry) for entry in header.classification)
         dep_date = _fields.Date.to_pdb(header.dep_date)
-        return f"HEADER{'':4}{classification:<40}{dep_date}{'':3}{header.pdb_id}{'':14}"
+        return f"HEADER{'':4}{classification:<40}{dep_date}{'':3}{header.id_code}{'':14}"
 
     def record_title(self) -> str:
         """
@@ -186,12 +186,12 @@ class PDBWriter:
         variant: Literal["pdb", "pdbqt"],
         is_std: bool,
         serial: int,
-        atom_name: str,
+        name: str,
         alt_loc: str,
         res_name: str,
         chain_id: str,
-        res_num: int,
-        res_icode: str,
+        res_seq: int,
+        i_code: str,
         x: float,
         y: float,
         z: float,
@@ -206,10 +206,10 @@ class PDBWriter:
         record_name = "ATOM  " if is_std else "HETATM"
         charge = "  " if pd.isna(charge) else charge
 
-        atom_name = f" {atom_name:<3}" if len(atom_name) < 4 else f"{atom_name:<4}"
+        name = f" {name:<3}" if len(name) < 4 else f"{name:<4}"
         common_part = (
-            f"{record_name}{serial:>5} {atom_name}{alt_loc:1}"
-            f"{res_name:>3} {chain_id:1}{res_num:>4}{res_icode:1}{'':3}{x:>8.3f}{y:>8.3f}{z:>8.3f}"
+            f"{record_name}{serial:>5} {name}{alt_loc:1}"
+            f"{res_name:>3} {chain_id:1}{res_seq:>4}{i_code:1}{'':3}{x:>8.3f}{y:>8.3f}{z:>8.3f}"
             f"{occupancy:>6.2f}{temp_factor:>6.2f}"
         )
         if variant == "pdb":
@@ -277,10 +277,10 @@ class EnsemblePDBWriter:
         )
         char_tab[idx_ter_records, 21] = o_terminus_atoms.chain_id.to_numpy().astype(str)
         char_tab[idx_ter_records, 22:26] = (
-            np.char.mod("%4d", o_terminus_atoms.res_num).view(dtype=(str, 1)).reshape(-1, 4)
+            np.char.mod("%4d", o_terminus_atoms.res_seq).view(dtype=(str, 1)).reshape(-1, 4)
         )
         char_tab[idx_ter_records, 26] = np.char.mod(
-            "%1s", o_terminus_atoms.res_icode.to_numpy(dtype=str)
+            "%1s", o_terminus_atoms.i_code.to_numpy(dtype=str)
         )
         idx_coord_lines = np.setdiff1d(np.arange(1, num_lines - 2), idx_ter_records)
         char_tab[idx_coord_lines, :6] = (
@@ -291,9 +291,9 @@ class EnsemblePDBWriter:
         )
         char_tab[idx_coord_lines, 12:16] = (
             np.where(
-                np.char.str_len(atoms.atom_name.to_numpy(dtype=str)) < 4,
-                np.char.add(" ", np.char.mod("%-3s", atoms.atom_name)),
-                np.char.mod("%-4s", atoms.atom_name),
+                np.char.str_len(atoms.name.to_numpy(dtype=str)) < 4,
+                np.char.add(" ", np.char.mod("%-3s", atoms.name)),
+                np.char.mod("%-4s", atoms.name),
             )
             .view(dtype=(str, 1))
             .reshape(-1, 4)
@@ -304,9 +304,9 @@ class EnsemblePDBWriter:
         )
         char_tab[idx_coord_lines, 21] = atoms.chain_id.to_numpy(dtype=str)
         char_tab[idx_coord_lines, 22:26] = (
-            np.char.mod("%4d", atoms.res_num).view(dtype=(str, 1)).reshape(-1, 4)
+            np.char.mod("%4d", atoms.res_seq).view(dtype=(str, 1)).reshape(-1, 4)
         )
-        char_tab[idx_coord_lines, 26] = np.char.mod("%1s", atoms.res_icode.to_numpy(dtype=str))
+        char_tab[idx_coord_lines, 26] = np.char.mod("%1s", atoms.i_code.to_numpy(dtype=str))
         char_tab[idx_coord_lines, 54:60] = (
             np.char.mod("%6.2f", atoms.occupancy).view(dtype=(str, 1)).reshape(-1, 6)
         )

@@ -205,7 +205,7 @@ HEADER = Record(
     field_data={
         "classification": fields.Column((10, 50), fields.LString),
         "dep_date": fields.Column((50, 59), fields.Date),
-        "pdb_id": fields.Column((62, 66), fields.IDcode),
+        "id_code": fields.Column((62, 66), fields.IDcode),
     },
 )
 
@@ -219,8 +219,8 @@ OBSLTE = Record(
     field_data={
         "continuation": fields.Column((8, 10), fields.Continuation),
         "rep_date": fields.Column((11, 20), fields.Date, only_first=True),
-        "pdb_id": fields.Column((21, 25), fields.IDcode, only_first=True),
-        "rep_pdb_id": fields.Column(
+        "id_code": fields.Column((21, 25), fields.IDcode, only_first=True),
+        "r_id_code": fields.Column(
             [(i, i + 4) for i in range(31, 72, 5)], fields.IDcode, only_non_empty=True
         ),
     },
@@ -248,7 +248,7 @@ SPLIT = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((8, 10), fields.Continuation),
-        "split_pdb_id": fields.Column(
+        "id_code": fields.Column(
             [(i, i + 4) for i in range(11, 77, 5)], fields.IDcode, only_non_empty=True
         ),
     },
@@ -263,8 +263,8 @@ CAVEAT = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((8, 10), fields.Continuation),
-        "pdb_id": fields.Column((11, 15), fields.IDcode, only_first=True),
-        "description": fields.Column((19, 79), fields.String, strip=False),
+        "id_code": fields.Column((11, 15), fields.IDcode, only_first=True),
+        "comment": fields.Column((19, 79), fields.String, strip=False),
     },
 )
 
@@ -288,7 +288,7 @@ COMPND = Record(
         "ec": ("EC", fields.List),
         "engineered": ("ENGINEERED", fields.LString),
         "mutation": ("MUTATION", fields.LString),
-        "description": ("OTHER_DETAILS", fields.LString),
+        "other_details": ("OTHER_DETAILS", fields.LString),
     },
 )
 
@@ -307,8 +307,8 @@ SOURCE = Record(
         "mol_id": ("MOL_ID", fields.Integer),
         "synthetic": ("SYNTHETIC", fields.LString),
         "fragment": ("FRAGMENT", fields.LString),
-        "organism_com": ("ORGANISM_COMMON", fields.LString),
-        "organism_sci": ("ORGANISM_SCIENTIFIC", fields.LString),
+        "organism_common": ("ORGANISM_COMMON", fields.LString),
+        "organism_scientific": ("ORGANISM_SCIENTIFIC", fields.LString),
         "organism_tax_id": ("ORGANISM_TAXID", fields.LString),
         "strain": ("STRAIN", fields.LString),
         "variant": ("VARIANT", fields.LString),
@@ -319,26 +319,26 @@ SOURCE = Record(
         "cell": ("CELL", fields.LString),
         "organelle": ("ORGANELLE", fields.LString),
         "secretion": ("SECRETION", fields.LString),
-        "cell_loc": ("CELLULAR_LOCATION", fields.LString),
+        "cellular_location": ("CELLULAR_LOCATION", fields.LString),
         "plasmid": ("PLASMID", fields.LString),
         "gene": ("GENE", fields.LString),
-        "exp_sys_com": ("EXPRESSION_SYSTEM_COMMON", fields.LString),
-        "exp_sys_sci": ("EXPRESSION_SYSTEM", fields.LString),
-        "exp_sys_tax_id": ("EXPRESSION_SYSTEM_TAXID", fields.LString),
-        "exp_sys_strain": ("EXPRESSION_SYSTEM_STRAIN", fields.LString),
-        "exp_sys_variant": ("EXPRESSION_SYSTEM_VARIANT", fields.LString),
-        "exp_sys_cell_line": ("EXPRESSION_SYSTEM_CELL_LINE", fields.LString),
-        "exp_sys_atcc": ("EXPRESSION_SYSTEM_ATCC_NUMBER", fields.LString),
-        "exp_sys_organ": ("EXPRESSION_SYSTEM_ORGAN", fields.LString),
-        "exp_sys_tissue": ("EXPRESSION_SYSTEM_TISSUE", fields.LString),
-        "exp_sys_cell": ("EXPRESSION_SYSTEM_CELL", fields.LString),
-        "exp_sys_organelle": ("EXPRESSION_SYSTEM_ORGANELLE", fields.LString),
-        "exp_sys_cell_loc": ("EXPRESSION_SYSTEM_CELLULAR_LOCATION", fields.LString),
-        "exp_sys_vector_type": ("EXPRESSION_SYSTEM_VECTOR_TYPE", fields.LString),
-        "exp_sys_vector": ("EXPRESSION_SYSTEM_VECTOR", fields.LString),
-        "exp_sys_plasmid": ("EXPRESSION_SYSTEM_PLASMID", fields.LString),
-        "exp_sys_gene": ("EXPRESSION_SYSTEM_GENE", fields.LString),
-        "description": ("OTHER_DETAILS", fields.LString),
+        "expression_system_common": ("EXPRESSION_SYSTEM_COMMON", fields.LString),
+        "expression_system": ("EXPRESSION_SYSTEM", fields.LString),
+        "expression_system_tax_id": ("EXPRESSION_SYSTEM_TAXID", fields.LString),
+        "expression_system_strain": ("EXPRESSION_SYSTEM_STRAIN", fields.LString),
+        "expression_system_variant": ("EXPRESSION_SYSTEM_VARIANT", fields.LString),
+        "expression_system_cell_line": ("EXPRESSION_SYSTEM_CELL_LINE", fields.LString),
+        "expression_system_atcc_number": ("EXPRESSION_SYSTEM_ATCC_NUMBER", fields.LString),
+        "expression_system_organ": ("EXPRESSION_SYSTEM_ORGAN", fields.LString),
+        "expression_system_tissue": ("EXPRESSION_SYSTEM_TISSUE", fields.LString),
+        "expression_system_cell": ("EXPRESSION_SYSTEM_CELL", fields.LString),
+        "expression_system_organelle": ("EXPRESSION_SYSTEM_ORGANELLE", fields.LString),
+        "expression_system_cellular_location": ("EXPRESSION_SYSTEM_CELLULAR_LOCATION", fields.LString),
+        "expression_system_vector_type": ("EXPRESSION_SYSTEM_VECTOR_TYPE", fields.LString),
+        "expression_system_vector": ("EXPRESSION_SYSTEM_VECTOR", fields.LString),
+        "expression_system_plasmid": ("EXPRESSION_SYSTEM_PLASMID", fields.LString),
+        "expression_system_gene": ("EXPRESSION_SYSTEM_GENE", fields.LString),
+        "other_details": ("OTHER_DETAILS", fields.LString),
     },
 )
 
@@ -376,7 +376,7 @@ NUMMDL = Record(
     is_one_time=True,
     is_one_line=True,
     field_data={
-        "num_model": fields.Column((10, 14), fields.Integer),
+        "model_number": fields.Column((10, 14), fields.Integer),
     },
 )
 
@@ -389,7 +389,7 @@ MDLTYP = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((8, 10), fields.Continuation),
-        "description": fields.Column((10, 80), fields.SList),
+        "comment": fields.Column((10, 80), fields.SList),
     },
 )
 
@@ -417,12 +417,12 @@ REVDAT = Record(
         "mod_num": fields.Column((7, 10), fields.Integer),
         "continuation": fields.Column((10, 12), fields.Continuation),
         "mod_date": fields.Column((13, 22), fields.Date, cast=False),
-        "mod_pdb_id": fields.Column((23, 27), fields.IDcode, cast=False),
-        "is_init": fields.Column((31, 32), fields.Integer, cast=False),
+        "mod_id": fields.Column((23, 27), fields.IDcode, cast=False),
+        "mod_type": fields.Column((31, 32), fields.Integer, cast=False),
         "record": fields.Column([(i, i + 6) for i in range(39, 61, 7)], fields.LString, cast=False),
     },
     key_unique="mod_num",
-    keys_repeat=("mod_date", "mod_pdb_id", "is_init"),
+    keys_repeat=("mod_date", "mod_id", "mod_type"),
 )
 
 
@@ -435,8 +435,8 @@ SPRSDE = Record(
     field_data={
         "continuation": fields.Column((8, 10), fields.Continuation),
         "sprsde_date": fields.Column((11, 20), fields.Date, only_first=True),
-        "pdb_id": fields.Column((21, 25), fields.IDcode, only_first=True),
-        "sprsde_pdb_id": fields.Column(
+        "id_code": fields.Column((21, 25), fields.IDcode, only_first=True),
+        "s_id_code": fields.Column(
             [(i, i + 4) for i in range(31, 72, 5)], fields.IDcode, only_non_empty=True
         ),
     },
@@ -462,7 +462,7 @@ JRNL_AUTH = Record(
     is_one_line=False,
     field_data={
         "continuation": fields.Column((16, 18), fields.Continuation),
-        "author": fields.Column((19, 79), fields.List, strip=False),
+        "author_list": fields.Column((19, 79), fields.List, strip=False),
     },
 )
 
@@ -493,7 +493,7 @@ JRNL_REF = Record(
     field_data={
         "continuation": fields.Column((16, 18), fields.Continuation),
         "pub_name": fields.Column((19, 47), fields.String, strip=False),
-        "vol": fields.Column((51, 55), fields.LString, only_first=True),
+        "volume": fields.Column((51, 55), fields.LString, only_first=True),
         "page": fields.Column((56, 61), fields.LString, only_first=True),
         "year": fields.Column((62, 66), fields.Integer, only_first=True),
     },
@@ -561,19 +561,19 @@ DBREF = Record(
     is_one_time=False,
     is_one_line=True,
     field_data={
-        "pdb_id": fields.Column((7, 11), fields.IDcode),
+        "id_code": fields.Column((7, 11), fields.IDcode),
         "chain_id": fields.Column((12, 13), fields.Character),
-        "res_num_begin": fields.Column((14, 18), fields.Integer),
-        "res_icode_begin": fields.Column((18, 19), fields.AChar),
-        "res_num_end": fields.Column((20, 24), fields.Integer),
-        "res_icode_end": fields.Column((24, 25), fields.AChar),
-        "db": fields.Column((26, 32), fields.LString),
-        "db_chain_accession": fields.Column((33, 41), fields.LString),
-        "db_chain_id": fields.Column((42, 54), fields.LString),
-        "db_res_num_begin": fields.Column((55, 60), fields.Integer),
-        "db_res_icode_begin": fields.Column((60, 61), fields.AChar),
-        "db_res_num_end": fields.Column((62, 67), fields.Integer),
-        "db_res_icode_end": fields.Column((67, 68), fields.AChar),
+        "seq_begin": fields.Column((14, 18), fields.Integer),
+        "insert_begin": fields.Column((18, 19), fields.AChar),
+        "seq_end": fields.Column((20, 24), fields.Integer),
+        "insert_end": fields.Column((24, 25), fields.AChar),
+        "database": fields.Column((26, 32), fields.LString),
+        "db_accession": fields.Column((33, 41), fields.LString),
+        "db_id_code": fields.Column((42, 54), fields.LString),
+        "db_seq_begin": fields.Column((55, 60), fields.Integer),
+        "db_ins_begin": fields.Column((60, 61), fields.AChar),
+        "db_seq_end": fields.Column((62, 67), fields.Integer),
+        "db_ins_end": fields.Column((67, 68), fields.AChar),
     },
 )
 
@@ -585,14 +585,14 @@ DBREF1 = Record(
     is_one_time=False,
     is_one_line=True,
     field_data={
-        "pdb_id": fields.Column((7, 11), fields.IDcode),
+        "id_code": fields.Column((7, 11), fields.IDcode),
         "chain_id": fields.Column((12, 13), fields.Character),
-        "res_num_begin": fields.Column((14, 18), fields.Integer),
-        "res_icode_begin": fields.Column((18, 19), fields.AChar),
-        "res_num_end": fields.Column((20, 24), fields.Integer),
-        "res_icode_end": fields.Column((24, 25), fields.AChar),
-        "db": fields.Column((26, 32), fields.LString),
-        "db_chain_id": fields.Column((47, 67), fields.LString),
+        "seq_begin": fields.Column((14, 18), fields.Integer),
+        "insert_begin": fields.Column((18, 19), fields.AChar),
+        "seq_end": fields.Column((20, 24), fields.Integer),
+        "insert_end": fields.Column((24, 25), fields.AChar),
+        "database": fields.Column((26, 32), fields.LString),
+        "db_id_code": fields.Column((47, 67), fields.LString),
     },
 )
 
@@ -604,11 +604,11 @@ DBREF2 = Record(
     is_one_time=False,
     is_one_line=True,
     field_data={
-        "pdb_id": fields.Column((7, 11), fields.IDcode),
+        "id_code": fields.Column((7, 11), fields.IDcode),
         "chain_id": fields.Column((12, 13), fields.Character),
-        "db_chain_accession": fields.Column((18, 40), fields.LString),
-        "db_res_num_begin": fields.Column((45, 55), fields.Integer),
-        "db_res_num_end": fields.Column((57, 67), fields.Integer),
+        "db_accession": fields.Column((18, 40), fields.LString),
+        "db_seq_begin": fields.Column((45, 55), fields.Integer),
+        "db_seq_end": fields.Column((57, 67), fields.Integer),
     },
 )
 
@@ -620,16 +620,16 @@ SEQADV = Record(
     is_one_time=False,
     is_one_line=True,
     field_data={
-        "pdb_id": fields.Column((7, 11), fields.IDcode),
+        "id_code": fields.Column((7, 11), fields.IDcode),
         "res_name": fields.Column((12, 15), fields.ResidueName),
         "chain_id": fields.Column((16, 17), fields.Character),
-        "res_num": fields.Column((18, 22), fields.Integer),
-        "res_icode": fields.Column((22, 23), fields.AChar),
-        "db": fields.Column((24, 28), fields.LString),
-        "db_chain_accession": fields.Column((29, 38), fields.LString),
-        "db_res_name": fields.Column((39, 42), fields.ResidueName),
-        "db_res_num": fields.Column((43, 48), fields.LString),
-        "description": fields.Column((49, 70), fields.LString),
+        "seq_num": fields.Column((18, 22), fields.Integer),
+        "i_code": fields.Column((22, 23), fields.AChar),
+        "database": fields.Column((24, 28), fields.LString),
+        "db_accession": fields.Column((29, 38), fields.LString),
+        "db_res": fields.Column((39, 42), fields.ResidueName),
+        "db_seq": fields.Column((43, 48), fields.LString),
+        "conflict": fields.Column((49, 70), fields.LString),
     },
 )
 
@@ -641,7 +641,7 @@ SEQRES = Record(
     is_one_time=False,
     is_one_line=False,
     field_data={
-        "serial": fields.Column((7, 10), fields.Integer),
+        "ser_num": fields.Column((7, 10), fields.Integer),
         "chain_id": fields.Column((11, 12), fields.Character),
         "num_res": fields.Column((13, 17), fields.Integer, cast=False),
         "res_name": fields.Column(
@@ -649,7 +649,7 @@ SEQRES = Record(
         ),
     },
     key_unique="chain_id",
-    key_continuation="serial",
+    key_continuation="ser_num",
     keys_repeat=("num_res",),
 )
 
@@ -661,13 +661,13 @@ MODRES = Record(
     is_one_time=False,
     is_one_line=True,
     field_data={
-        "pdb_id": fields.Column((7, 11), fields.IDcode),
+        "id_code": fields.Column((7, 11), fields.IDcode),
         "res_name": fields.Column((12, 15), fields.ResidueName),
         "chain_id": fields.Column((16, 17), fields.Character),
-        "res_num": fields.Column((18, 22), fields.Integer),
-        "res_icode": fields.Column((22, 23), fields.AChar),
-        "std_res_name": fields.Column((24, 27), fields.ResidueName),
-        "description": fields.Column((29, 70), fields.LString),
+        "seq_num": fields.Column((18, 22), fields.Integer),
+        "i_code": fields.Column((22, 23), fields.AChar),
+        "std_res": fields.Column((24, 27), fields.ResidueName),
+        "comment": fields.Column((29, 70), fields.LString),
     },
 )
 
@@ -681,10 +681,10 @@ HET = Record(
     field_data={
         "het_id": fields.Column((7, 10), fields.LString),
         "chain_id": fields.Column((12, 13), fields.Character),
-        "res_num": fields.Column((13, 17), fields.Integer),
-        "res_icode": fields.Column((17, 18), fields.AChar),
-        "num_hetatm": fields.Column((20, 25), fields.Integer),
-        "description": fields.Column((30, 70), fields.LString),
+        "seq_num": fields.Column((13, 17), fields.Integer),
+        "i_code": fields.Column((17, 18), fields.AChar),
+        "num_het_atoms": fields.Column((20, 25), fields.Integer),
+        "text": fields.Column((30, 70), fields.LString),
     },
 )
 
@@ -713,7 +713,7 @@ HETSYN = Record(
     field_data={
         "continuation": fields.Column((8, 10), fields.Continuation),
         "het_id": fields.Column((11, 14), fields.LString),
-        "synonym": fields.Column((15, 70), fields.SList, cast=False),
+        "het_synonyms": fields.Column((15, 70), fields.SList, cast=False),
     },
     key_unique="het_id",
 )
@@ -744,18 +744,18 @@ HELIX = Record(
     is_one_time=False,
     is_one_line=True,
     field_data={
-        "serial": fields.Column((7, 10), fields.Integer),
+        "ser_num": fields.Column((7, 10), fields.Integer),
         "helix_id": fields.Column((11, 14), fields.LString),
-        "res_name_begin": fields.Column((15, 18), fields.ResidueName),
-        "chain_id_begin": fields.Column((19, 20), fields.Character),
-        "res_num_begin": fields.Column((21, 25), fields.Integer),
-        "res_icode_begin": fields.Column((25, 26), fields.AChar),
-        "res_name_end": fields.Column((27, 30), fields.ResidueName),
-        "chain_id_end": fields.Column((31, 32), fields.Character),
-        "res_num_end": fields.Column((33, 37), fields.Integer),
-        "res_icode_end": fields.Column((37, 38), fields.AChar),
+        "init_rest_name": fields.Column((15, 18), fields.ResidueName),
+        "init_chain_id": fields.Column((19, 20), fields.Character),
+        "init_seq_num": fields.Column((21, 25), fields.Integer),
+        "init_i_code": fields.Column((25, 26), fields.AChar),
+        "end_res_name": fields.Column((27, 30), fields.ResidueName),
+        "end_chain_id": fields.Column((31, 32), fields.Character),
+        "end_seq_num": fields.Column((33, 37), fields.Integer),
+        "end_i_code": fields.Column((37, 38), fields.AChar),
         "helix_class": fields.Column((38, 40), fields.Integer),
-        "description": fields.Column((40, 70), fields.LString),
+        "comment": fields.Column((40, 70), fields.LString),
         "length": fields.Column((71, 76), fields.Integer),
     },
 )
@@ -770,26 +770,26 @@ SHEET = Record(
     field_data={
         "strand": fields.Column((7, 10), fields.Integer),
         "sheet_id": fields.Column((11, 14), fields.LString),
-        "num_strand": fields.Column((14, 16), fields.Integer),
-        "res_name_begin": fields.Column((17, 20), fields.ResidueName),
-        "chain_id_begin": fields.Column((21, 22), fields.Character),
-        "res_num_begin": fields.Column((22, 26), fields.Integer),
-        "res_icode_begin": fields.Column((26, 27), fields.AChar),
-        "res_name_end": fields.Column((28, 31), fields.ResidueName),
-        "chain_id_end": fields.Column((32, 33), fields.Character),
-        "res_num_end": fields.Column((33, 37), fields.Integer),
-        "res_icode_end": fields.Column((37, 38), fields.AChar),
+        "num_strands": fields.Column((14, 16), fields.Integer),
+        "init_res_name": fields.Column((17, 20), fields.ResidueName),
+        "init_chain_id": fields.Column((21, 22), fields.Character),
+        "init_seq_num": fields.Column((22, 26), fields.Integer),
+        "init_i_code": fields.Column((26, 27), fields.AChar),
+        "end_res_name": fields.Column((28, 31), fields.ResidueName),
+        "end_chain_id": fields.Column((32, 33), fields.Character),
+        "end_seq_num": fields.Column((33, 37), fields.Integer),
+        "end_i_code": fields.Column((37, 38), fields.AChar),
         "sense": fields.Column((38, 40), fields.Integer),
-        "atom_name_cur": fields.Column((41, 45), fields.Atom),
-        "res_name_cur": fields.Column((45, 48), fields.ResidueName),
-        "chain_id_cur": fields.Column((49, 50), fields.Character),
-        "res_num_cur": fields.Column((50, 54), fields.Integer),
-        "res_icode_cur": fields.Column((54, 55), fields.AChar),
-        "atom_name_pre": fields.Column((56, 60), fields.Atom),
-        "res_name_pre": fields.Column((60, 63), fields.ResidueName),
-        "chain_id_pre": fields.Column((64, 65), fields.Character),
-        "res_num_pre": fields.Column((65, 69), fields.Integer),
-        "res_icode_pre": fields.Column((69, 70), fields.AChar),
+        "cur_atom": fields.Column((41, 45), fields.Atom),
+        "cur_res_name": fields.Column((45, 48), fields.ResidueName),
+        "cur_chain_id": fields.Column((49, 50), fields.Character),
+        "cur_res_seq": fields.Column((50, 54), fields.Integer),
+        "cur_i_code": fields.Column((54, 55), fields.AChar),
+        "prev_atom": fields.Column((56, 60), fields.Atom),
+        "prev_res_name": fields.Column((60, 63), fields.ResidueName),
+        "prec_chain_id": fields.Column((64, 65), fields.Character),
+        "prev_res_seq": fields.Column((65, 69), fields.Integer),
+        "prev_i_code": fields.Column((69, 70), fields.AChar),
     },
 )
 
@@ -801,20 +801,20 @@ SSBOND = Record(
     is_one_time=False,
     is_one_line=True,
     field_data={
-        "serial": fields.Column((7, 10), fields.Integer),
+        "ser_num": fields.Column((7, 10), fields.Integer),
         "res_name_1": fields.Column((11, 14), fields.LString),
         "chain_id_1": fields.Column((15, 16), fields.Character),
-        "res_num_1": fields.Column((17, 21), fields.Integer),
-        "res_icode_1": fields.Column((21, 22), fields.Atom),
+        "seq_num_1": fields.Column((17, 21), fields.Integer),
+        "i_code_1": fields.Column((21, 22), fields.Atom),
         "res_name_2": fields.Column((25, 28), fields.LString),
         "chain_id_2": fields.Column((29, 30), fields.Character),
-        "res_num_2": fields.Column((31, 35), fields.Integer),
-        "res_icode_2": fields.Column((35, 36), fields.AChar),
-        "sym_op_1": fields.Column((59, 62), fields.Integer),
+        "seq_num_2": fields.Column((31, 35), fields.Integer),
+        "i_code_2": fields.Column((35, 36), fields.AChar),
+        "sym_1": fields.Column((59, 62), fields.Integer),
         "trans_vec_1": fields.Column(
             [(i, i + 1) for i in range(62, 65)], fields.SymOP, strip=False
         ),
-        "sym_op_2": fields.Column((66, 69), fields.Integer),
+        "sym_2": fields.Column((66, 69), fields.Integer),
         "trans_vec_2": fields.Column(
             [(i, i + 1) for i in range(69, 72)], fields.SymOP, strip=False
         ),
@@ -830,23 +830,23 @@ LINK = Record(
     is_one_time=False,
     is_one_line=True,
     field_data={
-        "atom_name_1": fields.Column((12, 16), fields.Atom),
+        "name_1": fields.Column((12, 16), fields.Atom),
         "alt_loc_1": fields.Column((16, 17), fields.Character),
         "res_name_1": fields.Column((17, 20), fields.ResidueName),
         "chain_id_1": fields.Column((21, 22), fields.Character),
-        "res_num_1": fields.Column((22, 26), fields.Integer),
-        "res_icode_1": fields.Column((26, 27), fields.AChar),
-        "atom_name_2": fields.Column((42, 46), fields.Atom),
+        "res_seq_1": fields.Column((22, 26), fields.Integer),
+        "i_code_1": fields.Column((26, 27), fields.AChar),
+        "name_2": fields.Column((42, 46), fields.Atom),
         "alt_loc_2": fields.Column((46, 47), fields.Character),
         "res_name_2": fields.Column((47, 50), fields.ResidueName),
         "chain_id_2": fields.Column((51, 52), fields.Character),
-        "res_num_2": fields.Column((52, 56), fields.Integer),
-        "res_icode_2": fields.Column((56, 57), fields.AChar),
-        "sym_op_1": fields.Column((59, 62), fields.Integer),
+        "res_seq_2": fields.Column((52, 56), fields.Integer),
+        "i_code_2": fields.Column((56, 57), fields.AChar),
+        "sym_1": fields.Column((59, 62), fields.Integer),
         "trans_vec_1": fields.Column(
             [(i, i + 1) for i in range(62, 65)], fields.SymOP, strip=False
         ),
-        "sym_op_2": fields.Column((66, 69), fields.Integer),
+        "sym_2": fields.Column((66, 69), fields.Integer),
         "trans_vec_2": fields.Column(
             [(i, i + 1) for i in range(69, 72)], fields.SymOP, strip=False
         ),
@@ -862,17 +862,17 @@ CISPEP = Record(
     is_one_time=False,
     is_one_line=True,
     field_data={
-        "serial": fields.Column((7, 10), fields.Integer),
-        "res_name_1": fields.Column((11, 14), fields.LString),
+        "ser_num": fields.Column((7, 10), fields.Integer),
+        "pep_1": fields.Column((11, 14), fields.LString),
         "chain_id_1": fields.Column((15, 16), fields.Character),
-        "res_num_1": fields.Column((17, 21), fields.Integer),
-        "res_icode_1": fields.Column((21, 22), fields.AChar),
-        "res_name_2": fields.Column((25, 28), fields.LString),
+        "seq_num_1": fields.Column((17, 21), fields.Integer),
+        "i_code_1": fields.Column((21, 22), fields.AChar),
+        "pep_2": fields.Column((25, 28), fields.LString),
         "chain_id_2": fields.Column((29, 30), fields.Character),
-        "res_num_2": fields.Column((31, 35), fields.Integer),
-        "res_icode_2": fields.Column((35, 36), fields.AChar),
-        "model_num": fields.Column((43, 46), fields.Integer),
-        "angle": fields.Column((53, 59), fields.Real),
+        "seq_num_2": fields.Column((31, 35), fields.Integer),
+        "i_code_2": fields.Column((35, 36), fields.AChar),
+        "mod_num": fields.Column((43, 46), fields.Integer),
+        "measure": fields.Column((53, 59), fields.Real),
     },
 )
 
@@ -893,10 +893,10 @@ SITE = Record(
         "chain_id": fields.Column(
             ((22, 23), (33, 34), (44, 45), (55, 56)), fields.Character, cast=False
         ),
-        "res_num": fields.Column(
+        "seq_num": fields.Column(
             ((23, 27), (34, 38), (45, 49), (56, 60)), fields.Integer, cast=False
         ),
-        "res_icode": fields.Column(
+        "i_code": fields.Column(
             ((27, 28), (38, 39), (49, 50), (60, 61)), fields.AChar, cast=False
         ),
     },
@@ -919,7 +919,7 @@ CRYST1 = Record(
         "alpha": fields.Column((33, 40), fields.Real),
         "beta": fields.Column((40, 47), fields.Real),
         "gamma": fields.Column((47, 54), fields.Real),
-        "space_group": fields.Column((55, 66), fields.LString),
+        "s_group": fields.Column((55, 66), fields.LString),
         "z": fields.Column((66, 70), fields.Integer),
     },
 )
@@ -1042,12 +1042,12 @@ ATOM = Record(
     is_one_line=True,
     field_data={
         "serial": fields.Column((6, 11), fields.Integer),
-        "atom_name": fields.Column((12, 16), fields.Atom),
+        "name": fields.Column((12, 16), fields.Atom),
         "alt_loc": fields.Column((16, 17), fields.Character),
         "res_name": fields.Column((17, 20), fields.ResidueName),
         "chain_id": fields.Column((21, 22), fields.Character),
-        "res_num": fields.Column((22, 26), fields.Integer),
-        "res_icode": fields.Column((26, 27), fields.AChar),
+        "res_seq": fields.Column((22, 26), fields.Integer),
+        "i_code": fields.Column((26, 27), fields.AChar),
         "x": fields.Column((30, 38), fields.Real),
         "y": fields.Column((38, 46), fields.Real),
         "z": fields.Column((46, 54), fields.Real),
@@ -1071,12 +1071,12 @@ ATOM_PDBQT = Record(
     is_one_line=True,
     field_data={
         "serial": fields.Column((6, 11), fields.Integer),
-        "atom_name": fields.Column((12, 16), fields.Atom),
+        "name": fields.Column((12, 16), fields.Atom),
         "alt_loc": fields.Column((16, 17), fields.Character),
         "res_name": fields.Column((17, 20), fields.ResidueName),
         "chain_id": fields.Column((21, 22), fields.Character),
-        "res_num": fields.Column((22, 26), fields.Integer),
-        "res_icode": fields.Column((26, 27), fields.AChar),
+        "res_seq": fields.Column((22, 26), fields.Integer),
+        "i_code": fields.Column((26, 27), fields.AChar),
         "x": fields.Column((30, 38), fields.Real),
         "y": fields.Column((38, 46), fields.Real),
         "z": fields.Column((46, 54), fields.Real),
@@ -1097,12 +1097,12 @@ ANISOU = Record(
     is_one_line=True,
     field_data={
         "serial": fields.Column((6, 11), fields.Integer),
-        "atom_name": fields.Column((12, 16), fields.Atom),
+        "name": fields.Column((12, 16), fields.Atom),
         "alt_loc": fields.Column((16, 17), fields.Character),
         "res_name": fields.Column((17, 20), fields.ResidueName),
         "chain_id": fields.Column((21, 22), fields.Character),
-        "res_num": fields.Column((22, 26), fields.Integer),
-        "res_icode": fields.Column((26, 27), fields.AChar),
+        "res_seq": fields.Column((22, 26), fields.Integer),
+        "i_code": fields.Column((26, 27), fields.AChar),
         "u00": fields.Column((28, 35), fields.Integer),
         "u11": fields.Column((35, 42), fields.Integer),
         "u22": fields.Column((42, 49), fields.Integer),
@@ -1125,8 +1125,8 @@ TER = Record(
         "serial": fields.Column((6, 11), fields.Integer),
         "res_name": fields.Column((17, 20), fields.ResidueName),
         "chain_id": fields.Column((21, 22), fields.Character),
-        "res_num": fields.Column((22, 26), fields.Integer),
-        "res_icode": fields.Column((26, 27), fields.AChar),
+        "res_seq": fields.Column((22, 26), fields.Integer),
+        "i_code": fields.Column((26, 27), fields.AChar),
     },
 )
 
@@ -1139,12 +1139,12 @@ HETATM = Record(
     is_one_line=True,
     field_data={
         "serial": fields.Column((6, 11), fields.Integer),
-        "atom_name": fields.Column((12, 16), fields.Atom),
+        "name": fields.Column((12, 16), fields.Atom),
         "alt_loc": fields.Column((16, 17), fields.Character),
         "res_name": fields.Column((17, 20), fields.ResidueName),
         "chain_id": fields.Column((21, 22), fields.Character),
-        "res_num": fields.Column((22, 26), fields.Integer),
-        "res_icode": fields.Column((26, 27), fields.AChar),
+        "res_seq": fields.Column((22, 26), fields.Integer),
+        "i_code": fields.Column((26, 27), fields.AChar),
         "x": fields.Column((30, 38), fields.Real),
         "y": fields.Column((38, 46), fields.Real),
         "z": fields.Column((46, 54), fields.Real),

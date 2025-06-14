@@ -127,6 +127,7 @@ class PDBParser:
             self._count_records[record_idx] = count_record
             self._has_record[record_idx] = count_record != 0
 
+        self._pdb_id = self.header().id_code if self.has_record(_records.HEADER) else None
         self._remarks: dict = None
         self._remark_line_indices: dict = None
         self._remark_args: dict = None
@@ -145,7 +146,7 @@ class PDBParser:
                 )
         return out
 
-    def header(self) -> records.RecordHeader | None:
+    def header(self) -> records.Header | None:
         """
         Parse the HEADER record of the PDB file.
         """
@@ -169,16 +170,16 @@ class PDBParser:
         data = _records.HEADER.extract(record_char_table=self.record_lines(_records.HEADER))
         # Parse the classification string
         data["classification"] = parse_classification(data["classification"])
-        return records.RecordHeader(**data)
+        return records.Header(**data)
 
-    def obslte(self) -> records.RecordObslte | None:
+    def obslte(self) -> records.Obslte | None:
         """
         Parse the OBSLTE records of the PDB file.
         """
         data = self._extract_record(_records.OBSLTE)
         if data is None:
             return None
-        return records.RecordObslte(**data)
+        return records.Obslte(**data)
 
     def title(self) -> str | None:
         """
@@ -192,14 +193,14 @@ class PDBParser:
         """
         return self._extract_record(_records.SPLIT)
 
-    def caveat(self) -> records.RecordCaveat | None:
+    def caveat(self) -> records.Caveat | None:
         """
         Parse the CAVEAT records of the PDB file.
         """
         data = self._extract_record(_records.CAVEAT)
         if data is None:
             return None
-        return data["description"]
+        return records.Caveat(**data)
 
     def compnd(self) -> pd.DataFrame | None:
         """
@@ -316,23 +317,22 @@ class PDBParser:
         df = self._extract_record(_records.REVDAT)
         if df is None:
             return None
-        if not df["is_init"].isin([1, 0]).all():
+        if not df["mod_type"].isin([1, 0]).all():
             self._raise_or_warn(
-                f"Non standard values found for 'modType' field of the REVDAT record, values are: {df.is_init}",
+                f"{self._pdb_id}: Non standard values found for 'modType' field of the REVDAT record. "
+                f"Allowed values are 0 and 1, but found: {df.mod_type.values}",
                 raise_level=2,
             )
-            return df
-        df["is_init"] = df["is_init"] == 0
         return df
 
-    def sprsde(self) -> records.RecordSPRSDE | None:
+    def sprsde(self) -> records.Sprsde | None:
         """
         Parse the SPRSDE records of the PDB file.
         """
         data = self._extract_record(_records.SPRSDE)
         if data is None:
             return None
-        return records.RecordSPRSDE(**data)
+        return records.Sprsde(**data)
 
     def jrnl(self):
         """
@@ -357,7 +357,7 @@ class PDBParser:
         tags = _records.JRNL.fields_dict["tag"].extract(char_table=record_lines)
         ref = dict()
         for sub_record, sub_record_name in (
-            (_records.JRNL_AUTH, "author"),
+            (_records.JRNL_AUTH, "author_list"),
             (_records.JRNL_TITL, "title"),
             (_records.JRNL_EDIT, "editor"),
             (_records.JRNL_PUBL, "pub"),
@@ -386,19 +386,13 @@ class PDBParser:
             elif issn_essn == "ESSN":
                 refn_dict["essn"] = refn_dict.pop("issn")
                 ref = ref | refn_dict
-        return records.RecordJRNL(**ref)
+        return records.Jrnl(**ref)
 
-    def remark(self) -> records.RecordREMARK | None:
-        """
-
-        Returns
-        -------
-
-        """
+    def remark(self) -> records.Remark | None:
         if not self.has_record(_records.REMARK):
             return None
         if self._remark_args is not None:
-            return records.RecordREMARK(**self._remark_args)
+            return records.Remark(**self._remark_args)
         remark_lines = self.record_lines(_records.REMARK)
         is_not_empty = np.any(remark_lines[:, 11:] != " ", axis=1)
         non_empty_lines = remark_lines[is_not_empty]
@@ -413,36 +407,34 @@ class PDBParser:
             remarks[unique_num] = data["content"][is_num]
             remark_line_indices[unique_num] = idx_nonempty_lines[is_num]
             if unique_num == 1:
-                pass
+                args["related_publications"] = self.remark1(idx_lines=remark_line_indices[1])
             elif unique_num == 2:
-                args["resolution"] = self.record_remark2(remarks[2])
+                args["resolution"] = self.remark2(remarks[2])
             elif unique_num == 4:
-                args["version"] = self.remark4(idx_lines=remark_line_indices[4])
+                args["format"] = self.remark4(idx_lines=remark_line_indices[4])
         self._remarks = remarks
         self._remark_line_indices = remark_line_indices
         self._remark_args = args
-        return records.RecordREMARK(**args)
+        return records.Remark(**args)
 
-    # def _parse_remark_records(self):
-    #     remark_lines = self.record_lines(_records.REMARK)
-    #     is_not_empty = np.any(remark_lines[:, 11:] != " ", axis=1)
-    #     idx_nonempty_lines = self.indices_record_lines(_records.REMARK)[is_not_empty]
-    #     remark_nums = _records.REMARK.fields_dict["remark_num"].extract(char_table=remark_lines[is_not_empty])
-    #     self._remarks_records = {"idx_line": idx_nonempty_lines, "remark_num": remark_nums}
-    #     return
-    #
-    # def _extract_remark_record(self, remark_num: int):
-    #     if not self.has_record(_records.REMARK):
-    #         return
-    #     if self._remarks_records is None:
-    #         self._parse_remark_records()
-    #     hits = self._remarks_records["remark_num"] == remark_num
-    #     if not np.any(hits):
-    #         return
-    #     idx_lines = self._remarks_records["idx_line"][hits]
-    #     return idx_lines
+    def remark1(self, idx_lines: np.ndarray) -> pd.DataFrame:
+        char_tab = self._lines_chars[idx_lines]
+        idx_ref_lines = np.argwhere(np.all(char_tab[:, 11:20] == list("REFERENCE"), axis=-1)).reshape(-1)
+        entries: list[dict] = []
+        for idx in range(idx_ref_lines.size - 1):
+            ref_num = int("".join(char_tab[idx_ref_lines[idx]][21:70]).strip())
+            idx_start = idx_ref_lines[idx]
+            idx_end = idx_ref_lines[idx + 1]
+            entry_lines = char_tab[idx_start:idx_end]
+            entry = self.records_publication(entry_lines)
+            entries.append({"ref_num": ref_num} | entry.to_dict())
+        last_ref_num = int("".join(char_tab[idx_ref_lines[-1]][21:70]).strip())
+        last_entry_lines =  char_tab[idx_ref_lines[-1]:]
+        last_entry = self.records_publication(last_entry_lines)
+        entries.append({"ref_num": last_ref_num} | last_entry.to_dict())
+        return pd.DataFrame(entries).set_index("ref_num", drop=False)
 
-    def record_remark2(self, lines: np.ndarray) -> float | None:
+    def remark2(self, lines: np.ndarray) -> float | None:
         """
         REMARK 2 record of the PDB file, stating the highest resolution that was used in building the model.
 
@@ -454,9 +446,6 @@ class PDBParser:
             "RESOLUTION. NOT APPLICABLE." (this is the case for experiments other than diffraction studies,
             e.g. NMR, where resolution is not relevant), in which case 0 is returned.
         """
-        # idx_lines = self._extract_remark_record(2)
-        # if idx_lines is None:
-        #     return
         if lines.size > 1:
             self._raise_or_warn(f"Multiple REMARK 2 records found: {lines}", raise_level=2)
         resolution = lines[0][12:19]
@@ -493,10 +482,10 @@ class PDBParser:
         data = {
             field_name: lines[0][start:stop]
             for field_name, (start, stop) in zip(
-                ("pdb_id", "ver_num", "ver_date"), ((11, 15), (40, 44), (46, 55)), strict=False
+                ("id_code", "version_number", "version_date"), ((11, 15), (40, 44), (46, 55)), strict=False
             )
         }
-        data["ver_date"] = fields.Date.from_pdb(data["ver_date"])
+        data["version_date"] = fields.Date.from_pdb(data["version_date"])
         return data
 
     def dbref(self) -> pd.DataFrame | None:
@@ -523,7 +512,7 @@ class PDBParser:
                 self._extract_record(_records.DBREF1),
                 self._extract_record(_records.DBREF2),
                 how="outer",
-                on=["pdb_id", "chain_id"],
+                on=["id_code", "chain_id"],
             )
             df_main = pd.concat((df_main, df))
         return df_main.set_index("chain_id", drop=False)
@@ -558,7 +547,7 @@ class PDBParser:
         data = self._extract_record(_records.HET)
         return data.set_index("het_id", drop=False) if data is not None else None
 
-    def hetnam(self):
+    def hetnam(self) -> pd.DataFrame | None:
         hetnam = self._extract_record(_records.HETNAM)
         hetsyn = self._extract_record(_records.HETSYN)
         formul = self.record_formul()
@@ -567,7 +556,7 @@ class PDBParser:
                 "comp_num",
                 "het_id",
                 "name",
-                "synonym",
+                "het_synonyms",
                 "is_water",
                 "formula",
                 "count_in_chain",
@@ -580,7 +569,7 @@ class PDBParser:
             return het_data
         if len(non_none) == 1:
             df_tot = pd.concat([het_data, non_none[0]]).set_index("het_id", drop=False)
-            df_tot.loc[df_tot.is_water, "name"] = "WATER"
+            df_tot.loc[df_tot.is_water, "name"] = "water"
             return df_tot.sort_values("comp_num")
         df_tot = non_none[0].drop("het_id", axis=1)
         for df in non_none[1:]:
@@ -640,34 +629,34 @@ class PDBParser:
         data = self._extract_record(_records.HELIX)
         return data.set_index("helix_id") if data is not None else None
 
-    def sheet(self):
+    def sheet(self) -> pd.DataFrame | None:
         data = self._extract_record(_records.SHEET)
         return data.set_index("sheet_id") if data is not None else None
 
-    def ssbond(self):
+    def ssbond(self) -> pd.DataFrame | None:
         data = self._extract_record(_records.SSBOND)
-        return data.set_index("serial") if data is not None else None
+        return data.set_index("ser_num") if data is not None else None
 
-    def link(self):
+    def link(self) -> pd.DataFrame | None:
         return self._extract_record(_records.LINK)
 
-    def cispep(self):
+    def cispep(self) -> pd.DataFrame | None:
         data = self._extract_record(_records.CISPEP)
-        return data.set_index("serial") if data is not None else None
+        return data.set_index("ser_num") if data is not None else None
 
-    def site(self):
+    def site(self) -> pd.DataFrame | None:
         data = self._extract_record(_records.SITE)
-        return data.explode(["res_name", "chain_id", "res_num"]) if data is not None else None
+        return data.explode(["res_name", "chain_id", "seq_num"]) if data is not None else None
 
-    def cryst1(self) -> records.RecordCRYST1:
+    def cryst1(self) -> records.Cryst1:
         data = self._extract_record(_records.CRYST1)
         lengths = np.array([data["a"], data["b"], data["c"]])
         angles = np.array([data["alpha"], data["beta"], data["gamma"]])
-        return records.RecordCRYST1(
-            lengths=lengths, angles=angles, z=data["z"], space_group=data["space_group"]
+        return records.Cryst1(
+            lengths=lengths, angles=angles, z=data["z"], space_group=data["s_group"]
         )
 
-    def origx(self) -> records.RecordXForm | None:
+    def origx(self) -> records.XForm | None:
         o1 = self._extract_record(_records.ORIGX1)
         o2 = self._extract_record(_records.ORIGX2)
         o3 = self._extract_record(_records.ORIGX3)
@@ -675,9 +664,9 @@ class PDBParser:
             return None
         transformation_matrix = np.vstack([o["m"] for o in (o1, o2, o3)])
         translation_vector = np.array([o["v"] for o in (o1, o2, o3)])
-        return records.RecordXForm(matrix=transformation_matrix, vector=translation_vector)
+        return records.XForm(matrix=transformation_matrix, vector=translation_vector, name="ORIGX")
 
-    def scale(self) -> records.RecordXForm | None:
+    def scale(self) -> records.XForm | None:
         s1 = self._extract_record(_records.SCALE1)
         s2 = self._extract_record(_records.SCALE2)
         s3 = self._extract_record(_records.SCALE3)
@@ -685,7 +674,7 @@ class PDBParser:
             return None
         transformation_matrix = np.vstack([o["m"] for o in (s1, s2, s3)])
         translation_vector = np.array([s1["v"], s2["v"], s3["v"]])
-        return records.RecordXForm(matrix=transformation_matrix, vector=translation_vector)
+        return records.XForm(matrix=transformation_matrix, vector=translation_vector, name="SCALE")
 
     def mtrix(self):
         ms = [
@@ -694,7 +683,7 @@ class PDBParser:
         if any(m is None for m in ms):
             return None
         shared_serials = ms[0]["serial"]
-        for n, m in enumerate(ms[1:]):
+        for m in ms[1:]:
             if m["serial"].size != shared_serials.size:
                 self._raise_or_warn("Number of MTRIX records doesn't match.", raise_level=2)
             if not np.all(np.isin(m["serial"], shared_serials)):
@@ -736,9 +725,9 @@ class PDBParser:
                 Chain identifier of the chain containing the atom.
             res_name : str
                 Name of the residue containing the atom.
-            res_num : int
+            res_seq : int
                 Number of the last residue.
-            res_icode : str
+            i_code : str
                 Insertion code of the last residue.
 
         Notes
@@ -787,12 +776,12 @@ class PDBParser:
             "model_num",
             "chain_id",
             "res_name",
-            "res_num",
-            "res_icode",
+            "res_seq",
+            "i_code",
             "res_poly",
             "res_std",
             "serial",
-            "atom_name",
+            "name",
             "alt_loc",
             "occupancy",
             "temp_factor",
@@ -820,9 +809,9 @@ class PDBParser:
                 Chain identifier of the chain containing the atom.
             res_name : str
                 Name of the residue containing the atom.
-            res_num : int
+            res_seq : int
                 Number of the last residue.
-            res_icode : str
+            i_code : str
                 Insertion code of the last residue.
 
         Notes
@@ -844,9 +833,9 @@ class PDBParser:
                 "model_num",
                 "chain_id",
                 "res_name",
-                "res_num",
-                "res_icode",
-                "atom_name",
+                "res_seq",
+                "i_code",
+                "name",
                 "alt_loc",
                 "element",
                 "charge",
@@ -880,9 +869,9 @@ class PDBParser:
                 Chain identifier of the corresponding chain.
             res_name : str
                 Name of the last residue.
-            res_num : int
+            res_seq : int
                 Number of the last residue.
-            res_icode : str
+            i_code : str
                 Insertion code of the last residue.
 
         Notes
@@ -900,10 +889,10 @@ class PDBParser:
             return None
         df["model_num"] = self._model_num_of_lines(self.indices_record_lines(_records.TER))
         return df.set_index("serial", drop=False)[
-            ["model_num", "chain_id", "res_name", "res_num", "res_icode", "serial"]
+            ["model_num", "chain_id", "res_name", "res_seq", "i_code", "serial"]
         ]
 
-    def conect(self):
+    def conect(self) -> pd.DataFrame | None:
         """
         CONECT records of the PDB file, specifying connectivity between atoms for which coordinates are
         supplied.
