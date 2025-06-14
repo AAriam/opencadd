@@ -1,0 +1,199 @@
+schema:
+  title: Evaluation Dataset
+  summary: Dataset of protein structures for evaluation.
+  description: |
+    Structures are mostly selected from the [Patel dataset](https://doi.org/10.1023/A:1021954728347),
+    which contains a collection of five structurally diverse and well-described protein families,
+    for which a large number of structural data is available
+    and has been used to evaluate other tools in the context of pharmacophore modelling.
+    Here, we only use four of the five families,
+    discarding the zinc-containing protein, thermolysin,
+    as this version of the T²F method is not suitable for the detection of metal coordinations.
+    Instead of thermolysin, the adenosine A2A receptor is included in our set
+    to represent the GPCR class of proteins.
+    The dataset thus contains ligand-enzyme complexes for:
+
+    - Cyclin-dependent kinase 2 (CDK2, 6 entries)
+    - Dihydrofolate reductase (DHFR, 6 entries)
+    - Thrombin (THROM, 7 entries)
+    - HIV-1 reverse transcriptase (HIVRT, 10 entries)
+    - Adenosine A2A receptor (A2AR, 3 entries)
+  type: array
+  items:
+    type: object
+    additionalProperties: false
+    required: [group_id, group_name, uniprot_id, reference_structure]
+    properties:
+      group_id:
+        type: string
+        description: Unique identifier for the protein family.
+      group_name:
+        type: string
+        description: Full name of the protein family.
+      uniprot_id:
+        type: string
+        description: UniProt identifier of the protein family.
+      reference_structure:
+        summary: Reference structure for the protein family.
+        $ref: '#/definitions/structure'
+      structures:
+        type: array
+        items:
+          title: Structure
+          summary: A structure in the protein family.
+          $ref: '#/definitions/structure'
+  definitions:
+    structure:
+      type: object
+      additionalProperties: false
+      required: [pdb_id, chain_id]
+      properties:
+        pdb_id:
+          title: PDB ID
+          summary: PDB ID of the structure.
+          type: string
+          pattern: '^[1-9][A-Za-z0-9]{3}$'
+        chain_id:
+          title: Chain ID
+          summary: Chain ID of the representative chain in the structure.
+          type: string
+        reference_ligand:
+          type: array
+          items:
+            type: string
+          description: Reference ligand in the structure (optional).
+        ligand:
+          type: array
+          items:
+            type: string
+          description: List of ligands in the structure (optional).
+data:
+  - id: CDK2
+    name: Cyclin-dependent kinase 2
+    uniprot_id: P24941
+    ref_structure:
+      pdb_id: 1AQ1
+      chain_id: A
+      ref_ligand:
+        res_name: STU
+    structures:
+      - pdb_id: 1DI8
+        chain_id: A
+        ref_ligand:
+          res_name: DTQ
+          res_seq: 500
+          chain_id: A
+      - pdb_id: 1E1V
+      - pdb_id: 1E1X
+      - pdb_id: 1FIN
+      - pdb_id: 1FVV
+  - id: DHFR
+    name: Dihydrofolate reductase
+    uniprot_id: P00374
+    ref_structure:
+      pdb_id: 1DRF
+      chain_id: A
+      ref_ligand:
+        res_name: FOL
+    structures:
+      - pdb_id: 1BOZ
+        ref_ligand:
+          res_name: PRD
+        ligands:
+          - res_name: NDP
+      - pdb_id: 1DLR
+        ref_ligand:
+          res_name: MXA
+        ligands:
+          - res_name: NDP
+      - pdb_id: 1HFP
+        ref_ligand:
+          res_name: MOT
+        ligands:
+          - res_name: NDP
+      - pdb_id: 1OHK
+        ref_ligand:
+          res_name: COP
+        ligands:
+          - res_name: NDP
+      - pdb_id: 2DHF
+        ref_ligand:
+          res_name: DZF
+  - id: THROM
+    name: Thrombin
+    ref_structure:
+      pdb_id: 1C4V
+      ref_ligand:
+        res_name: IH2
+        res_seq: 370
+      heterogens:
+        - res_name: HOH
+          res_seq: 404
+        - res_name: HOH
+          res_seq: 408
+        - res_name: HOH
+          res_seq: 410
+        - res_name: HOH
+          res_seq: 477
+    structures:
+      - pdb_id: 1D4P
+        ref_ligand:
+          res_name: BPP
+      - pdb_id: 1D6W
+        ref_ligand:
+          res_name: 00R
+      - pdb_id: 1D9I
+        ref_ligand:
+          res_name: 00P
+      - pdb_id: 1DWD
+        ref_ligand:
+          res_name: MID
+      - pdb_id: 1FPC
+        ref_ligand:
+          res_name: OZI
+      - pdb_id: 1TOM
+        ref_ligand:
+          res_name: MIN
+  - id: HIVRT
+    name: HIV-1 reverse transcriptase
+    ref_structure:
+      pdb_id: 1TVR
+      ref_ligand:
+        res_name: TB9
+    structures:
+      - pdb_id: 1BQM  # Mistakenly written as 1BMQ in the paper (Table 2)
+        ref_ligand:
+          res_name: HBY
+      - pdb_id: 1DTT
+        ref_ligand:
+          res_name: FTC
+      - pdb_id: 1EP4
+        ref_ligand:
+          res_name: S11
+      - pdb_id: 1FK9
+        ref_ligand:
+          res_name: EFZ
+      - pdb_id: 1RT1
+        ref_ligand:
+          res_name: MKC
+      - pdb_id: 1RT3
+        ref_ligand:
+          res_name: U05
+      - pdb_id: 1RT5
+        ref_ligand:
+          res_name: P04
+      - pdb_id: 1KLM
+        ref_ligand:
+          res_name: SPP
+      - pdb_id: 1VRU
+        ref_ligand:
+          res_name: AAP
+  - id: A2AR
+    name: Adenosine A2A receptor
+    ref_structure:
+      pdb_id: 2YDO  # Mistakenly written as 2DYO in the paper (Table 2)
+      ref_ligand:
+        res_name: ADN
+    structures:
+      - pdb_id: 2YDV
+      - pdb_id: 3EML
