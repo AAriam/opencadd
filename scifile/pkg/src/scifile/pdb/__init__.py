@@ -1014,9 +1014,9 @@ class PDBDataset:
         link: DataFrame | None = None,
         cispep: DataFrame | None = None,
         site: DataFrame | None = None,
-        cryst1: Cryst1 | None = None,
-        origx: None = None,
-        scale: None = None,
+        cryst1: DataFrame | None = None,
+        origx: DataFrame | None = None,
+        scale: DataFrame | None = None,
         mtrix: DataFrame | None = None,
         atom: DataFrame | None = None,
         anisou: DataFrame | None = None,
@@ -1373,7 +1373,7 @@ def merge(pdbfiles: Sequence[PDBFile]) -> PDBFile:
         for pdbfile in pdbfiles:
             attr = getattr(pdbfile, attr_name)
             if attr is not None:
-                row = {"pdb_id": pdbfile.header.id_code, col_name: attr}
+                row = {"id_code": pdbfile.header.id_code, col_name: attr}
                 rows.append(row)
         return pd.DataFrame(rows).convert_dtypes() if rows else None
 
@@ -1383,7 +1383,17 @@ def merge(pdbfiles: Sequence[PDBFile]) -> PDBFile:
         for pdbfile in pdbfiles:
             attr = getattr(pdbfile, attr_name)
             if attr is not None:
-                row = {"pdb_id": pdbfile.header.id_code} | attr.to_dict()
+                rec_dict = attr.to_dict()
+                if "id_code" in rec_dict:
+                    if rec_dict["id_code"] != pdbfile.header.id_code:
+                        raise ValueError(
+                            f"Record {attr_name} has a different id_code ({rec_dict['id_code']}) "
+                            f"than the PDB file header ({pdbfile.header.id_code})."
+                        )
+                    id_code = rec_dict.pop("id_code")
+                    row = {"id_code": id_code} | rec_dict
+                else:
+                    row = {"id_code": pdbfile.header.id_code} | rec_dict
                 rows.append(row)
         return pd.DataFrame(rows).convert_dtypes() if rows else None
 
@@ -1398,7 +1408,7 @@ def merge(pdbfiles: Sequence[PDBFile]) -> PDBFile:
                 pdb_ids.extend([pdbfile.header.id_code] * len(attr))
                 values.extend(attr.tolist())
         col_name = col_name or attr_name
-        return pd.DataFrame({"pdb_id": pdb_ids, col_name: values}).convert_dtypes() if pdb_ids else None
+        return pd.DataFrame({"id_code": pdb_ids, col_name: values}).convert_dtypes() if pdb_ids else None
 
     def from_df(attr_name: str) -> DataFrame | None:
         """Helper function to merge an attribute that is a DataFrame."""
@@ -1406,13 +1416,21 @@ def merge(pdbfiles: Sequence[PDBFile]) -> PDBFile:
         for pdbfile in pdbfiles:
             attr = getattr(pdbfile, attr_name)
             if attr is not None:
-                df = attr.assign(pdb_id=pdbfile.header.id_code)
+                if "id_code" in attr.columns:
+                    if not attr["id_code"].eq(pdbfile.header.id_code).all():
+                        raise ValueError(
+                            f"DataFrame {attr_name} has a different id_code ({attr['id_code'].unique()}) "
+                            f"than the PDB file header ({pdbfile.header.id_code})."
+                        )
+                    df = attr.copy()
+                else:
+                    df = attr.assign(id_code=pdbfile.header.id_code)
                 dfs.append(df)
         if not dfs:
             return None
         df_combined = pd.concat(dfs, ignore_index=True)
-        other_columns = [col for col in df_combined.columns if col != 'pdb_id']
-        return df_combined[['pdb_id'] + other_columns]
+        other_columns = [col for col in df_combined.columns if col != 'id_code']
+        return df_combined[['id_code'] + other_columns]
 
     def remark() -> RemarkDataset:
         """Helper function to merge the REMARK records."""
@@ -1422,28 +1440,31 @@ def merge(pdbfiles: Sequence[PDBFile]) -> PDBFile:
         format = []
         for pdbfile in pdbfiles:
             if pdbfile.remark is not None:
-                full.append({"pdb_id": pdbfile.header.id_code} | pdbfile.remark.full_text)
+                full.append({"id_code": pdbfile.header.id_code} | pdbfile.remark.full_text)
                 if pdbfile.remark.related_publications is not None:
                     related_publications.append(
-                        pdbfile.remark.related_publications.assign(pdb_id=pdbfile.header.id_code)
+                        pdbfile.remark.related_publications.assign(id_code=pdbfile.header.id_code)
                     )
                 if pdbfile.remark.resolution is not None:
                     resolution.append(
-                        {"pdb_id": pdbfile.header.id_code, "resolution": pdbfile.remark.resolution}
+                        {"id_code": pdbfile.header.id_code, "resolution": pdbfile.remark.resolution}
                     )
                 if pdbfile.remark.format is not None:
-                    format.append(
-                        {"pdb_id": pdbfile.header.id_code} | pdbfile.remark.format
-                    )
+                    if pdbfile.remark.format["id_code"] != pdbfile.header.id_code:
+                        raise ValueError(
+                            f"REMARK format has a different id_code ({pdbfile.remark.format['id_code']}) "
+                            f"than the PDB file header ({pdbfile.header.id_code})."
+                        )
+                    format.append(pdbfile.remark.format)
         if not full:
             return None
         full = pd.DataFrame(full).convert_dtypes()
-        full_other_columns = [col for col in full.columns if col != 'pdb_id']
-        full = full[['pdb_id'] + full_other_columns]
+        full_other_columns = [col for col in full.columns if col != 'id_code']
+        full = full[['id_code'] + list(sorted(full_other_columns))]
         if related_publications:
             related_publications = pd.concat(related_publications, ignore_index=True).convert_dtypes()
-            related_publications_other_columns = [col for col in related_publications.columns if col != 'pdb_id']
-            related_publications = related_publications[['pdb_id'] + related_publications_other_columns]
+            related_publications_other_columns = [col for col in related_publications.columns if col != 'id_code']
+            related_publications = related_publications[['id_code'] + related_publications_other_columns]
         else:
             related_publications = None
         return records.RemarkDataset(
@@ -1463,7 +1484,7 @@ def merge(pdbfiles: Sequence[PDBFile]) -> PDBFile:
         header=from_record("header"),
         obslte=from_record("obslte"),
         title=from_single("title"),
-        split=from_array("split", "id_code"),
+        split=from_array("split", "s_id_code"),
         caveat=from_record("caveat"),
         compnd=from_df("compnd"),
         source=from_df("source"),
