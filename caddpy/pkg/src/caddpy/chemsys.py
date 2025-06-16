@@ -457,7 +457,3 @@ def _read_single_pdb(file: scifile.pdb.PDBFile | Path | bytes | str) -> tuple[pd
         atom = atom[atom["model_num"] == 1]
     atom = atom.drop(["model_num", "x", "y", "z"], axis=1)
     return atom, trajectory
-
-
-def from_pdbqt():
-    trajectory = records["ATOM"][["x", "y", "z"]].to_numpy()[np.newaxis]
