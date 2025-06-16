@@ -1,19 +1,19 @@
 """Analyze protein-ligand interactions."""
 
 from pathlib import Path
-import logging
 import tempfile
-from typing import Sequence, Literal
+from typing import Sequence, Literal, Any
 
+import numpy as np
 import scishow
 from plip.structure.preparation import PDBComplex, PLInteraction
 import pandas as pd
 
 INTERACTION_TYPES = (
-    "hydrophobic",
     "hbond",
     "water_bridge",
     "salt_bridge",
+    "hydrophobic",
     "pi_stacking",
     "pi_cation",
     "halogen",
@@ -54,19 +54,14 @@ class ProteinLigandInteractions:
         """All interactions combined."""
         if self._all is not None:
             return self._all
-        self._all = pd.concat(
-            [
-                self.hydrophobic,
-                self.hbond,
-                self.water_bridge,
-                self.salt_bridge,
-                self.pi_stacking,
-                self.pi_cation,
-                self.halogen,
-                self.metal,
-            ],
-            ignore_index=True,
-        )
+        dfs = []
+        for interaction_type in INTERACTION_TYPES:
+            df = getattr(self, interaction_type)
+            if not df.empty:
+                df_copy = df.copy()
+                df_copy.insert(0, "interaction_type", interaction_type)
+                dfs.append(df_copy)
+        self._all = pd.concat(dfs, ignore_index=True)
         return self._all
 
     @property
@@ -270,22 +265,23 @@ def from_pdb(
             pdb_complex.load_pdb(temp_file.name)
     pdb_complex.analyze()
 
-
     ligands = [":".join(map(str, ligand)) for ligand in ligands] if ligands else None
     interaction_sets = [
         interaction_set for ligand_name, interaction_set in pdb_complex.interaction_sets.items()
         if not ligands or ligand_name in ligands
     ]
+
     interaction_data = {}
     for attr_name, func in zip(
         INTERACTION_TYPES,
         (_hydrophobic, _hbond, _water_bridge, _salt_bridge, _pi_stacking, _pi_cation, _halogen, _metal),
     ):
-        interaction_data[attr_name] = func(interaction_sets)
+        interaction_data[attr_name] = pd.DataFrame(func(interaction_sets)).convert_dtypes()
     return ProteinLigandInteractions(**interaction_data)
 
 
-def _hydrophobic(interactions: Sequence[PLInteraction]):
+def _hydrophobic(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
+    """Extract hydrophobic interaction data from PLIP interaction objects."""
     rows = []
     for interaction in interactions:
         for entry in interaction.hydrophobic_contacts:
@@ -295,21 +291,22 @@ def _hydrophobic(interactions: Sequence[PLInteraction]):
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
                     "l_serial": entry.ligatom_orig_idx,  # Carbon atom
-                    "l_position": entry.ligatom.coords,
+                    "l_position": np.array(entry.ligatom.coords),
 
                     "r_res_name": entry.restype,
                     "r_res_seq": entry.resnr,
                     "r_chain_id": entry.reschain,
                     "r_serial": entry.bsatom_orig_idx,   # Carbon atom
-                    "r_position": entry.bsatom.coords,
+                    "r_position": np.array(entry.bsatom.coords),
 
                     "dist": entry.distance,
                 }
             )
-    return pd.DataFrame(rows)
+    return rows
 
 
-def _hbond(interactions: Sequence[PLInteraction]):
+def _hbond(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
+    """Extract hydrogen bond interaction data from PLIP interaction objects."""
     rows = []
     for interaction in interactions:
         for entry in [*interaction.hbonds_pdon, *interaction.hbonds_ldon]:
@@ -320,27 +317,28 @@ def _hbond(interactions: Sequence[PLInteraction]):
                     "l_chain_id": entry.reschain_l,
                     "l_serial": entry.a_orig_idx if entry.protisdon else entry.d_orig_idx,
                     "l_type": entry.atype if entry.protisdon else entry.dtype,
-                    "l_position": entry.a.coords if entry.protisdon else entry.d.coords,
+                    "l_position": np.array(entry.a.coords if entry.protisdon else entry.d.coords),
 
                     "r_res_name": entry.restype,
                     "r_res_seq": entry.resnr,
                     "r_chain_id": entry.reschain,
                     "r_serial": entry.d_orig_idx if entry.protisdon else entry.a_orig_idx,
                     "r_type": entry.dtype if entry.protisdon else entry.atype,
-                    "r_position": entry.d.coords if entry.protisdon else entry.a.coords,
+                    "r_position": np.array(entry.d.coords if entry.protisdon else entry.a.coords),
 
                     "r_is_d": entry.protisdon,
                     "is_sidechain": entry.sidechain,
-                    "h_position": entry.h.coords,
+                    "h_position": np.array(entry.h.coords),
                     "dist_a_h": entry.distance_ah,
                     "dist_a_d": entry.distance_ad,
                     "angle": entry.angle,
                 }
             )
-    return pd.DataFrame(rows)
+    return rows
 
 
-def _water_bridge(interactions: Sequence[PLInteraction]):
+def _water_bridge(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
+    """Extract water bridge interaction data from PLIP interaction objects."""
     rows = []
     for interaction in interactions:
         for entry in interaction.water_bridges:
@@ -351,32 +349,33 @@ def _water_bridge(interactions: Sequence[PLInteraction]):
                     "l_chain_id": entry.reschain_l,
                     "l_serial": entry.a_orig_idx if entry.protisdon else entry.d_orig_idx,
                     "l_type": entry.atype if entry.protisdon else entry.dtype,
-                    "l_position": entry.a.coords if entry.protisdon else entry.d.coords,
+                    "l_position": np.array(entry.a.coords if entry.protisdon else entry.d.coords),
 
                     "r_res_name": entry.restype,
                     "r_res_seq": entry.resnr,
                     "r_chain_id": entry.reschain,
                     "r_serial": entry.d_orig_idx if entry.protisdon else entry.a_orig_idx,
                     "r_type": entry.dtype if entry.protisdon else entry.atype,
-                    "r_position": entry.d.coords if entry.protisdon else entry.a.coords,
+                    "r_position": np.array(entry.d.coords if entry.protisdon else entry.a.coords),
 
                     "r_is_d": entry.protisdon,
 
                     "w_serial": entry.water_orig_idx,
-                    "w_position": entry.water.coords,
+                    "w_position": np.array(entry.water.coords),
                     'w_angle': entry.w_angle,
 
-                    "h_position": entry.h.coords,
+                    "h_position": np.array(entry.h.coords),
 
                     'dist_w_a': entry.distance_aw,
                     'dist_w_d': entry.distance_dw,
                     "d_angle": entry.d_angle,
                 }
             )
-    return pd.DataFrame(rows)
+    return rows
 
 
-def _salt_bridge(interactions: Sequence[PLInteraction]):
+def _salt_bridge(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
+    """Extract salt bridge interaction data from PLIP interaction objects."""
     rows = []
     for interaction in interactions:
         for sb in [*interaction.saltbridge_lneg, *interaction.saltbridge_pneg]:
@@ -388,22 +387,23 @@ def _salt_bridge(interactions: Sequence[PLInteraction]):
                     "l_chain_id": sb.reschain_l,
                     "l_group": lig.fgroup,
                     "l_serials": lig.atoms_orig_idx,
-                    "l_position": lig.center,
+                    "l_position": np.array(lig.center),
 
                     "r_res_name": sb.restype,
                     "r_res_seq": sb.resnr,
                     "r_chain_id": sb.reschain,
                     "r_serials": prot.atoms_orig_idx,
-                    "r_position": prot.center,
+                    "r_position": np.array(prot.center),
 
                     "r_is_cation": sb.protispos,
                     "dist": sb.distance,
                 }
             )
-    return pd.DataFrame(rows)
+    return rows
 
 
-def _pi_stacking(interactions: Sequence[PLInteraction]):
+def _pi_stacking(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
+    """Extract pi-stacking interaction data from PLIP interaction objects."""
     rows = []
     for interaction in interactions:
         for entry in interaction.pistacking:
@@ -412,14 +412,14 @@ def _pi_stacking(interactions: Sequence[PLInteraction]):
                     "l_res_name": entry.restype_l,
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
-                    "l_serials": entry.ligandring.atoms_orig_idx,
-                    "l_position": entry.ligandring.center,
+                    "l_serials": np.array(entry.ligandring.atoms_orig_idx),
+                    "l_position": np.array(entry.ligandring.center),
 
                     "r_res_name": entry.restype,
                     "r_res_seq": entry.resnr,
                     "r_chain_id": entry.reschain,
-                    "r_serials": entry.proteinring.atoms_orig_idx,
-                    "r_position": entry.proteinring.center,
+                    "r_serials": np.array(entry.proteinring.atoms_orig_idx),
+                    "r_position": np.array(entry.proteinring.center),
 
                     "dist": entry.distance,
                     "angle": entry.angle,
@@ -427,10 +427,11 @@ def _pi_stacking(interactions: Sequence[PLInteraction]):
                     "type": entry.type,
                 }
             )
-    return pd.DataFrame(rows)
+    return rows
 
 
-def _pi_cation(interactions: Sequence[PLInteraction]):
+def _pi_cation(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
+    """Extract pi-cation interaction data from PLIP interaction objects."""
     rows = []
     for interaction in interactions:
         for entry in [*interaction.pication_laro, *interaction.pication_paro]:
@@ -440,25 +441,26 @@ def _pi_cation(interactions: Sequence[PLInteraction]):
                     "l_res_name": entry.restype_l,
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
-                    "l_serials": lig.atoms_orig_idx,
+                    "l_serials": np.array(lig.atoms_orig_idx),
                     "l_group": 'aromatic' if entry.protcharged else entry.charge.fgroup,
-                    "l_position": lig.center,
+                    "l_position": np.array(lig.center),
 
                     "r_res_name": entry.restype,
                     "r_res_seq": entry.resnr,
                     "r_chain_id": entry.reschain,
-                    "r_serials": prot.atoms_orig_idx,
-                    "r_position": prot.center,
+                    "r_serials": np.array(prot.atoms_orig_idx),
+                    "r_position": np.array(prot.center),
 
                     "r_is_cation": entry.protcharged,
                     "dist": entry.distance,
                     "offset": entry.offset,
                 }
             )
-    return pd.DataFrame(rows)
+    return rows
 
 
-def _halogen(interactions: Sequence[PLInteraction]):
+def _halogen(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
+    """Extract halogen bond data from PLIP interaction objects."""
     rows = []
     for interaction in interactions:
         for entry in interaction.halogen_bonds:
@@ -467,12 +469,12 @@ def _halogen(interactions: Sequence[PLInteraction]):
                     "l_res_name": entry.restype_l,
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
-                    "l_position": entry.don.x.coords,
+                    "l_position": np.array(entry.don.x.coords),
 
                     "r_res_name": entry.restype,
                     "r_res_seq": entry.resnr,
                     "r_chain_id": entry.reschain,
-                    "r_position": entry.acc.o.coords,
+                    "r_position": np.array(entry.acc.o.coords),
 
                     "is_sidechain": entry.sidechain,
                     "dist": entry.distance,
@@ -484,10 +486,11 @@ def _halogen(interactions: Sequence[PLInteraction]):
                     "a_type": entry.acctype,
                 }
             )
-    return pd.DataFrame(rows)
+    return rows
 
 
-def _metal(interactions: Sequence[PLInteraction]):
+def _metal(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
+    """Extract metal complex data from PLIP interaction objects."""
     rows = []
     for interaction in interactions:
         for entry in interaction.metal_complexes:
@@ -503,11 +506,11 @@ def _metal(interactions: Sequence[PLInteraction]):
 
                     "m_serial": entry.metal_orig_idx,
                     "m_type": entry.metal_type,
-                    "m_position": entry.metal.coords,
+                    "m_position": np.array(entry.metal.coords),
 
                     't_serial': entry.target_orig_idx,
                     't_type': entry.target_type,
-                    't_position': entry.target.atom.coords,
+                    't_position': np.array(entry.target.atom.coords),
 
                     "dist": entry.distance,
                     "location": entry.location,
@@ -517,4 +520,4 @@ def _metal(interactions: Sequence[PLInteraction]):
                     'complex_num': entry.complexnum,
                 }
             )
-    return pd.DataFrame(rows)
+    return rows
