@@ -1397,7 +1397,6 @@ def merge(pdbfiles: Sequence[PDBFile]) -> PDBFile:
                 rows.append(row)
         return pd.DataFrame(rows).convert_dtypes() if rows else None
 
-
     def from_array(attr_name: str, col_name: str | None = None) -> DataFrame | None:
         """Helper function to merge an attribute that is a numpy array."""
         pdb_ids = []
@@ -1518,4 +1517,3 @@ def merge(pdbfiles: Sequence[PDBFile]) -> PDBFile:
         ter=from_df("ter"),
         conect=from_df("conect"),
     )
-
