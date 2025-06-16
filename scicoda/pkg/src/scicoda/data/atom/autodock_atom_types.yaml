@@ -4,10 +4,11 @@ schema:
   description: |
     These are used in the AutoDock software suite (e.g. AutoGrid4)
     and file formats (e.g. PDBQT, GPF).
-  $comment: |
-    An official documentation could not be found.
-    The list is taken from below link:
-    - https://mmb.irbbarcelona.org/gitlab/BioExcel/structureChecking/blob/5f07d82dc36d1f43733ae3b1ecd9f40aebe8b0a2/biobb_structure_checking/dat/autodock_atomtypes.dat
+
+    References
+    ----------
+    1. [AutoDockTools](https://github.com/CADDsci/MGLTools/blob/94b258d99b9011505e3d71ffa23a1a271a136204/MGLTools/AutoDockTools/AD4_parameters.dat)
+    2. [BioExcel](https://mmb.irbbarcelona.org/gitlab/BioExcel/structureChecking/blob/5f07d82dc36d1f43733ae3b1ecd9f40aebe8b0a2/biobb_structure_checking/dat/autodock_atomtypes.dat)
   type: array
   items:
     title: AutoDock Atom Type
@@ -46,9 +47,9 @@ schema:
         minimum: 0
         description: |
           Number of possible H-bonds for directionally H-bonding atoms,
-          0 for non H-bonding atoms,
-          and null for spherically H-bonding atoms.
-        default: null
+          `.nan` for spherically H-bonding atoms,
+          and 0 for non H-bonding atoms.
+        default: 0
     required: [ type, element, hbond_acceptor, hbond_donor, hbond_count ]
     oneOf:
       - properties:
@@ -69,27 +70,11 @@ schema:
           hbond_donor:
             const: false
           hbond_count:
-            type: 'null'
+            const: 0
 data:
-  - type: A
-    element: C
-    description: Aromatic carbon
-  - type: Br
-    element: Br
-  - type: C
-    element: C
-    description: Aliphatic carbon
-  - type: Ca
-    element: Ca
-  - type: Cl
-    element: Cl
-  - type: F
-    element: F
-  - type: Fe
-    element: Fe
   - type: H
     element: H
-    description: non H-bonding hydrogen
+    description: Non H-bonding hydrogen
   - type: HD
     element: H
     description: H-bond donor hydrogen
@@ -100,12 +85,12 @@ data:
     description: Spherical H-bond donor hydrogen
     hbond_donor: true
     hbond_count: .nan
-  - type: I
-    element: I
-  - type: Mg
-    element: Mg
-  - type: Mn
-    element: Mn
+  - type: C
+    element: C
+    description: Aliphatic carbon
+  - type: A
+    element: C
+    description: Aromatic carbon
   - type: N
     element: N
     description: Non H-bonding nitrogen
@@ -129,6 +114,10 @@ data:
     description: Spherical H-bond acceptor oxygen
     hbond_acceptor: true
     hbond_count: .nan
+  - type: F
+    element: F
+  - type: Mg
+    element: Mg
   - type: P
     element: P
   - type: S
@@ -139,5 +128,17 @@ data:
     description: H-bond acceptor sulfur
     hbond_acceptor: true
     hbond_count: 2
+  - type: Cl
+    element: Cl
+  - type: Ca
+    element: Ca
+  - type: Mn
+    element: Mn
+  - type: Fe
+    element: Fe
   - type: Zn
     element: Zn
+  - type: Br
+    element: Br
+  - type: I
+    element: I
