@@ -1,4 +1,9 @@
-"""Analyze protein-ligand interactions."""
+"""Analyze protein-ligand interactions using PLIP.
+
+References
+----------
+- [PLIP documentation](https://github.com/pharmai/plip/blob/master/DOCUMENTATION.md)
+"""
 
 from pathlib import Path
 import tempfile
@@ -8,6 +13,9 @@ import numpy as np
 import scishow
 from plip.structure.preparation import PDBComplex, PLInteraction
 import pandas as pd
+import matplotlib as mpl
+import matplotlib.pyplot
+
 
 INTERACTION_TYPES = (
     "hbond",
@@ -26,6 +34,12 @@ VisualizationParts = Sequence[Literal[*VISUALIZATION_PARTS]]
 
 
 class ProteinLigandInteractions:
+    """Protein-ligand interactions.
+
+    This class contains all interactions between a protein and a ligand, as detected by PLIP.
+    It provides properties to access different types of interactions
+    and a method to visualize them using NGLView.
+    """
 
     def __init__(
         self,
@@ -65,11 +79,6 @@ class ProteinLigandInteractions:
         return self._all
 
     @property
-    def hydrophobic(self) -> pd.DataFrame:
-        """Hydrophobic interactions."""
-        return self._hydrophobic
-
-    @property
     def hbond(self) -> pd.DataFrame:
         """Hydrogen bonding interactions."""
         return self._hbond
@@ -83,6 +92,11 @@ class ProteinLigandInteractions:
     def salt_bridge(self) -> pd.DataFrame:
         """Salt bridge interactions."""
         return self._salt_bridge
+
+    @property
+    def hydrophobic(self) -> pd.DataFrame:
+        """Hydrophobic interactions."""
+        return self._hydrophobic
 
     @property
     def pi_stacking(self) -> pd.DataFrame:
@@ -108,6 +122,7 @@ class ProteinLigandInteractions:
         self,
         nglwidget: scishow.nglview.NGLWidget | None = None,
         *,
+        idx: int | tuple[int, ...] | None = None,
         interactions_include: InteractionTypes = INTERACTION_TYPES,
         interactions_exclude: InteractionTypes = (),
         vis: VisualizationParts | None = None,
@@ -146,6 +161,8 @@ class ProteinLigandInteractions:
             data = getattr(self, interaction_type)
             if data.empty:
                 continue
+            if idx is not None:
+                data = data[data["idx"] == idx]
 
             # Set positions based on interaction type
             if interaction_type in ("hbond", "water_bridge"):
@@ -229,80 +246,91 @@ class ProteinLigandInteractions:
                 else:
                     for l, r in zip(l_pos, r_pos):
                         ngl.shape.add_arrow(l, r, color_line, radius_line, f"{interaction_type}-line")
-        return ngl
-
+        # Color legend
+        fig, _ = mpl.pyplot.subplots(nrows=2, ncols=6, figsize=(12, 1))
+        mpl.pyplot.subplots_adjust(hspace=1)
+        fig.suptitle("Interaction Colors", size=10, y=1.3)
+        color_map = {
+            "H-Bond Acceptor": [color_hbond_acceptor],
+            "H-Bond Donor": [color_hbond_donor],
+            "Water": [color_water],
+            "Hydrophobic": [color_hydrophobic],
+            "Aromatic": [color_aromatic],
+            "Anion": [color_anion],
+            "Cation": [color_cation],
+            "Halogen Acceptor": [color_halogen_acceptor],
+            "Halogen Donor": [color_halogen_donor],
+            "Metal Center": [color_metal],
+            "Metal Ligand": [color_metal_ligand],
+            "Line": [color_line],
+        }
+        for ax, (interaction, color) in zip(fig.axes, color_map.items()):
+            ax.imshow(np.zeros((1, 5)), cmap=mpl.colors.ListedColormap(color))
+            ax.set_title(interaction, loc="center", fontsize=9)
+            ax.set_axis_off()
+        return ngl, fig
 
 
 def from_pdb(
-    file: str | bytes | Path,
+    files: str | bytes | Path | Sequence,
     ligands: Sequence[tuple[str, int | str, int]] | None = None,
 ) -> ProteinLigandInteractions:
-    """Calculate protein-ligand interactions in a PDB file.
+    """Calculate protein-ligand interactions in PDB file(s).
 
     Parameters
     ----------
-    pdb_filepath : str or pathlib.Path
-        Filepath of the PDB file containing the protein-ligand complex.
-
-    Returns
-    -------
-    dict of dict
-        Dictionary of all different interaction data for all detected ligands.
-        - The keys of first dictionary correspond to the ligand-IDs of detected ligands in the
-          PDB file.
-        - The keys of each sub-dictionary correspond to interaction types, as defined in
-          `PLIP.Consts.InteractionTypes`.
+    files
+        PDB file(s) containing the protein-ligand complex.
+        This can be a single file or an array of files with any shape.
+        Each entry can be either a PDB file content (as string or bytes)
+        or a path to a PDB file (as a `pathlib.Path` object).
+        If an array of files is provided,
+        each interaction will have an additional column `idx`
+        indicating the index of the file in the array
+        (as a single integer for 1D or a tuple of integers for multi-dimensional arrays).
+    ligands
+        Ligand identifiers to filter interactions.
+        If not provided, all ligands in the PDB file will be considered.
+        Each ligand is identified by a tuple of three elements:
+        1. Residue name (e.g., "ATP")
+        2. Residue chain ID (e.g., "A")
+        3. Residue sequence number (e.g., 1)
     """
-    pdb_complex = PDBComplex()
-    # The `as_string` argument for `load_pdb` does not work: https://github.com/pharmai/plip/issues/186
-    if isinstance(file, Path):
-        pdb_complex.load_pdb(str(file))
+    globs = globals()
+    if isinstance(files, str | bytes | Path):
+        files = [files]
+        is_multifile = False
     else:
-        with tempfile.NamedTemporaryFile(mode="w+", suffix=".pdb") as temp_file:
-            pdb_str = file if isinstance(file, str) else file.decode("utf-8")
-            temp_file.write(pdb_str)
-            temp_file.flush()
-            pdb_complex.load_pdb(temp_file.name)
-    pdb_complex.analyze()
+        is_multifile = True
+    files = np.array(files, dtype=object)
+    for file_idx in np.ndindex(files.shape):
+        file = files[file_idx]
+        pdb_complex = PDBComplex()
+        # The `as_string` argument for `load_pdb` does not work: https://github.com/pharmai/plip/issues/186
+        if isinstance(file, Path):
+            pdb_complex.load_pdb(str(file))
+        else:
+            with tempfile.NamedTemporaryFile(mode="w+", suffix=".pdb") as temp_file:
+                pdb_str = file if isinstance(file, str) else file.decode("utf-8")
+                temp_file.write(pdb_str)
+                temp_file.flush()
+                pdb_complex.load_pdb(temp_file.name)
+        pdb_complex.analyze()
 
-    ligands = [":".join(map(str, ligand)) for ligand in ligands] if ligands else None
-    interaction_sets = [
-        interaction_set for ligand_name, interaction_set in pdb_complex.interaction_sets.items()
-        if not ligands or ligand_name in ligands
-    ]
+        ligands = [":".join(map(str, ligand)) for ligand in ligands] if ligands else None
+        interaction_sets = [
+            interaction_set for ligand_name, interaction_set in pdb_complex.interaction_sets.items()
+            if not ligands or ligand_name in ligands
+        ]
 
-    interaction_data = {}
-    for attr_name, func in zip(
-        INTERACTION_TYPES,
-        (_hydrophobic, _hbond, _water_bridge, _salt_bridge, _pi_stacking, _pi_cation, _halogen, _metal),
-    ):
-        interaction_data[attr_name] = pd.DataFrame(func(interaction_sets)).convert_dtypes()
+        interaction_data = {}
+        for attr_name in INTERACTION_TYPES:
+            func = globs[f"_{attr_name}"]
+            df = pd.DataFrame(func(interaction_sets)).convert_dtypes()
+            if is_multifile:
+                df.insert(0, "idx", file_idx[0] if len(file_idx) == 1 else file_idx)
+            interaction_data[attr_name] = df
     return ProteinLigandInteractions(**interaction_data)
-
-
-def _hydrophobic(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
-    """Extract hydrophobic interaction data from PLIP interaction objects."""
-    rows = []
-    for interaction in interactions:
-        for entry in interaction.hydrophobic_contacts:
-            rows.append(
-                {
-                    "l_res_name": entry.restype_l,
-                    "l_res_seq": entry.resnr_l,
-                    "l_chain_id": entry.reschain_l,
-                    "l_serial": entry.ligatom_orig_idx,  # Carbon atom
-                    "l_position": np.array(entry.ligatom.coords),
-
-                    "r_res_name": entry.restype,
-                    "r_res_seq": entry.resnr,
-                    "r_chain_id": entry.reschain,
-                    "r_serial": entry.bsatom_orig_idx,   # Carbon atom
-                    "r_position": np.array(entry.bsatom.coords),
-
-                    "dist": entry.distance,
-                }
-            )
-    return rows
 
 
 def _hbond(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
@@ -397,6 +425,31 @@ def _salt_bridge(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
 
                     "r_is_cation": sb.protispos,
                     "dist": sb.distance,
+                }
+            )
+    return rows
+
+
+def _hydrophobic(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
+    """Extract hydrophobic interaction data from PLIP interaction objects."""
+    rows = []
+    for interaction in interactions:
+        for entry in interaction.hydrophobic_contacts:
+            rows.append(
+                {
+                    "l_res_name": entry.restype_l,
+                    "l_res_seq": entry.resnr_l,
+                    "l_chain_id": entry.reschain_l,
+                    "l_serial": entry.ligatom_orig_idx,  # Carbon atom
+                    "l_position": np.array(entry.ligatom.coords),
+
+                    "r_res_name": entry.restype,
+                    "r_res_seq": entry.resnr,
+                    "r_chain_id": entry.reschain,
+                    "r_serial": entry.bsatom_orig_idx,   # Carbon atom
+                    "r_position": np.array(entry.bsatom.coords),
+
+                    "dist": entry.distance,
                 }
             )
     return rows
