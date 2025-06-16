@@ -12,6 +12,7 @@ import jax
 import numpy as np
 import pandas as pd
 import nglview as ngl
+from openbabel import pybel
 import scicoda
 import scifile
 import scids
@@ -35,11 +36,11 @@ class ChemicalSystem:
     Parameters
     ----------
     composition
-        Atomic composition of the system, their connectivity, and other properties.
+        Atomic composition of the system and their properties.
         Depending on the context, this can represent a single molecule
         or an ensemble of molecules.
     trajectory
-        A collection of points in 3D space, which can be used to represent
+        A 3D point cloud representing
         the conformation of the system over time or in different states.
     """
     def __init__(self, composition: ChemicalComposition, trajectory: PointCloud):
@@ -61,6 +62,7 @@ class ChemicalSystem:
 
     @property
     def composition(self):
+        """Atomic composition of the system."""
         return self._composition
 
     @property
@@ -71,12 +73,13 @@ class ChemicalSystem:
     def toxelate(
         self,
         grid: float | Sequence[float] | Grid = 0.3,
+        radii: ArrayLike | None = None,
         padding: float | None = None,
         instance_selection: Any = None,
     ):
         return self.trajectory.toxelate(
             grid=grid,
-            point_radii=self.composition.vdw_radius,
+            point_radii=radii if radii is not None else self.composition.vdw_radius,
             padding=padding,
             instance_selection=instance_selection,
         )
@@ -103,9 +106,9 @@ class ChemicalSystem:
 
     def to_pdb(
         self,
-        frames: Any = None,
+        frames: Any = (),
         multimodel: bool = False,
-    ) -> str | tuple[str, ...]:
+    ) -> scifile.pdb.PDBFile | np.ndarray:
         """Write the system as PDB files.
 
         Parameters
@@ -128,51 +131,165 @@ class ChemicalSystem:
             atoms = self.composition.atoms.assign(model_num=0)
             atoms[["x", "y", "z"]] = self.trajectory.points[(0, ) * self.trajectory.batch_ndim]
             return scifile.pdb.PDBFile(atom=atoms)
-
-        if frames is None:
-            frames = range(self.trajectory.batch_ndim)
-        elif isinstance(frames, int):
-            frames = [frames]
-        if not isinstance(frames, Sequence):
-            raise TypeError("frames must be an int or a sequence of ints")
-        if multimodel:
-            atoms_full = pd.concat([self.composition.atoms.assign(model_num=i+1) for i in range(len(frames))], ignore_index=True)
-            atoms_full[["x", "y", "z"]] = self.trajectory.points[frames, :, :].reshape(-1, 3)
-            pdbfile = scids.file.pdb.PDBFile(atom=atoms_full)
-            return pdbfile.to_file(multimodel=True)
-        pdbs = []
-        for frame in frames:
+        coordinates = self.trajectory.points[frames]
+        if coordinates.shape[-2:] != (self.trajectory.point_count, 3):
+            raise exception.InputError(
+                name="frames",
+                message=f"Invalid frame selection: {frames}. "
+                        f"Expected shape (..., {self.trajectory.point_count}, 3), "
+                        f"but got {coordinates.shape}.",
+            )
+        if coordinates.ndim == 2:
             atoms = self.composition.atoms.assign(model_num=0)
-            atoms[["x", "y", "z"]] = self.trajectory.points[frame, :, :]
-            pdbfile = scifile.pdb.PDBFile(atom=atoms)
-            pdbs.append(pdbfile.to_file(multimodel=False))
-        return tuple(pdbs)
+            atoms[["x", "y", "z"]] = coordinates
+            return scifile.pdb.PDBFile(atom=atoms)
+        if multimodel:
+            atoms_full = pd.concat(
+                [
+                    self.composition.atoms.assign(model_num=i+1)
+                    for i in range(np.prod(coordinates.shape[:-2]))
+                ],
+                ignore_index=True
+            )
+            atoms_full[["x", "y", "z"]] = coordinates.reshape(-1, 3)
+            return scids.file.pdb.PDBFile(atom=atoms_full)
+        pdbs = np.empty(shape=coordinates.shape[:-2], dtype=object)
+        for index in np.ndindex(coordinates.shape[:-2]):
+            atoms = self.composition.atoms.assign(model_num=0)
+            atoms[["x", "y", "z"]] = coordinates[index]
+            pdbs[index] = scifile.pdb.PDBFile(atom=atoms)
+        return pdbs
 
     def to_pdbqt(
         self,
-        frames: int | Sequence[int] | None = None,
-    ):
-        """Write the system as PDBQT files."""
-        if frames is None:
-            frames = range(self.trajectory.batch_ndim)
-        elif isinstance(frames, int):
-            frames = [frames]
-        if not isinstance(frames, Sequence):
-            raise TypeError("frames must be an int or a sequence of ints")
-        pdbqts = []
-        for frame in frames:
-            atoms = self.composition.atoms.assign(model_num=0)
-            atoms[["x", "y", "z"]] = self.trajectory.points[frame, :, :]
-            if "autodock_atom_type" not in atoms:
-                atoms["autodock_atom_type"] = self.composition.autodock_atom_type()
-            if "partial_charge" not in atoms:
-                atoms["partial_charge"] = self.composition.partial_charge()
-            pdbfile = scids.file.pdb.PDBFile(atom=atoms)
-            pdbqts.append(pdbfile.to_file(variant="pdbqt", multimodel=False))
-        return tuple(pdbqts)
+        frames: Any = (),
+        autobond: bool = False,
+        rigid: bool = True,
+        combine: bool = False,
+        flexible: bool = False,
+        preserve_serials: bool = True,
+        preserve_hydrogens: bool = False,
+        preserve_names: bool = True,
+        charge_model: Literal[
+            'eem',
+            'eem2015ba',
+            'eem2015bm',
+            'eem2015bn',
+            'eem2015ha',
+            'eem2015hm',
+            'eem2015hn',
+            'eqeq',
+            'fromfile',
+            'gasteiger',
+            'mmff94',
+            'none',
+            'qeq',
+            'qtpie',
+        ] = 'gasteiger',
+        add_hydrogens: bool = False,
+        protonation_ph: float | None = None,
+    ) -> str | np.ndarray:
+        """Write the system as PDBQT files.
 
-    def new(self, composition: pd.DataFrame | ChemicalComposition | None = None, trajectory: ArrayLike | PointCloud | None = None):
-        """Create a new ChemicalSystem with the same class as this one."""
+        Parameters
+        ----------
+        frames
+            Any array indexing object
+            to select a subset of instances to convert to PDBQT.
+            By default, all instances are converted.
+        autobond
+            Enable automatic bonding.
+        rigid
+            Output a rigid molecule, i.e., no branches or torsion trees.
+        combine
+            Combine separate molecular pieces of input
+            into a single rigid molecule.
+            This only has an effect when `rigid` is `True`.
+        flexible
+            Output as a flexible residue.
+        preserve_serials
+            Preserve atom serial numbers.
+            If `False`, atoms are renumbered sequentially.
+        preserve_hydrogens
+            Preserve non-polar hydrogen atoms in the output.
+            If `False`, only polar hydrogens are preserved.
+        preserve_names
+            Preserve atom names in the output.
+        charge_model
+            Charge model to use for calculating partial charges.
+        add_hydrogens
+            Add missing hydrogens to the structure before conversion.
+        protonation_ph
+            pH value to optimize protonation state of the structure.
+            If `None`, no protonation correction is performed.
+
+        Returns
+        -------
+        PDBQT file content as string.
+        If multiple frames are available and `frames` selects more than one,
+        a numpy array of strings is returned with the same shape as the selected frames,
+        where each string represents a PDBQT file for a single frame.
+        Otherwise, a single string is returned.
+
+        References
+        ----------
+        - [Open Babel documentation: PDBQT format](https://open-babel.readthedocs.io/en/latest/FileFormats/AutoDock_PDBQT_format.html)
+        """
+        # Create PDB files for pybel input.
+        pdbs = self.to_pdb(frames=frames, multimodel=False)
+        if isinstance(pdbs, scifile.pdb.PDBFile):
+            single_file = True
+            pdbs = np.array([pdbs])
+        else:
+            single_file = False
+        # Set pybel write options based on the provided arguments.
+        # https://open-babel.readthedocs.io/en/latest/FileFormats/AutoDock_PDBQT_format.html
+        pybel_write_options = {
+            flag: None
+            for arg, flag in (
+                (autobond, "b"),
+                (rigid, "r"),
+                (combine, "c"),
+                (flexible, "s"),
+                (preserve_serials, "p"),
+                (preserve_hydrogens, "h"),
+                (preserve_names, "n"),
+            ) if arg
+        }
+        pdbqts = np.empty(shape=pdbs.shape, dtype=object)
+        for index, pdb in np.ndenumerate(pdbs):
+            pdb_str = str(pdb)
+            # https://open-babel.readthedocs.io/en/latest/UseTheLibrary/Python_PybelAPI.html#pybel.readstring
+            pybel_molecule = pybel.readstring(format="pdb", string=pdb_str)
+            if add_hydrogens:
+                # https://open-babel.readthedocs.io/en/latest/UseTheLibrary/Python_PybelAPI.html#pybel.Molecule.addh
+                pybel_molecule.addh()
+            if protonation_ph is not None:
+                pybel_molecule.OBMol.CorrectForPH(protonation_ph)
+            pybel_molecule.calccharges(model=charge_model)
+            # https://open-babel.readthedocs.io/en/latest/UseTheLibrary/Python_PybelAPI.html#pybel.Molecule.write
+            pdbqt_str = pybel_molecule.write(format="pdbqt", opt=pybel_write_options)
+            pdbqts[index] = pdbqt_str
+        if single_file:
+            return pdbqts[0]
+        return pdbqts
+
+    def new(
+        self,
+        composition: pd.DataFrame | ChemicalComposition | None = None,
+        trajectory: ArrayLike | PointCloud | None = None
+    ) -> ChemicalSystem:
+        """Create a new ChemicalSystem from this one.
+
+        Parameters
+        ----------
+        composition
+            New composition for the system.
+            If None, the current composition is used.
+        trajectory
+            New trajectory for the system.
+            If None, the current trajectory is used.
+        """
         if composition is None:
             composition = self._composition
         elif isinstance(composition, pd.DataFrame):
@@ -182,6 +299,7 @@ class ChemicalSystem:
         elif isinstance(trajectory, np.ndarray | jax.Array):
             trajectory = scids.pointcloud.from_array(trajectory)
         return ChemicalSystem(composition=composition, trajectory=trajectory)
+
 
 class ChemicalComposition:
     def __init__(self, atoms: pd.DataFrame):
@@ -228,10 +346,14 @@ class ChemicalComposition:
     def atom_count(self) -> int:
         return len(self.atoms)
 
-    def partial_charge(self) -> np.ndarray:
-        return self._atoms["partial_charge"].values
-
     def autodock_atom_type(self) -> pd.DataFrame:
+        """Autodock types of the atoms."""
+        if "autodock_atom_type" not in self._atoms:
+            first_frame_index = 0 if self._chemsys.trajectory.batch_ndim == 0 else np.unravel_index(
+                0, self._chemsys.trajectory.batch_shape
+            )
+            pdb_string = str(self._chemsys.to_pdb(frames=first_frame_index))
+            pybel_molecule = pybel.readstring(format="pdb", string=pdb_string)
         return self._atoms["autodock_atom_type"].values
 
     def hbond_acceptor(self) -> np.ndarray:
@@ -276,7 +398,10 @@ class _ChemicalSystemNGLViewAdaptor(ngl.Structure, ngl.Trajectory):
         return
 
     def get_structure_string(self):
-        return str(self._chemsys.to_pdb())
+        first_frame_index = 0 if self._chemsys.trajectory.batch_ndim == 0 else np.unravel_index(
+            0, self._chemsys.trajectory.batch_shape
+        )
+        return str(self._chemsys.to_pdb(frames=first_frame_index))
 
     def get_coordinates(self, index):
         index_unraveled = index if self._chemsys.trajectory.batch_ndim == 0 else np.unravel_index(
@@ -336,68 +461,3 @@ def _read_single_pdb(file: scifile.pdb.PDBFile | Path | bytes | str) -> tuple[pd
 
 def from_pdbqt():
     trajectory = records["ATOM"][["x", "y", "z"]].to_numpy()[np.newaxis]
-
-
-from openbabel import pybel
-def write_pdbqt_from_pdb_filepath(
-    filepath: _typing.PathLike,
-    output_filename: str | None = None,
-    output_path: _typing.PathLike | None = None,
-):
-    """
-    Convert a PDB file to a PDBQT file, and save it in the given filepath.
-
-    Parameters
-    ----------
-    filepath: str or pathlib.Path
-        Path to input PDB file.
-    output_path: str or pathlib.Path
-        Path to output PDBQT file.
-    add_hydrogens : bool, Optional, default: True
-        Whether to add hydrogen atoms to the structure.
-    protonate_for_pH : float | None, Optional, default: 7.4
-        pH value to optimize protonation state of the structure. Disabled if `None`.
-    calculate_partial_charges : bool, Optional, default: True
-        Whether to calculate partial charges for each atom.
-
-    Returns
-    -------
-    openbabel.pybel.Molecule
-        Molecule object of PDB file, modified according to the input.
-        The PDBQT file will be stored in the provided path.
-
-    References
-    ----------
-    https://open-babel.readthedocs.io/en/latest/FileFormats/AutoDock_PDBQT_format.html
-    """
-    # pybel.readfile() provides an iterator over the Molecules in a file.
-    # To access the first (and possibly only) molecule in a file, we use next()
-    input_path = Path(filepath)
-    molecule = next(pybel.readfile("pdb", str(input_path)))
-    # if protonate_for_pH:
-    molecule.OBMol.CorrectForPH(7.4)
-    molecule.addh()
-    # if add_hydrogens:
-
-    # if calculate_partial_charges:
-    for atom in molecule.atoms:
-        atom.OBAtom.GetPartialCharge()
-    # TODO: expose write options to function sig (see ref.)
-    if output_path is None:
-        output_filepath = (input_path.parent / input_path.stem).with_suffix(".pdbqt")
-    else:
-        output_path = Path(output_path)
-        output_path.mkdir(parents=True, exist_ok=True)
-        output_filepath = (output_path / output_filename).with_suffix(".pdbqt")
-    molecule.write(
-        format="pdbqt",
-        filename=str(output_filepath),
-        overwrite=True,
-        opt={"r": None, "n": None, "p": None, "h": None},
-    )
-    if output_filename is not None:
-        return output_filepath.resolve()
-    with open(output_filepath) as f:
-        pdbqt_str = f.read()
-    output_filepath.unlink()
-    return pdbqt_str
