@@ -267,7 +267,7 @@ def read(
     spacing: float | None = None,
     center: tuple[float, float, float] | np.ndarray | None = None,
 ) -> AutodockMapFile:
-    """Read AutoDock MAP files.
+    """Read AutoDock MAP file(s).
 
     This can read any number of map files
     as long as they all have the same
