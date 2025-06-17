@@ -291,7 +291,6 @@ class GridDetector:
         return dist2 <= radius_vox**2
 
 
-
 class _WPrefix(Enum):
     MORPH = "morph_"
     LIGSITE = "ligsite_"
