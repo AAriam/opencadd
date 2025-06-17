@@ -21,65 +21,106 @@ import scids
 from caddpy import exception
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Sequence, Any
     from typing import Literal
-    from caddpy.typing import PathLike
+    from caddpy.typing import PathLike, ArrayLike
     from scids.grid import Grid
     from scids.field import Field
     import numpy.typing as npt
     from caddpy.chemsys import ChemicalSystem
 
+    _BatchSection = Literal["receptor", "parameter", "ligand"]
+
 
 def from_chemsys(
     system: ChemicalSystem,
     grid: Grid,
+    frames: Any = (),
     ligand_types: Sequence[str] = ("A", "C", "HD", "N", "NA", "OA", "SA"),
     smooth: float = 0.5,
     dielectric: float = -0.1465,
-    parameter_files: str | bytes | Path | Sequence[str | bytes | Path] | None = None,
+    parameter_files: str | bytes | Path | ArrayLike | None = None,
+    parameter_file_ids: str | ArrayLike | None = None,
     field_dtype: npt.DTypeLike = np.single,
+    field_batch_order: tuple[_BatchSection, _BatchSection, _BatchSection] = ("receptor", "parameter", "ligand"),
     output_dir: PathLike = None,
     allow_copy: bool = True,
-):
-
-
-
-    pdbqt_files = oc.io.autodock.pdbqt.write.from_ensemble(system)
-    # Receptor types are stored in the last column of ATOM records
-    atom_types = [
-        line.split()[-1] for line in pdbqt_files[0].splitlines() if line[:6] in ("ATOM  ", "HETATM")
-    ]
-    unique_atom_types = set(atom_types)
-    receptor_types = tuple(Autodock4AtomType[atom_type] for atom_type in unique_atom_types)
-
+    include_elecmap: bool = True,
+    include_dsolvmap: bool = True,
+    pdbqt_autobond: bool = False,
+    pdbqt_rigid: bool = True,
+    pdbqt_combine: bool = False,
+    pdbqt_flexible: bool = False,
+    pdbqt_preserve_serials: bool = True,
+    pdbqt_preserve_hydrogens: bool = False,
+    pdbqt_preserve_names: bool = True,
+    pdbqt_charge_model: Literal[
+        'eem',
+        'eem2015ba',
+        'eem2015bm',
+        'eem2015bn',
+        'eem2015ha',
+        'eem2015hm',
+        'eem2015hn',
+        'eqeq',
+        'fromfile',
+        'gasteiger',
+        'mmff94',
+        'none',
+        'qeq',
+        'qtpie',
+    ] = 'gasteiger',
+    pdbqt_add_hydrogens: bool = False,
+    pdbqt_protonation_ph: float | None = None,
+) -> Field:
+    pdbqts = system.to_pdbqt(
+        frames=frames,
+        autobond=pdbqt_autobond,
+        rigid=pdbqt_rigid,
+        combine=pdbqt_combine,
+        flexible=pdbqt_flexible,
+        preserve_serials=pdbqt_preserve_serials,
+        preserve_hydrogens=pdbqt_preserve_hydrogens,
+        preserve_names=pdbqt_preserve_names,
+        charge_model=pdbqt_charge_model,
+        add_hydrogens=pdbqt_add_hydrogens,
+        protonation_ph=pdbqt_protonation_ph,
+    )
     return from_pdbqt(
-        files=pdbqt_files,
+        files=pdbqts,
         grid=grid,
         ligand_types=ligand_types,
-        receptor_types=receptor_types,
+        identical_receptor_types=True,
         smooth=smooth,
         dielectric=dielectric,
         parameter_files=parameter_files,
+        parameter_file_ids=parameter_file_ids,
         field_dtype=field_dtype,
+        field_batch_order=field_batch_order,
         output_dir=output_dir,
         allow_copy=allow_copy,
+        include_elecmap=include_elecmap,
+        include_dsolvmap=include_dsolvmap,
     )
 
 
 def from_pdbqt(
-    files: str | bytes | Path | Sequence[str | bytes | Path],
+    files: str | bytes | Path | ArrayLike,
     grid: Grid,
-    ligand_types: Sequence[str] = ("A", "C", "HD", "N", "NA", "OA", "SA"),
+    ligand_types: str | Sequence[str] = ("A", "C", "HD", "N", "NA", "OA", "SA"),
     receptor_types: Sequence[str] | None = None,
     identical_receptor_types: bool = False,
     smooth: float = 0.5,
     dielectric: float = -0.1465,
-    parameter_files: str | bytes | Path | Sequence[str | bytes | Path] | None = None,
-    file_ids: str | Sequence[str] | None = None,
-    parameter_file_ids: str | Sequence[str] | None = None,
+    parameter_files: str | bytes | Path | ArrayLike | None = None,
+    file_ids: str | ArrayLike | None = None,
+    parameter_file_ids: str | ArrayLike | None = None,
     field_dtype: npt.DTypeLike = np.single,
+    field_batch_order: tuple[_BatchSection, _BatchSection, _BatchSection] = ("receptor", "parameter", "ligand"),
     output_dir: PathLike = None,
     allow_copy: bool = True,
+    include_elecmap: bool = True,
+    include_dsolvmap: bool = True,
 ) -> Field:
     """Run AutoGrid4 on a set of PDBQT files.
 
@@ -173,68 +214,69 @@ def from_pdbqt(
         """Check if the input is a filepath."""
         return isinstance(file, Path) or (isinstance(file, str) and "\n" not in file and Path(file).exists())
 
-    def get_receptor_types(file_idx: int) -> Sequence[str]:
+    def get_receptor_types(file: str | bytes | Path) -> Sequence[str]:
         nonlocal default_receptor_types
         if receptor_types:
             return receptor_types
         if default_receptor_types:
             return default_receptor_types
-        pdbqt = scifile.autodock_pdbqt.read(files[file_idx], parse_only=["ATOM"])
+        pdbqt = scifile.autodock_pdbqt.read(file, parse_only=["ATOM"])
         extracted_receptor_types = pdbqt.atom["autodock_atom_type"].unique()
         if identical_receptor_types:
             default_receptor_types = extracted_receptor_types
         return extracted_receptor_types
 
     def process_file_inputs(
-        input_files: str | bytes | Path | Sequence[str | bytes | Path] | None,
-        input_file_ids: str | Sequence[str] | None,
+        input_files: str | bytes | Path | ArrayLike | None,
+        input_file_ids: str | ArrayLike | None,
         receptor: bool,
-    ) -> tuple[Sequence[Path | None], Sequence[str], bool]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, bool]:
         arg_name = "files" if receptor else "parameter_files"
         if not input_files:
             if receptor:
                 raise exception.InputError(
                     name=arg_name,
-                    message="No files provided."
+                    message="No receptor files provided."
                 )
             if input_file_ids:
                 raise exception.InputError(
                     name=f"{arg_name}_ids",
                     message="File IDs were provided, but no files were given."
                 )
-            return [None], [None], [None], True
+            return np.array([None]), np.array([None]), np.array([None]), True
         if isinstance(input_files, (str, bytes, Path)):
-            input_files = [input_files]
+            input_files = np.array([input_files], dtype=object)
             single_file = True
-            count_files = 1
         else:
+            input_files = np.asarray(input_files, dtype=object)
             single_file = False
-            count_files = len(input_files)
-        if not input_file_ids:
+        if input_file_ids is None:
             file_id_prefix = "receptor" if receptor else "parameter_file"
-            file_ids = [f"{file_id_prefix}_{i}" for i in range(count_files)]
+            file_ids = np.array([f"{file_id_prefix}_{"_".join(map(str, i))}" for i in np.ndindex(input_files.shape)])
         elif isinstance(input_file_ids, str):
-            file_ids = [input_file_ids]
-        if (count_labels := len(file_ids)) != count_files:
+            file_ids = np.array([input_file_ids])
+        if (shape_ids := file_ids.shape) != (shape_files := input_files.shape):
             raise exception.InputError(
                 name=f"{arg_name}_ids",
-                message="The number of file IDs must match the number of input files, "
-                f"but {count_labels} labels were provided for {count_files} files."
+                message="The shape of file IDs must match the shape of input files, "
+                f"but got file IDs with shape {shape_ids} for files with shape {shape_files}."
             )
-        if count_labels != (count_unique_labels := len(set(file_ids))):
+        if (count_labels := file_ids.size) != (count_unique_labels := np.unique(file_ids).size):
             raise exception.InputError(
                 name=f"{arg_name}_ids",
-                message="The file labels must be unique, "
-                f"but the provided labels contain {count_labels - count_unique_labels} duplicates."
+                message="The file IDs must be unique, "
+                f"but the provided IDs contain {count_labels - count_unique_labels} duplicates."
             )
         if any(" " in file_id for file_id in file_ids):
             raise exception.InputError(
                 name=f"{arg_name}_ids",
                 message="The file IDs must not contain spaces."
             )
-        final_filepaths = []
+        final_filepaths = np.empty(shape=input_files.shape, dtype=object)
         file_suffix = ".pdbqt" if receptor else ".dat"
-        for file_idx, (file_id, file) in enumerate(zip(file_ids, input_files)):
+        for file_idx in np.ndindex(input_files.shape):
+            file_id = file_ids[file_idx]
+            file = input_files[file_idx]
             if is_path(file):
                 filepath = Path(file).resolve()
                 if not filepath.is_file():
@@ -243,7 +285,7 @@ def from_pdbqt(
                         message=f"The file '{file}' for file ID '{file_id}' at index '{file_idx}' does not exist."
                     )
                 if " " not in str(filepath):
-                    final_filepaths.append(filepath)
+                    final_filepaths[file_idx] = filepath
                 else:
                     if not allow_copy:
                         raise exception.InputError(
@@ -258,7 +300,7 @@ def from_pdbqt(
                             message=f"The file '{file}' for file ID '{file_id}' at index '{file_idx}' already exists in the output directory."
                         )
                     shutil.copy2(filepath, final_filepath)
-                    final_filepaths.append(final_filepath)
+                    final_filepaths[file_idx] = final_filepath
             else:
                 final_filepath = (output_dir / file_id).with_suffix(file_suffix)
                 if final_filepath.exists():
@@ -267,8 +309,52 @@ def from_pdbqt(
                         message=f"The file '{file}' for file ID '{file_id}' at index '{file_idx}' already exists in the output directory."
                     )
                 final_filepath.write_text(file) if isinstance(file, str) else final_filepath.write_bytes(file)
-                final_filepaths.append(final_filepath)
-        return final_filepaths, input_files, file_ids, single_file
+                final_filepaths[file_idx] = final_filepath
+        return final_filepaths, file_ids, input_files, single_file
+
+    def get_map_filepaths_shape(
+        shape_receptor_files: tuple[int, ...] | None,
+        shape_parameter_files: tuple[int, ...] | None,
+    ):
+        if any(batch_name not in ("receptor", "parameter", "ligand") for batch_name in field_batch_order):
+            raise exception.InputError(
+                name="field_batch_order",
+                message=f"The field batch order must contain only 'receptor', 'parameter', and 'ligand', "
+                        f"but got {field_batch_order}."
+            )
+        if len(field_batch_order) != 3:
+            raise exception.InputError(
+                name="field_batch_order",
+                message=f"The field batch order must contain exactly three elements, "
+                        f"but got {len(field_batch_order)} elements: {field_batch_order}."
+            )
+        if len(field_batch_order) != len(set(field_batch_order)):
+            raise exception.InputError(
+                name="field_batch_order",
+                message=f"The field batch order must not contain duplicate elements, "
+                        f"but got {field_batch_order}."
+            )
+        batch_order = list(field_batch_order)
+        if shape_receptor_files is None:
+            batch_order.remove("receptor")
+        if shape_parameter_files is None:
+            batch_order.remove("parameter")
+        single_ligand_type = isinstance(ligand_types, str)
+        count_ligand_types = 1 if single_ligand_type else len(ligand_types)
+        count_fields = count_ligand_types + int(include_elecmap) + int(include_dsolvmap)
+        if single_ligand_type and count_fields == 1:
+            batch_order.remove("ligand")
+        if not batch_order:
+            return (1,), batch_order
+        batch_shape = []
+        for batch_name in batch_order:
+            if batch_name == "receptor":
+                batch_shape.extend(shape_receptor_files)
+            elif batch_name == "parameter":
+                batch_shape.extend(shape_parameter_files)
+            elif batch_name == "ligand":
+                batch_shape.append(count_fields)
+        return tuple(batch_shape), batch_order
 
     if not output_dir:
         output_dir = tempfile.TemporaryDirectory().name
@@ -287,35 +373,35 @@ def from_pdbqt(
     else:
         output_dir.mkdir(parents=True, exist_ok=True)
 
-    filepaths, files, file_ids, single_file = process_file_inputs(files, file_ids, receptor=True)
-    parameter_filepaths, parameter_files, parameter_file_ids, single_parameter_file = process_file_inputs(
+    receptor_filepaths, file_ids, input_receptor_files, single_file = process_file_inputs(files, file_ids, receptor=True)
+    parameter_filepaths, parameter_file_ids, input_param_files, single_parameter_file = process_file_inputs(
         parameter_files, parameter_file_ids, receptor=False
     )
+    batch_shape, batch_order = get_map_filepaths_shape(
+        shape_receptor_files=None if single_file else receptor_filepaths.shape,
+        shape_parameter_files=None if single_parameter_file else parameter_filepaths.shape,
+    )
+    all_map_filepaths = np.empty(shape=batch_shape, dtype=object)
 
     gridcenter, npts, slices = calculate_grid_parameters(grid)
     default_receptor_types = None
-    map_filepaths = []
 
-    for file_idx, (file_id, filepath) in enumerate(zip(file_ids, filepaths)):
-        if single_file:
-            maps_for_receptor_file = map_filepaths
-        else:
-            maps_for_receptor_file = []
-            map_filepaths.append(maps_for_receptor_file)
-        for parameter_file_idx, (parameter_file_id, parameter_filepath) in enumerate(zip(parameter_file_ids, parameter_filepaths)):
+    for receptor_file_idx in np.ndindex(receptor_filepaths.shape):
+        file_id = file_ids[receptor_file_idx]
+        filepath = receptor_filepaths[receptor_file_idx]
+        for parameter_file_idx in np.ndindex(parameter_filepaths.shape):
+            parameter_file_id = parameter_file_ids[parameter_file_idx]
+            parameter_filepath = parameter_filepaths[parameter_file_idx]
             if single_parameter_file:
                 output_prefix = file_id
-                maps_for_parameter_file = maps_for_receptor_file
             else:
                 output_prefix = f"{file_id}_{parameter_file_id}"
-                maps_for_parameter_file = []
-                map_filepaths.append(maps_for_parameter_file)
             gpf = scifile.autodock_gpf.from_spec(
                 receptor=filepath,
                 parameter_file=parameter_filepath,
                 npts=npts,
                 spacing=grid.spacings[0],
-                receptor_types=get_receptor_types(file_idx),
+                receptor_types=get_receptor_types(input_receptor_files[receptor_file_idx]),
                 ligand_types=ligand_types,
                 gridcenter=gridcenter,
                 smooth=smooth,
@@ -329,26 +415,42 @@ def from_pdbqt(
                 glg_filepath=output_dir / f"{output_prefix}.glg",
                 cwd=output_dir,
             )
-            maps_for_parameter_file.extend([*gpf.maps, gpf.elecmap, gpf.dsolvmap])
-
+            if not batch_order:
+                all_map_filepaths[0] = gpf.maps[0]
+            else:
+                map_filepaths = list(gpf.maps)
+                if include_elecmap:
+                    map_filepaths.append(gpf.elecmap)
+                if include_dsolvmap:
+                    map_filepaths.append(gpf.dsolvmap)
+                for map_idx, map_filepath in enumerate(map_filepaths):
+                    target_index = []
+                    for axis_name in batch_order:
+                        if axis_name == "receptor":
+                            target_index.extend(receptor_file_idx)
+                        elif axis_name == "parameter":
+                            target_index.extend(parameter_file_idx)
+                        elif axis_name == "ligand":
+                            target_index.append(map_idx)
+                    all_map_filepaths[tuple(target_index)] = map_filepath
     maps = scifile.autodock_map.read(
-        files=map_filepaths,
+        files=all_map_filepaths if batch_order else all_map_filepaths[0],
         field_dtype=field_dtype,
         nelements=npts,
         spacing=grid.spacings[0],
         center=gridcenter,
     )
-    batch = []
-    if not single_file:
-        batch.append(("receptor", file_ids))
-    if not single_parameter_file:
-        batch.append(("parameter_file", parameter_file_ids))
-    batch.append(("ligand_type", (*ligand_types, "e", "d")))
+    # batch = []
+    # if not single_file:
+    #     batch.append(("receptor", file_ids))
+    # if not single_parameter_file:
+    #     batch.append(("parameter_file", parameter_file_ids))
+    # batch.append(("ligand_type", (*ligand_types, "e", "d")))
     return scids.field.from_tensor(
         tensor=maps.field[..., *slices],
         grid=grid,
         dtype=field_dtype,
-        batch=batch,
+        batch=len(batch_shape),
     )
 
 
