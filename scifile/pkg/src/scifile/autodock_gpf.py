@@ -459,7 +459,7 @@ def from_spec(
     smooth: float = 0.5,
     dielectric: float = -0.1465,
     output_path: PathLike = None,
-) -> tuple[dict | None, str | None] | None:
+) -> AutodockGpfFile:
     """Create a Grid Parameter File (GPF) from the provided parameters.
 
     All parameters are identical to those in the `AutodockGpfFile` class,
