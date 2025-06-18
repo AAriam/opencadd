@@ -329,6 +329,12 @@ def from_shape_spacing_anchor(
     num_spacings = shape - 1
     size = num_spacings * spacing
     anchor_coord = np.zeros(shape=shape.size) if anchor_coord is None else np.asarray(anchor_coord)
+    if anchor_coord.size != shape.size:
+        raise ValueError(
+            f"Parameter `anchor_coord` must have the same size as `shape`, "
+            f"but input argument had size {anchor_coord.size} and shape {shape.size}. "
+            f"Input was: {anchor_coord}"
+        )
     if anchor_type == "center":
         lower_bounds = anchor_coord - size / 2
         upper_bounds = anchor_coord + size / 2
