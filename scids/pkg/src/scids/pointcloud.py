@@ -18,6 +18,7 @@ from scids.typing import (
     atypecheck, Array, JAXArray, Num, Shaped, Is,
     Annotated, PositiveInt, PositiveFloat, PositiveInts1D, NonNegativeFloat
 )
+from scids.protocol import CNNClusteringConfig
 
 from collections.abc import Sequence
 from typing import Literal, Any, Self
@@ -660,7 +661,11 @@ class PointCloud(dataset.DataSet):
             tasks: list[tuple[Array, int]] = [(np.arange(n_points, dtype=int), 0)]
             while tasks:
                 indices, idx = tasks.pop(0)
-                labels = cluster(points[indices], max_distance[idx], min_neighbors[idx])
+                labels = cluster(
+                    points=points[indices],
+                    max_dist=clustering_inputs.max_distance[idx],
+                    min_neigh=clustering_inputs.min_neighbors[idx]
+                )
                 for label in np.unique(labels):
                     if label == 0:
                         # noise stays noise
@@ -696,57 +701,13 @@ class PointCloud(dataset.DataSet):
             )
             return clustering.labels
 
-        def process_args(max_distance, min_neighbors):
-            max_dist_type = type(max_distance)
-            min_neig_type = type(min_neighbors)
-            max_dist_is_single = (
-                jnp.issubdtype(max_dist_type, jnp.integer) or
-                jnp.issubdtype(max_dist_type, jnp.floating)
-            )
-            min_neig_is_single = jnp.issubdtype(min_neig_type, jnp.integer)
-            if max_members is None:
-                if not max_dist_is_single:
-                    exception.InputError(
-                        name="max_distance",
-                        message="When `max_members` is not specified, `max_distance` must be a single number, "
-                                f"but got {max_distance} with type {max_dist_type}."
-                    )
-                if not min_neig_is_single:
-                    exception.InputError(
-                        name="min_neighbors",
-                        message="When `max_members` is not specified, `min_neighbors` must be a single integer, "
-                                f"but got {min_neighbors} with type {min_neig_type}."
-                    )
-                return [max_distance], [min_neighbors]
-            else:
-                if max_members < min_members:
-                    raise exception.InputError(
-                        name="max_members",
-                        message=f"Maximum number of members in a cluster cannot be smaller than the minimum number of members, "
-                                f"but got {max_members} < {min_members}."
-                    )
-                if max_dist_is_single and min_neig_is_single:
-                    raise exception.InputError(
-                        name="max_members",
-                        message="When `max_members` is specified, at least one of `max_distance` or `min_neighbors` "
-                                "must be a sequence of values, "
-                                f"but got max_distance={max_distance} and min_neighbors={min_neighbors}."
-                    )
-                elif max_dist_is_single:
-                    max_distance = [max_distance] * len(min_neighbors)
-                elif min_neig_is_single:
-                    min_neighbors = [min_neighbors] * len(max_distance)
-                elif len(max_distance) != len(min_neighbors):
-                    raise exception.InputError(
-                        name="min_neighbors",
-                        message="When both `max_distance` and `min_neighbors` are sequences, "
-                                "they must have the same length, "
-                                f"but got {len(max_distance)} and {len(min_neighbors)}."
-                    )
-                return max_distance, min_neighbors
-
+        clustering_inputs = CNNClusteringConfig(
+            **{
+                k: v for k, v in locals().items()
+                if k in ("max_distance", "min_neighbors", "min_members", "max_members")
+            }
+        )
         n_points = self.point_count
-        max_distance, min_neighbors = process_args(max_distance, min_neighbors)
         instances = self._select_instances(instance_selection)
         if instances.ndim == 2:
             instances = instances.reshape(1, *instances.shape)
@@ -756,8 +717,8 @@ class PointCloud(dataset.DataSet):
         all_labels = np.empty(shape=instances.shape[:-1], dtype=np.int64)
         clustering_func = functools.partial(
             cluster,
-            max_dist=max_distance[0],
-            min_neigh=min_neighbors[0]
+            max_dist=clustering_inputs.max_distance[0],
+            min_neigh=clustering_inputs.min_neighbors[0]
         ) if max_members is None else cluster_with_max_members
         for instance_index in np.ndindex(instances.shape[:-2]):
             all_labels[instance_index] = clustering_func(instances[instance_index])
