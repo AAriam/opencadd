@@ -57,10 +57,9 @@ class PointCloud(dataset.DataSet):
     @atypecheck
     def __init__(
         self,
-        points: Num[Array, "*batch_shape point_count point_dim"],
+        points: Num[JAXArray, "*batch_shape point_count point_dim"],
         batch: Sequence[str | tuple[str, Sequence[str]]] | None = None,
     ):
-        points = jnp.asarray(points)
         super().__init__(data=points, batch=batch or points.ndim - 2)
         self._points_2d: jnp.ndarray = None
         self._kdtrees_per_instance: list[sp.spatial.KDTree] = None
@@ -592,7 +591,7 @@ class PointCloud(dataset.DataSet):
         min_neighbors: PositiveInt | Sequence[PositiveInt],
         min_members: PositiveInt = 1,
         max_members: PositiveInt | None = None,
-        instance_selection: Any = None,
+        instance_selection: Any = (),
     ) -> Num[Array, "*batch_selection_shape {self.point_count}"]:
         """Cluster points using the Common Nearest Neighbors (CNN) algorithm.
 
@@ -697,7 +696,7 @@ class PointCloud(dataset.DataSet):
             )
             return clustering.labels
 
-        def process_args():
+        def process_args(max_distance, min_neighbors):
             max_dist_type = type(max_distance)
             min_neig_type = type(min_neighbors)
             max_dist_is_single = (
@@ -727,7 +726,7 @@ class PointCloud(dataset.DataSet):
                                 f"but got {max_members} < {min_members}."
                     )
                 if max_dist_is_single and min_neig_is_single:
-                    exception.InputError(
+                    raise exception.InputError(
                         name="max_members",
                         message="When `max_members` is specified, at least one of `max_distance` or `min_neighbors` "
                                 "must be a sequence of values, "
@@ -747,7 +746,7 @@ class PointCloud(dataset.DataSet):
                 return max_distance, min_neighbors
 
         n_points = self.point_count
-        max_distance, min_neighbors = process_args()
+        max_distance, min_neighbors = process_args(max_distance, min_neighbors)
         instances = self._select_instances(instance_selection)
         if instances.ndim == 2:
             instances = instances.reshape(1, *instances.shape)
@@ -827,5 +826,4 @@ def from_array(
           and the second element is a sequence of strings
           representing the labels for each instance along that axis.
     """
-    return PointCloud(points=points, batch=batch)
-
+    return PointCloud(points=jnp.asarray(points), batch=batch)
