@@ -1,11 +1,14 @@
 """Point cloud dataset."""
 
+import functools
+
 import arrayer
 import bbo
 import jax.numpy as jnp
 import numpy as np
 import scipy as sp
 
+from commonnn import cluster as cnn_cluster
 import scids
 from scids import dataset, exception
 from scids.volume import AxisAlignedRectangularCuboid
@@ -477,18 +480,7 @@ class PointCloud(dataset.DataSet):
             return PointCloud(points=bbout.points)
         if instance_selection is None:
             instance_selection = slice(None)
-        instances = self._data[instance_selection]
-        if instances.ndim < 2:
-            raise exception.InputError(
-                name="instance",
-                message=f"The `instance` parameter must yield at least a 2D array, but got {instances.ndim}D."
-            )
-        if instances.shape[-2:] != self.points.shape[-2:]:
-            raise exception.InputError(
-                name="instance",
-                message=f"The `instance` parameter must yield an array with the same shape as self along the last two axes, "
-                        f"but got {instances.shape[-2:]} instead of {self.points.shape[-2:]}."
-            )
+        instances = self._select_instances(instance_selection)
         if mode == "per_instance":
             bbo_output = bbo.run(points=instances, method=algorithm)
             new_points = self._data.at[instance_selection].set(bbo_output.points)
@@ -594,46 +586,201 @@ class PointCloud(dataset.DataSet):
             )
         return distances, indices
 
-    def cluster__common_nearest_neighbor(
+    def cluster_cnn(
         self,
-        radius_neighborhood: float,
-        min_samples: int,
-        metric: Literal = "euclidean",
-        metric_params=None,
-        leaf_size=30,
-        p_norm: int = 2,
-    ):
-        """
+        max_distance: PositiveFloat | Sequence[PositiveFloat],
+        min_neighbors: PositiveInt | Sequence[PositiveInt],
+        min_members: PositiveInt = 1,
+        max_members: PositiveInt | None = None,
+        instance_selection: Any = None,
+    ) -> Num[Array, "*batch_selection_shape {self.point_count}"]:
+        """Cluster points using the Common Nearest Neighbors (CNN) algorithm.
+
+        If multiple instances are selected,
+        the clustering is performed separately for each instance.
 
         Parameters
         ----------
-        radius_neighborhood
-        min_samples
-        metric
-        metric_params
-        leaf_size
-        p_norm
+        max_distance
+            Maximum distance between two points to consider them as neighbors.
+        min_neighbors
+            Minimum number of common neighbors between two points
+            that belong to the same cluster.
+        min_members
+            Minimum number of members in a cluster.
+            Cluster with fewer members than this are discarded.
+        max_members
+            Maximum number of members in a cluster.
+            If specified, clusters with more members than this
+            are reclustered into smaller clusters.
+            For this, either one or both of `max_distance` and `min_neighbors`
+            must be a sequence of values, where the i-th value
+            corresponds to the i-th clustering step.
+            In each step, clusters from the last step
+            with more members than `max_members`
+            are reclustered until either all clusters
+            have maximum `max_members` members,
+            or the end of the sequence is reached.
+            If only one of `max_distance` or `min_neighbors`
+            is a sequence, the other one is assumed to be constant
+            for all clustering steps.
+            If both are sequences,
+            they must have the same length,
+            and the i-th value of `max_distance` and `min_neighbors`
+            is used for the i-th clustering step.
+        instance_selection
+            Any array indexing object to select a subset of instances.
+            By default, all instances are considered.
 
         Returns
         -------
+        Cluster Label for each point as an integer array of shape `(*batch_selection_shape, self.point_count)`.
 
         References
         ----------
         Documentation on scikit-learn-extra, with examples:
-        * https://scikit-learn-extra.readthedocs.io/en/stable/modules/cluster.html#common-nearest-neighbors-clustering
-        * https://scikit-learn-extra.readthedocs.io/en/stable/auto_examples/plot_commonnn.html#sphx-glr-auto-examples-plot-commonnn-py
-        * https://scikit-learn-extra.readthedocs.io/en/stable/auto_examples/cluster/plot_commonnn_data_sets.html
+        - https://scikit-learn-extra.readthedocs.io/en/stable/auto_examples/plot_commonnn.html#sphx-glr-auto-examples-plot-commonnn-py
+        - https://scikit-learn-extra.readthedocs.io/en/stable/auto_examples/cluster/plot_commonnn_data_sets.html
+        - https://scikit-learn-extra.readthedocs.io/en/stable/modules/cluster.html#common-nearest-neighbors-clustering
+
         Source code of the scikit-learn-extra implementation:
-        * https://github.com/scikit-learn-contrib/scikit-learn-extra/tree/main/sklearn_extra/cluster
+        - https://github.com/scikit-learn-contrib/scikit-learn-extra/tree/main/sklearn_extra/cluster
+
         GitHub and documentation of the independent package:
-        * https://github.com/bkellerlab/CommonNNClustering
-        * https://bkellerlab.github.io/CommonNNClustering
+        - https://github.com/bkellerlab/CommonNNClustering
+        - https://bkellerlab.github.io/CommonNNClustering
+
         Publications:
-        * https://doi.org/10.1063/1.3301140
-        * https://doi.org/10.3390/a11020019
-        * https://doi.org/10.1063/1.4965440
+        - https://doi.org/10.1063/1.3301140
+        - https://doi.org/10.3390/a11020019
+        - https://doi.org/10.1063/1.4965440
         """
-        raise NotImplementedError
+        def cluster_with_max_members(points: Array) -> Array:
+            final_clusters: list[Array] = []
+            # each task is (indices_to_cluster, which_param_index)
+            tasks: list[tuple[Array, int]] = [(np.arange(n_points, dtype=int), 0)]
+            while tasks:
+                indices, idx = tasks.pop(0)
+                labels = cluster(points[indices], max_distance[idx], min_neighbors[idx])
+                for label in np.unique(labels):
+                    if label == 0:
+                        # noise stays noise
+                        continue
+                    mask = labels == label
+                    member_idxs = indices[mask]
+                    if member_idxs.size <= max_members:
+                        final_clusters.append(member_idxs)
+                    else:
+                        next_idx = idx + 1
+                        if next_idx >= len(max_distance):
+                            raise exception.InputError(
+                                name="max_members",
+                                message=f"Cluster with {member_idxs.size} members is larger than `max_members` ({max_members}), "
+                                        f"but no more clustering steps are available."
+                            )
+                        tasks.append((member_idxs, next_idx))
+            # sort final clusters by size descending and assign final labels
+            final_clusters.sort(key=lambda arr: arr.size, reverse=True)
+            final_labels = np.zeros(n_points, dtype=int)
+            for new_label, member_idxs in enumerate(final_clusters, start=1):
+                final_labels[member_idxs] = new_label
+            return final_labels
+
+        def cluster(points, max_dist, min_neigh):
+            clustering = cnn_cluster.Clustering(points)
+            clustering.fit(
+                sort_by_size=True,
+                member_cutoff=min_members,
+                radius_cutoff=max_dist,
+                similarity_cutoff=min_neigh,
+                v=False
+            )
+            return clustering.labels
+
+        def process_args():
+            max_dist_type = type(max_distance)
+            min_neig_type = type(min_neighbors)
+            max_dist_is_single = (
+                jnp.issubdtype(max_dist_type, jnp.integer) or
+                jnp.issubdtype(max_dist_type, jnp.floating)
+            )
+            min_neig_is_single = jnp.issubdtype(min_neig_type, jnp.integer)
+            if max_members is None:
+                if not max_dist_is_single:
+                    exception.InputError(
+                        name="max_distance",
+                        message="When `max_members` is not specified, `max_distance` must be a single number, "
+                                f"but got {max_distance} with type {max_dist_type}."
+                    )
+                if not min_neig_is_single:
+                    exception.InputError(
+                        name="min_neighbors",
+                        message="When `max_members` is not specified, `min_neighbors` must be a single integer, "
+                                f"but got {min_neighbors} with type {min_neig_type}."
+                    )
+                return [max_distance], [min_neighbors]
+            else:
+                if max_members < min_members:
+                    raise exception.InputError(
+                        name="max_members",
+                        message=f"Maximum number of members in a cluster cannot be smaller than the minimum number of members, "
+                                f"but got {max_members} < {min_members}."
+                    )
+                if max_dist_is_single and min_neig_is_single:
+                    exception.InputError(
+                        name="max_members",
+                        message="When `max_members` is specified, at least one of `max_distance` or `min_neighbors` "
+                                "must be a sequence of values, "
+                                f"but got max_distance={max_distance} and min_neighbors={min_neighbors}."
+                    )
+                elif max_dist_is_single:
+                    max_distance = [max_distance] * len(min_neighbors)
+                elif min_neig_is_single:
+                    min_neighbors = [min_neighbors] * len(max_distance)
+                elif len(max_distance) != len(min_neighbors):
+                    raise exception.InputError(
+                        name="min_neighbors",
+                        message="When both `max_distance` and `min_neighbors` are sequences, "
+                                "they must have the same length, "
+                                f"but got {len(max_distance)} and {len(min_neighbors)}."
+                    )
+                return max_distance, min_neighbors
+
+        n_points = self.point_count
+        max_distance, min_neighbors = process_args()
+        instances = self._select_instances(instance_selection)
+        if instances.ndim == 2:
+            instances = instances.reshape(1, *instances.shape)
+            single_instance = True
+        else:
+            single_instance = False
+        all_labels = np.empty(shape=instances.shape[:-1], dtype=np.int64)
+        clustering_func = functools.partial(
+            cluster,
+            max_dist=max_distance[0],
+            min_neigh=min_neighbors[0]
+        ) if max_members is None else cluster_with_max_members
+        for instance_index in np.ndindex(instances.shape[:-2]):
+            all_labels[instance_index] = clustering_func(instances[instance_index])
+        if single_instance:
+            all_labels = all_labels.reshape(-1)
+        return all_labels
+
+    def _select_instances(self, instance_selection: Any, param_name: str = "instance_selection"):
+        instances = self._data[instance_selection]
+        if instances.ndim < 2:
+            raise exception.InputError(
+                name=param_name,
+                message=f"Selection must yield at least a 2D array, "
+                        f"but got {instances.ndim}D array with shape {instances.shape}."
+            )
+        if instances.shape[-2:] != self.points.shape[-2:]:
+            raise exception.InputError(
+                name=param_name,
+                message=f"Selection must yield an array with the same shape as self along the last two axes, "
+                        f"but got {instances.shape[-2:]} instead of {self.points.shape[-2:]}."
+            )
+        return instances
 
     def rmsd(self, points, weights=None):
         if weights is not None:
@@ -681,3 +828,4 @@ def from_array(
           representing the labels for each instance along that axis.
     """
     return PointCloud(points=points, batch=batch)
+
