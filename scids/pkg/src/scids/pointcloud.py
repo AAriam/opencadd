@@ -672,14 +672,15 @@ class PointCloud(dataset.DataSet):
                         continue
                     mask = labels == label
                     member_idxs = indices[mask]
-                    if member_idxs.size <= max_members:
+                    if member_idxs.size <= clustering_inputs.max_members:
                         final_clusters.append(member_idxs)
                     else:
                         next_idx = idx + 1
-                        if next_idx >= len(max_distance):
+                        if next_idx >= len(clustering_inputs.max_distance):
                             raise exception.InputError(
                                 name="max_members",
-                                message=f"Cluster with {member_idxs.size} members is larger than `max_members` ({max_members}), "
+                                message=f"Cluster with {member_idxs.size} members is larger than "
+                                        f"`max_members` ({clustering_inputs.max_members}), "
                                         f"but no more clustering steps are available."
                             )
                         tasks.append((member_idxs, next_idx))
@@ -694,7 +695,7 @@ class PointCloud(dataset.DataSet):
             clustering = cnn_cluster.Clustering(points)
             clustering.fit(
                 sort_by_size=True,
-                member_cutoff=min_members,
+                member_cutoff=clustering_inputs.min_members,
                 radius_cutoff=max_dist,
                 similarity_cutoff=min_neigh,
                 v=False
@@ -719,7 +720,7 @@ class PointCloud(dataset.DataSet):
             cluster,
             max_dist=clustering_inputs.max_distance[0],
             min_neigh=clustering_inputs.min_neighbors[0]
-        ) if max_members is None else cluster_with_max_members
+        ) if clustering_inputs.max_members is None else cluster_with_max_members
         for instance_index in np.ndindex(instances.shape[:-2]):
             all_labels[instance_index] = clustering_func(instances[instance_index])
         if single_instance:
