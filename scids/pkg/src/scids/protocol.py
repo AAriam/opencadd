@@ -45,53 +45,38 @@ class CNNClusteringConfig(BaseModel):
 
     model_config = {"frozen": True}
 
-    @field_validator("max_distance", mode="after")
-    def _validate_max_distance(cls, max_distance: float | Sequence[float]) -> tuple[float, ...]:
-        max_dist_is_single = _is_real_number(max_distance)
-        if max_dist_is_single:
-            max_distance = (max_distance,)
-        else:
-            max_distance = tuple(max_distance)
-            for idx, max_dist in enumerate(max_distance):
-                if not _is_real_number(max_dist):
-                    raise TypeError(
-                        f"Invalid type for `max_distance` at index {idx}: {type(max_dist)}"
-                    )
-        # ensure all values are > 0
-        for idx, dist in enumerate(max_distance):
-            if dist <= 0:
-                raise ValueError(
-                    f"All `max_distance` values must be > 0, but got {dist} at index {idx}."
-                )
-        return max_distance
+    @model_validator(mode="before")
+    def _preprocess(cls, values: dict[str, object]) -> dict[str, object]:
+        max_distant_raw = values.get("max_distance")
+        min_neighbors_raw = values.get("min_neighbors")
+        max_members     = values.get("max_members")
+        min_members  = values.get("min_members")
 
-    @field_validator("min_neighbors", mode="after")
-    def _validate_min_neighbors(cls, min_neighbors: int | Sequence[int]) -> tuple[int, ...]:
-        min_neighbors_is_single = _is_integer(min_neighbors)
-        if min_neighbors_is_single:
-            min_neighbors = (min_neighbors,)
+        if _is_real_number(max_distant_raw):
+            max_distance = (float(max_distant_raw),)
+        elif not isinstance(max_distant_raw, (str, bytes)):
+            max_distance = tuple(max_distant_raw)
         else:
-            min_neighbors = tuple(min_neighbors)
-            for idx, min_neighbor in enumerate(min_neighbors):
-                if not _is_integer(min_neighbor):
-                    raise TypeError(
-                        f"Invalid type for `min_neighbors` at index {idx}: {type(min_neighbor)}"
-                    )
-        # ensure all values are > 0
-        for idx, neighbor in enumerate(min_neighbors):
-            if neighbor <= 0:
-                raise ValueError(
-                    f"All `min_neighbors` values must be > 0, but got {neighbor} at index {idx}."
-                )
-        return min_neighbors
+            raise TypeError(
+                f"Invalid type for `max_distance`; "
+                f"got {max_distant_raw} with type {type(max_distant_raw)}"
+            )
 
-    @model_validator(mode="after")
-    def _validate_max_members(self) -> Self:
+        if _is_integer(min_neighbors_raw):
+            min_neighbors = (int(min_neighbors_raw),)
+        elif not isinstance(min_neighbors_raw, (str, bytes)):
+            min_neighbors = tuple(min_neighbors_raw)
+        else:
+            raise TypeError(
+                f"Invalid type for `min_neighbors`; "
+                f"got {min_neighbors_raw} with type {type(min_neighbors_raw)}"
+            )
+
         name_value_pairs = (
-            ("max_distance", self.max_distance),
-            ("min_neighbors", self.min_neighbors),
+            ("max_distance", max_distance),
+            ("min_neighbors", min_neighbors),
         )
-        if self.max_members is None:
+        if max_members is None:
             for name, value in name_value_pairs:
                 if len(value) > 1:
                     raise ValueError(
@@ -99,10 +84,10 @@ class CNNClusteringConfig(BaseModel):
                         f"but got {value}."
                     )
         else:
-            if self.max_members < self.min_members:
+            if max_members < min_members:
                 raise ValueError(
-                    f"`max_members` ({self.max_members}) must be greater than or equal to "
-                    f"`min_members` ({self.min_members})."
+                    f"`max_members` ({max_members}) must be greater than or equal to "
+                    f"`min_members` ({min_members})."
                 )
             if all(len(value) == 1 for _, value in name_value_pairs):
                 raise ValueError(
@@ -110,17 +95,46 @@ class CNNClusteringConfig(BaseModel):
                     "must be a sequence of values, but got "
                     f"{', '.join(f'{name}={value}' for name, value in name_value_pairs)}."
                 )
-            elif len(self.max_distance) == 1:
-                self.max_distance = (self.max_distance[0],) * len(self.min_neighbors)
-            elif len(self.min_neighbors) == 1:
-                self.min_neighbors = (self.min_neighbors[0],) * len(self.max_distance)
-            elif len(self.max_distance) != len(self.min_neighbors):
+            if len(max_distance) == 1:
+                max_distance = max_distance * len(min_neighbors)
+            elif len(min_neighbors) == 1:
+                min_neighbors = min_neighbors * len(max_distance)
+            elif len(max_distance) != len(min_neighbors):
                 raise ValueError(
-                    "If both `max_distance` and `min_neighbors` are sequences, "
-                    "they must have the same length, but got "
-                    f"{len(self.max_distance)} and {len(self.min_neighbors)}."
+                    "When both `max_distance` and `min_neighbors` are sequences, "
+                    "they must have equal length, but got "
+                    f"{len(max_distance)} vs {len(min_neighbors)}."
                 )
-        return self
+
+        values["max_distance"]  = max_distance
+        values["min_neighbors"] = min_neighbors
+        return values
+
+    @field_validator("max_distance", mode="after")
+    def _validate_max_distance(cls, max_distance: float | Sequence[float]) -> tuple[float, ...]:
+        for idx, max_dist in enumerate(max_distance):
+            if not _is_real_number(max_dist):
+                raise TypeError(
+                    f"Invalid type for `max_distance` at index {idx}: {type(max_dist)}"
+                )
+            if max_dist <= 0:
+                raise ValueError(
+                    f"All `max_distance` values must be > 0, but got {max_dist} at index {idx}."
+                )
+        return max_distance
+
+    @field_validator("min_neighbors", mode="after")
+    def _validate_min_neighbors(cls, min_neighbors: int | Sequence[int]) -> tuple[int, ...]:
+        for idx, min_neighbor in enumerate(min_neighbors):
+            if not _is_integer(min_neighbor):
+                raise TypeError(
+                    f"Invalid type for `min_neighbors` at index {idx}: {type(min_neighbor)}"
+                )
+            if min_neighbor <= 0:
+                raise ValueError(
+                    f"All `min_neighbors` values must be > 0, but got {min_neighbor} at index {idx}."
+                )
+        return min_neighbors
 
 
 def _is_real_number(value) -> bool:
