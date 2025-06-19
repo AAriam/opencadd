@@ -74,71 +74,81 @@ schema:
 data:
   - type: H
     element: H
-    description: Non H-bonding hydrogen
+    description: Hydrogen (non H-bonding)
   - type: HD
     element: H
-    description: H-bond donor hydrogen
+    description: Hydrogen (1 H-bond donor)
     hbond_donor: true
     hbond_count: 1
   - type: HS
     element: H
-    description: Spherical H-bond donor hydrogen
+    description: Hydrogen (spherical H-bond donor)
     hbond_donor: true
     hbond_count: .nan
   - type: C
     element: C
-    description: Aliphatic carbon
+    description: Carbon (aliphatic, non H-bonding)
   - type: A
     element: C
-    description: Aromatic carbon
+    description: Carbon (aromatic, non H-bonding)
   - type: N
     element: N
-    description: Non H-bonding nitrogen
+    description: Nitrogen (non H-bonding)
   - type: NA
     element: N
-    description: H-bond acceptor nitrogen
+    description: Nitrogen (1 H-bond acceptor)
     hbond_acceptor: true
     hbond_count: 1
   - type: NS
     element: N
-    description: Spherical H-bond acceptor nitrogen
+    description: Nitrogen (spherical H-bond acceptor)
     hbond_acceptor: true
     hbond_count: .nan
   - type: OA
     element: O
-    description: H-bond acceptor oxygen
+    description: Oxygen (2 H-bond acceptors)
     hbond_acceptor: true
     hbond_count: 2
   - type: OS
     element: O
-    description: Spherical H-bond acceptor oxygen
+    description: Oxygen (spherical H-bond acceptor)
     hbond_acceptor: true
     hbond_count: .nan
   - type: F
     element: F
+    description: Fluorine (non H-bonding)
   - type: Mg
     element: Mg
+    description: Magnesium (non H-bonding)
   - type: P
     element: P
+    description: Phosphorus (non H-bonding)
   - type: S
     element: S
-    description: Non H-bonding sulfur
+    description: Sulfur (non H-bonding)
   - type: SA
     element: S
-    description: H-bond acceptor sulfur
+    description: Sulfur (2 H-bond acceptors)
     hbond_acceptor: true
     hbond_count: 2
   - type: Cl
     element: Cl
+    description: Chlorine (non H-bonding)
   - type: Ca
     element: Ca
+    description: Calcium (non H-bonding)
   - type: Mn
     element: Mn
+    description: Manganese (non H-bonding)
   - type: Fe
     element: Fe
+    description: Iron (non H-bonding)
   - type: Zn
     element: Zn
+    description: Zinc (non H-bonding)
   - type: Br
     element: Br
+    description: Bromine (non H-bonding)
   - type: I
     element: I
+    description: Iodine (non H-bonding)
