@@ -127,7 +127,10 @@ class PDBParser:
             self._count_records[record_idx] = count_record
             self._has_record[record_idx] = count_record != 0
 
-        self._pdb_id = self.header().id_code if self.has_record(_records.HEADER) else None
+        try:
+            self._pdb_id = self.header().id_code if self.has_record(_records.HEADER) else None
+        except Exception:
+            self._pdb_id = None
         self._remarks: dict = None
         self._remark_line_indices: dict = None
         self._remark_args: dict = None
