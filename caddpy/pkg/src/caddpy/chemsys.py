@@ -100,7 +100,7 @@ class ChemicalSystem:
 
     def select(self, selection: ArrayLike | pd.Series):
         selection = np.asarray(selection, dtype=bool)
-        atoms = self.composition.atoms[selection]
+        atoms = self.composition.atoms[selection].copy()
         positions = self.trajectory.points[..., selection, :]
         return self.new(composition=atoms, trajectory=positions)
 
