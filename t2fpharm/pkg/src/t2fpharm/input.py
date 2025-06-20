@@ -16,7 +16,10 @@ __all__ = [
 _AUTODOCK_ATOM_TYPES = scicoda.atom.autodock_atom_types()
 
 
+class EnergyLigsitePocket(BaseModel):
 
+    feature_id: str
+    max_energy: float
 
 
 class Feature(BaseModel):
