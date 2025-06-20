@@ -4,34 +4,38 @@ import jax
 import jax.numpy as jnp
 import pandas as pd
 
+
 import scifile
 import scids
 
-from t2fpharm.input import CNNClusteringConfig
+from t2fpharm.input import T2FInput, CNNClusteringConfig
+
+
+class Input(T2FInput):
+    pdb_id: str | None = None
+    pdb_file_raw: Path | bytes | str | scifile.pdb.PDBFile | None = None
+    pdb_file_fixed: Path | bytes | str | scifile.pdb.PDBFile | None = None
+    pdb_file_apo: Path | bytes | str | scifile.pdb.PDBFile | None = None
+
+
+    clustering: CNNClusteringConfig = CNNClusteringConfig(
+        max_distance=1.21,
+        min_neighbors=(6, 12, 16),
+        min_members=15,
+        max_members=80,
+    )
 
 
 class T2FPharm:
-    def __init__(
-        self,
-        pdb_id: str | None = None,
-        pdb_file_raw: Path | bytes | str | scifile.pdb.PDBFile | None = None,
-        pdb_file_fixed: Path | bytes | str | scifile.pdb.PDBFile | None = None,
-        pdb_file_apo: Path | bytes | str | scifile.pdb.PDBFile | None = None,
+    def __init__(self, input: Input):
 
-        clustering: CNNClusteringConfig = CNNClusteringConfig(
-            max_distance=1.21,
-            min_neighbors=(6, 12, 16),
-            min_members=15,
-            max_members=80,
-        ),
-    ):
-        self._pdb_id = pdb_id
-        self._pdb_file_raw = pdb_file_raw
-        self._pdb_file_fixed = pdb_file_fixed
-        self._pdb_file_apo = pdb_file_apo
+        self._input = input
 
-        self._config_clustering = clustering
+        self._pdb_file_raw = None
+        self._pdb_file_fixed = None
+        self._pdb_file_apo = None
 
+        self._mask_pocket: scids.field.Field = None
         self._mask_energy: scids.field.Field = None
         self._mask_final: scids.field.Field = None
         self._feature_grid_point_position: dict[str, jax.Array] = {}
@@ -70,7 +74,7 @@ class T2FPharm:
         """Cluster labels for pharmacophore feature points."""
         if not self._feature_grid_point_label:
             position = self.feature_grid_point_position
-            cnn_config = self._config_clustering.model_dump()
+            cnn_config = self._input.clustering.model_dump()
             for feature_type, feature_pointcloud in position.items():
                 labels = jnp.asarray(feature_pointcloud.cluster_cnn(**cnn_config))
                 self._feature_grid_point_label[feature_type] = labels
@@ -108,11 +112,23 @@ class T2FPharm:
         """Energy mask for pharmacophore features."""
         if self._mask_energy is None:
             energy = self.energy
-        return
+            feature_data = self.feature
+            max_energies = [
+                feature_data.loc[feature_data['id'] == fid, 'max_energy'].iat[0]
+                for fid in energy.batch_instance_labels["feature"]
+            ]
+            energy_mask = jnp.less_equal(energy.tensor, jnp.array(max_energies).reshape(-1, 1, 1, 1))
+            self._mask_energy = scids.field.Field(
+                tensor=energy_mask,
+                grid=self.grid,
+                batch=[(k, v) for k, v in energy.batch_instance_labels.items()],
+            )
+        return self._mask_energy
 
     @property
     def mask_pocket(self) -> scids.field.Field:
         """Pocket mask for pharmacophore features."""
+
         return
 
     @property
@@ -129,3 +145,4 @@ class T2FPharm:
     def grid(self) -> scids.grid.Grid:
         """Grid for pharmacophore features."""
         return
+
