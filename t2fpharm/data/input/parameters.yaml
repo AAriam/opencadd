@@ -1,0 +1,24 @@
+grid_spacing: 0.6
+grid_length: 16
+
+energy_cutoff:
+  HD: -0.35
+  OA: -0.6
+  C: -0.4
+  anion: -1
+  cation: -1
+
+
+
+pocket:
+  feature_id: OA
+  max_energy: 0.6
+  psp_directions: 7
+  min_psp: 4
+
+
+clustering:
+  max_distance: 1.21
+  min_neighbors: [6, 12, 16]
+  min_members: 15
+  max_members: 80
