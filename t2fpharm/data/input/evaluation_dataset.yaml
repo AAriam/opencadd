@@ -71,6 +71,8 @@ data:
   - id: CDK2
     name: Cyclin-dependent kinase 2
     uniprot_id: P24941
+    color_bg: '#F0F8FF'
+    color_text: '#000000'
     ref_structure:
       pdb_id: 1AQ1
       chain_id: A
@@ -90,6 +92,8 @@ data:
   - id: DHFR
     name: Dihydrofolate reductase
     uniprot_id: P00374
+    color_bg: '#FFF0F5'
+    color_text: '#000000'
     ref_structure:
       pdb_id: 1DRF
       chain_id: A
@@ -121,6 +125,8 @@ data:
           res_name: DZF
   - id: THROM
     name: Thrombin
+    color_bg: '#FFF8DC'
+    color_text: '#000000'
     ref_structure:
       pdb_id: 1C4V
       ref_ligand:
@@ -156,6 +162,8 @@ data:
           res_name: MIN
   - id: HIVRT
     name: HIV-1 reverse transcriptase
+    color_bg: '#F5F5DC'
+    color_text: '#000000'
     ref_structure:
       pdb_id: 1TVR
       ref_ligand:
@@ -190,6 +198,8 @@ data:
           res_name: AAP
   - id: A2AR
     name: Adenosine A2A receptor
+    color_bg: '#E6E6FA'
+    color_text: '#000000'
     ref_structure:
       pdb_id: 2YDO  # Mistakenly written as 2DYO in the paper (Table 2)
       ref_ligand:
