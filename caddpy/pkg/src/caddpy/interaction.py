@@ -295,6 +295,10 @@ def from_pdb(
         1. Residue name (e.g., "ATP")
         2. Residue chain ID (e.g., "A")
         3. Residue sequence number (e.g., 1)
+
+        For each ligand, you can provide the first n elements of the tuple,
+        in which case the ligand will be matched against all ligands
+        with the same specifications.
     """
     globs = globals()
     if isinstance(files, str | bytes | Path):
@@ -317,11 +321,19 @@ def from_pdb(
                 pdb_complex.load_pdb(temp_file.name)
         pdb_complex.analyze()
 
-        ligands = [":".join(map(str, ligand)) for ligand in ligands] if ligands else None
-        interaction_sets = [
-            interaction_set for ligand_name, interaction_set in pdb_complex.interaction_sets.items()
-            if not ligands or ligand_name in ligands
-        ]
+        interaction_sets = []
+        for ligand_name, interaction_set in pdb_complex.interaction_sets.items():
+            if not ligands:
+                interaction_sets.append(interaction_set)
+                continue
+            ligand_name_parts = ligand_name.split(":")
+            for ligand in ligands:
+                if all(
+                    ligand_part_input == ligand_part_plip
+                    for ligand_part_input, ligand_part_plip in zip(ligand, ligand_name_parts)
+                ):
+                    interaction_sets.append(interaction_set)
+                    break
 
         interaction_data = {}
         for attr_name in INTERACTION_TYPES:
