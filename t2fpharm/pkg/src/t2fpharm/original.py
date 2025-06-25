@@ -145,4 +145,3 @@ class T2FPharm:
     def grid(self) -> scids.grid.Grid:
         """Grid for pharmacophore features."""
         return
-
