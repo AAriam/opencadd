@@ -246,6 +246,3 @@ class T2FPharm:
             min_dist = distances.min()
             out.append({"match": min_dist < 2, "feature_type":probe, "feature_label": feats["label"].iloc[distances.argmin()], "dist": min_dist})
         return pd.DataFrame(out).convert_dtypes()
-
-
-
