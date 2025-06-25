@@ -26,12 +26,14 @@ if TYPE_CHECKING:
     from typing import Literal, Callable, Any
     from scishow.nglview import NGLWidget
 
+
 class _DefaultMeta(type):
     def __getitem__(cls, key: str):
         key_upper = key.upper()
         if key_upper in cls.__dict__:
             return cls.__dict__[key_upper]
         raise KeyError(f"{cls.__name__!r} has no attribute {key_upper!r}")
+
 
 class _Default(metaclass=_DefaultMeta):
     """Default values for the grid detector."""
