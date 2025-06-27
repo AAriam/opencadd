@@ -49,8 +49,8 @@ class CNNClusteringConfig(BaseModel):
     def _preprocess(cls, values: dict[str, object]) -> dict[str, object]:
         max_distant_raw = values.get("max_distance")
         min_neighbors_raw = values.get("min_neighbors")
-        max_members     = values.get("max_members")
-        min_members  = values.get("min_members")
+        max_members = values.get("max_members")
+        min_members = values.get("min_members")
 
         if _is_real_number(max_distant_raw):
             max_distance = (float(max_distant_raw),)
