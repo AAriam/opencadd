@@ -16,7 +16,6 @@ from openbabel import pybel
 import scicoda
 import scifile
 import scids
-import arrayer
 from scids.typing import NonNegativeFloat
 
 from caddpy import exception
