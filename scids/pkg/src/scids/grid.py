@@ -229,6 +229,20 @@ class Grid:
             dimensions = np.arange(1, self.dimension + 1)
         return self._direction_vectors[np.isin(self._direction_vectors_dimension, dimensions)]
 
+    def __eq__(self, other: object) -> bool:
+        """Check if two grids are equal.
+
+        Two grids are considered equal if they have the same shape, size,
+        lower bounds, center, upper bounds, and spacings.
+        """
+        if not isinstance(other, Grid):
+            return False
+        return (
+            np.array_equal(self.shape, other.shape)
+            and np.array_equal(self.lower_bounds, other.lower_bounds)
+            and np.array_equal(self.upper_bounds, other.upper_bounds)
+        )
+
     def __repr__(self):
         rep = (
             f"Grid(\n  shape={self._shape},\n  size={self._size},\n  spacings={self._spacings},\n  "
