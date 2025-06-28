@@ -237,88 +237,22 @@ class Grid:
         return rep
 
 
-def from_bounds_shape(
-    lower_bounds: Sequence[float],
-    upper_bounds: Sequence[float],
-    shape: Sequence[int],
-) -> Grid:
-    """Create a Grid from its lower and upper bounds, plus shape.
-
-    Note that all arguments must be 1D arrays of the same size.
-
-    Parameters
-    ----------
-    lower_bounds
-        Coordinates of the point with minimum index values in all dimensions.
-    upper_bounds
-        Coordinates of the point with maximum index values in all dimensions.
-    shape
-        Shape of the grid, i.e. number of points in each dimension.
-    """
-    lower_bounds = np.asarray(lower_bounds)
-    upper_bounds = np.asarray(upper_bounds)
+def from_anchor_shape_size(
+    shape: Sequence[float],
+    size: Sequence[float],
+    anchor_coord: Sequence[float] = None,
+    anchor: Literal["lower", "center", "upper"] | Sequence[int] = "center",
+):
     shape = np.asarray(shape)
-    for bound, arg_name in zip(
-        (lower_bounds, upper_bounds, shape), ("lower_bounds", "upper_bounds", "shape"), strict=False
-    ):
-        if bound.ndim != 1:
-            raise ValueError(
-                f"Parameter `{arg_name}` expects a 1D array, "
-                f"but input argument had {bound.ndim} dimensions. Input was: {bound}"
-            )
-    for bound, arg_name in zip(
-        (lower_bounds, upper_bounds), ("lower_bounds", "upper_bounds"), strict=False
-    ):
-        if not (np.issubdtype(bound.dtype, np.floating) or np.issubdtype(bound.dtype, np.integer)):
-            raise ValueError(
-                f"Parameter `{arg_name}` expects an array of real numbers, "
-                f"but input argument had elements of type {bound.dtype}. Input was: {bound}"
-            )
-    if not np.issubdtype(shape.dtype, np.integer):
-        raise ValueError(
-            f"Parameter `shape` expects an array of integers, "
-            f"but input argument had elements of type {shape.dtype}. Input was: {shape}"
-        )
-    for arg, arg_name in zip((upper_bounds, shape), ("upper_bounds", "shape"), strict=False):
-        if lower_bounds.size != arg.size:
-            raise ValueError(
-                f"Parameters `lower_bound` and `{arg_name}` expect 1D arrays of same size, "
-                f"but input argument `lower_bounds` had size {lower_bounds.size}, "
-                f"while `{arg_name}` had size {arg.size}. "
-                f"Inputs were: `lower_bounds` = {lower_bounds}\n`{arg_name}` = {arg}."
-            )
-    size = upper_bounds - lower_bounds
-    size_is_invalid = size <= 0
-    if np.any(size_is_invalid):
-        raise ValueError(
-            "All values in `lower_bounds` must be strictly smaller "
-            f"than corresponding values in `upper_bounds`, but at indices {np.where(size_is_invalid)[0]} "
-            f"`lower_bounds` had values {lower_bounds[size_is_invalid]} and `upper_bounds` had "
-            f"values {upper_bounds[size_is_invalid]}."
-        )
-    shape_is_invalid = shape <= 0
-    if np.any(shape_is_invalid):
-        raise ValueError(
-            "All values in `shape` must be positive integers, "
-            f"but at indices {np.where(shape_is_invalid)[0]} "
-            f"`shape` had values {shape[shape_is_invalid]}."
-        )
-    slices = tuple(
-        slice(start, end, complex(num_points))
-        for start, end, num_points in zip(lower_bounds, upper_bounds, shape, strict=False)
-    )
-    return Grid(
-        shape=shape,
-        size=size,
-        lower_bounds=lower_bounds,
-        center=(lower_bounds + upper_bounds) / 2,
-        upper_bounds=upper_bounds,
-        spacings=size / (shape - 1),
-        mgrid=np.mgrid[slices],
+    size = np.asarray(size)
+    num_spacings = shape - 1
+    spacings = size / num_spacings
+    return from_anchor_shape_spacing(
+        shape=shape, spacing=spacings, anchor_coord=anchor_coord, anchor_type=anchor
     )
 
 
-def from_shape_spacing_anchor(
+def from_anchor_shape_spacing(
     shape: Sequence[float],
     spacing: Sequence[float] | float,
     anchor_type: Literal["lower", "center", "upper"] | Sequence[int] = "center",
@@ -351,22 +285,7 @@ def from_shape_spacing_anchor(
     return from_bounds_shape(lower_bounds=lower_bounds, upper_bounds=upper_bounds, shape=shape)
 
 
-def from_shape_size_anchor(
-    shape: Sequence[float],
-    size: Sequence[float],
-    anchor_coord: Sequence[float] = None,
-    anchor: Literal["lower", "center", "upper"] | Sequence[int] = "center",
-):
-    shape = np.asarray(shape)
-    size = np.asarray(size)
-    num_spacings = shape - 1
-    spacings = size / num_spacings
-    return from_shape_spacing_anchor(
-        shape=shape, spacing=spacings, anchor_coord=anchor_coord, anchor_type=anchor
-    )
-
-
-def from_size_spacing_anchor(
+def from_anchor_size_spacing(
     size: Sequence[float],
     spacings: Sequence[float],
     anchor_coord: Sequence[float] = None,
@@ -377,11 +296,96 @@ def from_size_spacing_anchor(
     spacings = np.asarray(spacings)
     num_spacings = size / spacings
     fit_func = np.floor if shrink_to_fit else np.ceil
-    return from_shape_spacing_anchor(
+    return from_anchor_shape_spacing(
         shape=fit_func(num_spacings + 1).astype(int),
         spacing=spacings,
         anchor_coord=anchor_coord,
         anchor_type=anchor,
+    )
+
+
+def from_bounds_shape(
+    lower_bounds: Sequence[float],
+    upper_bounds: Sequence[float],
+    shape: Sequence[int],
+) -> Grid:
+    """Create a Grid from its bounds and shape.
+
+    All arguments must be 1D arrays/sequences of the same size.
+
+    Parameters
+    ----------
+    lower_bounds
+        Coordinates of the point with minimum index values in all dimensions.
+    upper_bounds
+        Coordinates of the point with maximum index values in all dimensions.
+    shape
+        Shape of the grid, i.e. number of points in each dimension.
+    """
+    lower_bounds = np.asarray(lower_bounds)
+    upper_bounds = np.asarray(upper_bounds)
+    shape = np.asarray(shape)
+    for bound, arg_name in zip(
+        (lower_bounds, upper_bounds, shape),
+        ("lower_bounds", "upper_bounds", "shape"),
+        strict=True,
+    ):
+        if bound.ndim != 1:
+            raise ValueError(
+                f"Parameter `{arg_name}` expects a 1D array, "
+                f"but input argument had {bound.ndim} dimensions. Input was: {bound}"
+            )
+    for bound, arg_name in zip(
+        (lower_bounds, upper_bounds),
+        ("lower_bounds", "upper_bounds"),
+        strict=True,
+    ):
+        if not (np.issubdtype(bound.dtype, np.floating) or np.issubdtype(bound.dtype, np.integer)):
+            raise ValueError(
+                f"Parameter `{arg_name}` expects an array of real numbers, "
+                f"but input argument had elements of type {bound.dtype}. Input was: {bound}"
+            )
+    if not np.issubdtype(shape.dtype, np.integer):
+        raise ValueError(
+            f"Parameter `shape` expects an array of integers, "
+            f"but input argument had elements of type {shape.dtype}. Input was: {shape}"
+        )
+    for arg, arg_name in zip((upper_bounds, shape), ("upper_bounds", "shape"), strict=True):
+        if lower_bounds.size != arg.size:
+            raise ValueError(
+                f"Parameters `lower_bound` and `{arg_name}` expect 1D arrays of same size, "
+                f"but input argument `lower_bounds` had size {lower_bounds.size}, "
+                f"while `{arg_name}` had size {arg.size}. "
+                f"Inputs were: `lower_bounds` = {lower_bounds}\n`{arg_name}` = {arg}."
+            )
+    size = upper_bounds - lower_bounds
+    size_is_invalid = size <= 0
+    if np.any(size_is_invalid):
+        raise ValueError(
+            "All values in `lower_bounds` must be strictly smaller "
+            f"than corresponding values in `upper_bounds`, but at indices {np.where(size_is_invalid)[0]} "
+            f"`lower_bounds` had values {lower_bounds[size_is_invalid]} and `upper_bounds` had "
+            f"values {upper_bounds[size_is_invalid]}."
+        )
+    shape_is_invalid = shape <= 0
+    if np.any(shape_is_invalid):
+        raise ValueError(
+            "All values in `shape` must be positive integers, "
+            f"but at indices {np.where(shape_is_invalid)[0]} "
+            f"`shape` had values {shape[shape_is_invalid]}."
+        )
+    slices = tuple(
+        slice(start, end, complex(num_points))
+        for start, end, num_points in zip(lower_bounds, upper_bounds, shape, strict=True)
+    )
+    return Grid(
+        shape=shape,
+        size=size,
+        lower_bounds=lower_bounds,
+        center=(lower_bounds + upper_bounds) / 2,
+        upper_bounds=upper_bounds,
+        spacings=size / (shape - 1),
+        mgrid=np.mgrid[slices],
     )
 
 
