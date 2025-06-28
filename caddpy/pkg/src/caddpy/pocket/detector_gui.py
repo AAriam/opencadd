@@ -1,354 +1,26 @@
-"""Grid-based binding pocket detection."""
-
 from __future__ import annotations
 
-from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from enum import Enum
+from contextlib import contextmanager
 
 from IPython import display
-import jax
-import jax.numpy as jnp
-import numpy as np
-import scipy as sp
 import ipywidgets as widgets
-import scishow
-from scids.field import Field
-from scids.grid import Grid
-import scicoda
+import numpy as np
 
-from caddpy.chemsys import ChemicalSystem
-from caddpy.pocket.ligsite import LigSite
-from caddpy import exception
+import scishow
+
+from caddpy.pocket.detector import Detector
+from caddpy.pocket.default import Default
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Literal, Callable, Any
     from scishow.nglview import NGLWidget
+    from caddpy.typing import JAXArray
 
 
-class _DefaultMeta(type):
-    def __getitem__(cls, key: str):
-        key_upper = key.upper()
-        if key_upper in cls.__dict__:
-            return cls.__dict__[key_upper]
-        raise KeyError(f"{cls.__name__!r} has no attribute {key_upper!r}")
-
-
-class _Default(metaclass=_DefaultMeta):
-    """Default values for the grid detector."""
-
-    # Morphological Transformations
-
-    # Closing
-    MORPH_CLOSE = True
-    MORPH_FILL = True
-    MORPH_CLOSE_ITER = 1
-    # Closing Structure
-    MORPH_CLOSE_STRUCT_RADIUS = scicoda.atom.van_der_waals_radii()[5]  # Carbon vdW radius in Ångströms
-
-    # LIGSITE
-
-    # PSP Count
-    LIGSITE_COUNT = True
-    LIGSITE_COUNT_LOWER = 5
-    LIGSITE_COUNT_UPPER = 13
-
-    # PSP Distance
-    LIGSITE_DIST = True
-    LIGSITE_DIST_LOWER = scicoda.atom.van_der_waals_radii()[0] * 2  # Hydrogen vdW diameter in Ångströms
-    LIGSITE_DIST_UPPER = None
-    LIGSITE_DIST_LOWER_MODE = "all"
-    LIGSITE_DIST_UPPER_MODE = "any"
-
-
-    # Extraction
-
-    # Morphological Opening
-    EXTRACT_OPEN = True
-    EXTRACT_OPEN_ITER = 1
-    # Opening Structure
-    EXTRACT_OPEN_STRUCT_RADIUS = scicoda.atom.van_der_waals_radii()[5]  # Carbon vdW radius in Ångströms
-
-    # Labeling
-    EXTRACT_LABEL = True
-    EXTRACT_LABEL_MIN_POINTS = 350
-
-
-class Pockets:
-    def __init__(
-        self,
-        labels: jax.Array,
-        num_features: int,
-    ):
-        self.labels = labels
-        self.num_features = num_features
-        self.num_points = jnp.bincount(labels.ravel())
-        self.slices = sp.ndimage.find_objects(labels)
-        return
-
-
-class GridDetector:
-    def __init__(self, receptor: ChemicalSystem, field: Field):
-        self._receptor = receptor
-        self._field = field
-
-        self._grid_axis_indices = tuple(range(self.field.batch_ndim, self.field.tensor.ndim))
-        self._original_volume_receptor = self.field.tensor.astype(bool)
-        self._original_volume_solvent = jnp.logical_not(self._original_volume_receptor)
-        self._ligsite = LigSite(field=self.field, directions=(1, 2, 3))
-        self._receptor_volume = self._original_volume_receptor
-        self._mask_morphology = self._original_volume_solvent
-        self._mask_ligsite: np.ndarray | None = None
-        self._mask_custom: np.ndarray | None = None
-        self._gui = None
-        return
-
-    def extract_pockets(
-        self,
-        opening: bool = _Default.EXTRACT_OPEN,
-        opening_structure: float | np.ndarray = _Default.EXTRACT_OPEN_STRUCT_RADIUS,
-        opening_iterations: int = _Default.EXTRACT_OPEN_ITER,
-        opening_mask: np.ndarray | None = None,
-        opening_brute_force: bool = False,
-    ):
-        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.binary_opening.html
-        mask_opened = sp.ndimage.binary_opening(
-            input=self.mask,
-            structure=self._create_structuring_element(opening_structure),
-            iterations=opening_iterations,
-            mask=opening_mask,
-            brute_force=opening_brute_force,
-            border_value=0,
-            axes=self._grid_axis_indices,
-        ) if opening else self.mask
-
-        # if open:
-        #     structure = self._create_structuring_element(opening_structure)
-        #     eroded = sp.ndimage.binary_erosion(
-        #         input=self.mask,
-        #         structure=structure,
-        #         iterations=opening_iterations,
-        #         mask=opening_mask,
-        #         border_value=opening_border_value,
-        #         axes=self._grid_axis_indices,
-        #     )
-        #     mask_opened = sp.ndimage.binary_propagation(
-        #         input=eroded,
-        #         structure=structure,
-        #         mask=self.mask,
-        #         border_value=opening_border_value,
-        #         axes=self._grid_axis_indices,
-        #     )
-
-
-        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.label.html
-        label_tensor, num_features = sp.ndimage.label(mask_opened)
-        return Pockets(
-            labels=jnp.asarray(label_tensor),
-            num_features=num_features
-        )
-
-    def set_mask_morphology(
-        self,
-        close: bool = _Default.MORPH_CLOSE,
-        fill: bool = _Default.MORPH_FILL,
-        closing_structure: float | np.ndarray = _Default.MORPH_CLOSE_STRUCT_RADIUS,
-        closing_iterations: int = _Default.MORPH_CLOSE_ITER,
-        closing_mask: np.ndarray | None = None,
-        closing_brute_force: bool = False,
-    ):
-        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.binary_closing.html
-        volume_closed = sp.ndimage.binary_closing(
-            input=self.field.tensor,
-            structure=self._create_structuring_element(closing_structure),
-            iterations=closing_iterations,
-            mask=closing_mask,
-            brute_force=closing_brute_force,
-            border_value=0,
-            axes=self._grid_axis_indices,
-        ) if close else self.field.tensor
-
-        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.binary_fill_holes.html
-        volume_closed_and_filled = sp.ndimage.binary_fill_holes(
-            input=volume_closed,
-            axes=self._grid_axis_indices,
-        ) if fill else volume_closed
-        self._receptor_volume = volume_closed_and_filled.astype(bool)
-        self._mask_morphology = jnp.logical_not(volume_closed_and_filled)
-        return self._mask_morphology
-
-    def set_mask_ligsite(
-        self,
-        count_lower: int | None = _Default.LIGSITE_COUNT_LOWER,
-        count_upper: int | None = _Default.LIGSITE_COUNT_UPPER,
-        dist_lower: float | None = _Default.LIGSITE_DIST_LOWER,
-        dist_upper: float | None = _Default.LIGSITE_DIST_UPPER,
-        dist_lower_mode: Literal["any", "all", "max", "min", "mean"] = _Default.LIGSITE_DIST_LOWER_MODE,
-        dist_upper_mode: Literal["any", "all", "max", "min", "mean"] = _Default.LIGSITE_DIST_UPPER_MODE,
-    ):
-        self._mask_ligsite = self._ligsite.psp_mask(
-            count_lower=count_lower,
-            count_upper=count_upper,
-            dist_lower=dist_lower,
-            dist_upper=dist_upper,
-            dist_lower_mode=dist_lower_mode,
-            dist_upper_mode=dist_upper_mode,
-        )
-        return self._mask_ligsite
-
-    def set_mask_custom(self, mask: np.ndarray):
-        mask = jnp.asarray(mask)
-        if mask.shape != self.field.tensor.shape:
-            raise exception.InputError(
-                name="mask",
-                message=f"Mask shape {mask.shape} does not match field shape {self.field.tensor.shape}."
-            )
-        self._mask_custom = mask
-        return self._mask_custom
-
-    def unset_mask(self, *args: Literal["morphology", "ligsite", "custom"]) -> None:
-        args = set(args or ("morphology", "ligsite", "custom"))
-        if "morphology" in args:
-            self.set_mask_morphology(close=False, fill=False)
-        if "ligsite" in args:
-            self._mask_ligsite = None
-        if "custom" in args:
-            self._mask_custom = None
-        return
-
-    @property
-    def mask(self) -> jax.Array:
-        masks = [self._mask_morphology]
-        if self._mask_ligsite is not None:
-            masks.append(self._mask_ligsite)
-        if self._mask_custom is not None:
-            masks.append(self._mask_custom)
-        return jnp.logical_and.reduce(jnp.array(masks))
-
-    @property
-    def mask_morphology(self) -> jax.Array:
-        return self._mask_morphology
-
-    @property
-    def mask_ligsite(self) -> jax.Array | None:
-        return self._mask_ligsite
-
-    @property
-    def mask_custom(self) -> jax.Array | None:
-        return self._mask_custom
-
-    @property
-    def receptor_volume(self) -> jax.Array:
-        """The receptor volume tensor after morphological transformation.
-
-        This is the inverse of `mask_morphology`.
-        """
-        return self._receptor_volume
-
-    @property
-    def receptor_volume_added(self) -> jax.Array:
-        """The volume added to the receptor after morphological transformation."""
-        return jnp.logical_and(self.receptor_volume, self._original_volume_solvent)
-
-    @property
-    def receptor_volume_removed(self) -> jax.Array:
-        """The volume removed from the receptor after morphological transformation."""
-        return jnp.logical_and(self.mask_morphology, self._original_volume_receptor)
-
-    @property
-    def ligsite(self) -> LigSite | None:
-        return self._ligsite
-
-    @property
-    def field(self) -> Field:
-        return self._field
-
-    @property
-    def receptor(self) -> ChemicalSystem:
-        return self._receptor
-
-    def _create_structuring_element(self, structure: float | np.ndarray) -> np.ndarray:
-        """Create a centrosymmetric 3D binary array representing a filled sphere.
-
-        Parameters
-        ----------
-        diameter
-            Diameter of the sphere in the same units as the Grid's `spacing`.
-
-        Returns
-        -------
-        A 3D boolean array of shape (N, N, N), where N is odd.
-        """
-        if not isinstance(structure, int | float):
-            return structure
-        if structure <= 0:
-            raise ValueError("`diameter` and `spacing` must both be positive.")
-        # how many “steps” from center to edge, in integer voxels
-        radius_vox = int(np.floor(structure / np.mean(self.field.grid.spacings)))
-        # grid size: 2*radius + 1 → odd
-        N = 2 * radius_vox + 1
-        z, y, x = np.ogrid[:N, :N, :N]
-        dist2 = (x - radius_vox)**2 + (y - radius_vox)**2 + (z - radius_vox)**2
-        return dist2 <= radius_vox**2
-
-
-class _WPrefix(Enum):
-    MORPH = "morph_"
-    LIGSITE = "ligsite_"
-    EXTRACT = "extract_"
-
-
-class _WName(Enum):
-    """Widget names for the GUI."""
-
-    # Morphological Transformations
-    MORPH_REFRESH = f"_{_WPrefix.MORPH.value}refresh"
-    MORPH_RESET = f"_{_WPrefix.MORPH.value}reset"
-
-    # Morphological Closing
-    MORPH_CLOSE = f"{_WPrefix.MORPH.value}close"
-    MORPH_CLOSE_ITER = f"{_WPrefix.MORPH.value}close_iter"
-    MORPH_CLOSE_MASK = f"{_WPrefix.MORPH.value}close_mask"
-    # Morphological Closing Structure
-    MORPH_CLOSE_STRUCT_RADIUS = f"{_WPrefix.MORPH.value}close_struct_radius"
-    MORPH_CLOSE_STRUCT_CUSTOM = f"{_WPrefix.MORPH.value}close_struct_custom"
-
-    # Morphological Filling
-    MORPH_FILL = f"{_WPrefix.MORPH.value}fill"
-
-    # LIGSITE
-    LIGSITE_REFRESH = f"_{_WPrefix.LIGSITE.value}refresh"
-    LIGSITE_RESET = f"_{_WPrefix.LIGSITE.value}reset"
-
-    # LIGSITE PSP Count
-    LIGSITE_COUNT = f"{_WPrefix.LIGSITE.value}count"
-    LIGSITE_COUNT_RANGE = f"{_WPrefix.LIGSITE.value}count_range"
-
-    # LIGSITE PSP Distance
-    LIGSITE_DIST = f"{_WPrefix.LIGSITE.value}dist"
-    LIGSITE_DIST_RANGE = f"{_WPrefix.LIGSITE.value}dist_range"
-    LIGSITE_DIST_MIN = f"{_WPrefix.LIGSITE.value}dist_min"
-    LIGSITE_DIST_MAX = f"{_WPrefix.LIGSITE.value}dist_max"
-
-
-    # Extraction
-    EXTRACT_REFRESH = f"_{_WPrefix.EXTRACT.value}refresh"
-    EXTRACT_RESET = f"_{_WPrefix.EXTRACT.value}reset"
-
-    # Morphological Opening
-    EXTRACT_OPEN = f"{_WPrefix.EXTRACT.value}open"
-    EXTRACT_OPEN_ITER = f"{_WPrefix.EXTRACT.value}open_iter"
-    EXTRACT_OPEN_MASK = f"{_WPrefix.EXTRACT.value}open_mask"
-    # Morphological Opening Structure
-    EXTRACT_OPEN_STRUCT_RADIUS = f"{_WPrefix.EXTRACT.value}open_struct_radius"
-    EXTRACT_OPEN_STRUCT_CUSTOM = f"{_WPrefix.EXTRACT.value}open_struct_custom"
-
-    # Labeling
-    EXTRACT_LABEL = f"{_WPrefix.EXTRACT.value}label"
-
-
-class GridDetectorGUI(scishow.widgets.GUI):
+class DetectorGUI(scishow.widgets.GUI):
 
     _CSS_STYLE = """<style>
         .statusbar {
@@ -387,7 +59,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
 
     def __init__(
         self,
-        detector: GridDetector,
+        detector: Detector,
         ngl_name_receptor: str = "Receptor",
         ngl_name_receptor_volume_original: str = "Volume (Original)",
         ngl_name_receptor_volume_added: str = "Volume (Added)",
@@ -440,7 +112,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     toggle_button(
                         name=_WName.MORPH_FILL,
                         text="Hole Filling",
-                        value=_Default.MORPH_FILL,
+                        value=Default.MORPH_FILL,
                         tooltip="Fill holes in the protein volume after morphological closing."
                     )
                 ],
@@ -466,13 +138,13 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     name=_WName.LIGSITE_COUNT_RANGE.value,
                     widget=widgets.IntRangeSlider(
                         value=(
-                            max(_Default.LIGSITE_COUNT_LOWER, self.ligsite.psp_count_min),
-                            min(_Default.LIGSITE_COUNT_UPPER, self.ligsite.psp_count_max)
+                            max(Default.LIGSITE_COUNT_LOWER, self.ligsite.psp_count_min),
+                            min(Default.LIGSITE_COUNT_UPPER, self.ligsite.psp_count_max)
                         ),
                         min=self.ligsite.psp_count_min,
                         max=self.ligsite.psp_count_max,
                         step=1,
-                        disabled=not _Default.LIGSITE_COUNT,
+                        disabled=not Default.LIGSITE_COUNT,
                         continuous_update=False,
                         orientation="horizontal",
                         readout=True,
@@ -485,7 +157,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                         toggle_button(
                             name=_WName.LIGSITE_COUNT,
                             text="PSP Count",
-                            value=_Default.LIGSITE_COUNT,
+                            value=Default.LIGSITE_COUNT,
                             tooltip="Apply PSP count mask to the protein volume.",
                             observer=on_toggle,
                         ),
@@ -512,13 +184,13 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     name=_WName.LIGSITE_DIST_RANGE.value,
                     widget=widgets.FloatRangeSlider(
                         value=(
-                            max(_Default.LIGSITE_DIST_LOWER, self.ligsite.psp_distance_min) if _Default.LIGSITE_DIST_LOWER is not None else self.ligsite.psp_distance_min,
-                            min(_Default.LIGSITE_DIST_UPPER, self.ligsite.psp_distance_max) if _Default.LIGSITE_DIST_UPPER is not None else self.ligsite.psp_distance_max,
+                            max(Default.LIGSITE_DIST_LOWER, self.ligsite.psp_distance_min) if Default.LIGSITE_DIST_LOWER is not None else self.ligsite.psp_distance_min,
+                            min(Default.LIGSITE_DIST_UPPER, self.ligsite.psp_distance_max) if Default.LIGSITE_DIST_UPPER is not None else self.ligsite.psp_distance_max,
                         ),
                         min=self.ligsite.psp_distance_min,
                         max= self.ligsite.psp_distance_max,
                         step=0.01,
-                        disabled=not _Default.LIGSITE_DIST,
+                        disabled=not Default.LIGSITE_DIST,
                         continuous_update=False,
                         orientation="horizontal",
                         readout=True,
@@ -529,8 +201,8 @@ class GridDetectorGUI(scishow.widgets.GUI):
                 minmax_dropdowns = []
                 minmax_dropdowns_labeled = []
                 for side in ("min", "max"):
-                    default_dist = _Default.LIGSITE_DIST_LOWER if side == "min" else _Default.LIGSITE_DIST_UPPER
-                    default_mode = _Default.LIGSITE_DIST_LOWER_MODE if side == "min" else _Default.LIGSITE_DIST_UPPER_MODE
+                    default_dist = Default.LIGSITE_DIST_LOWER if side == "min" else Default.LIGSITE_DIST_UPPER
+                    default_mode = Default.LIGSITE_DIST_LOWER_MODE if side == "min" else Default.LIGSITE_DIST_UPPER_MODE
                     dropdown = self._gui__add_widget(
                         name=_WName[f"LIGSITE_DIST_{side.upper()}"].value,
                         widget=widgets.Dropdown(
@@ -544,7 +216,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                             },
                             value=False if default_dist is None else default_mode,
                             layout=widgets.Layout(width="100%"),
-                            disabled=not _Default.LIGSITE_DIST,
+                            disabled=not Default.LIGSITE_DIST,
                         )
                     )
                     minmax_dropdowns.append(dropdown)
@@ -567,7 +239,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
                         toggle_button(
                             name=_WName.LIGSITE_DIST,
                             text="PSP Distance",
-                            value=_Default.LIGSITE_DIST,
+                            value=Default.LIGSITE_DIST,
                             tooltip="Apply PSP distance mask to the protein volume.",
                             observer=on_toggle,
                         ),
@@ -657,11 +329,11 @@ class GridDetectorGUI(scishow.widgets.GUI):
             enum_prefix: str,
             tooltip: str,
         ):
-            toggle_disabled = not _Default[enum_prefix]
+            toggle_disabled = not Default[enum_prefix]
             iterations = self._gui__add_widget(
                 name=_WName[f"{enum_prefix}_ITER"].value,
                 widget=widgets.IntSlider(
-                    value=_Default[f"{enum_prefix}_ITER"],
+                    value=Default[f"{enum_prefix}_ITER"],
                     min=1,
                     max=100,
                     step=1,
@@ -717,11 +389,11 @@ class GridDetectorGUI(scishow.widgets.GUI):
                     widget.disabled = disabled
                 return
 
-            toggle_disabled = not _Default[enum_prefix]
+            toggle_disabled = not Default[enum_prefix]
             structure_radius = self._gui__add_widget(
                 name=_WName[f"{enum_prefix}_STRUCT_RADIUS"].value,
                 widget=widgets.FloatSlider(
-                    value=_Default[f"{enum_prefix}_STRUCT_RADIUS"],
+                    value=Default[f"{enum_prefix}_STRUCT_RADIUS"],
                     min=0,
                     max=5,
                     step=0.01,
@@ -772,7 +444,7 @@ class GridDetectorGUI(scishow.widgets.GUI):
         def toggle_button(
             name: _WName | str,
             text: str,
-            value: _Default | bool,
+            value: Default | bool,
             tooltip: str,
             observer: Callable[[dict[str, Any]], None] | None = None,
             disabled: bool = False
@@ -835,9 +507,9 @@ class GridDetectorGUI(scishow.widgets.GUI):
 
     def extract_pockets(
         self,
-        open: bool = _Default.EXTRACT_OPEN,
-        opening_structure: np.ndarray | float = _Default.EXTRACT_OPEN_STRUCT_RADIUS,
-        opening_iterations: int = _Default.EXTRACT_OPEN_ITER,
+        open: bool = Default.EXTRACT_OPEN,
+        opening_structure: np.ndarray | float = Default.EXTRACT_OPEN_STRUCT_RADIUS,
+        opening_iterations: int = Default.EXTRACT_OPEN_ITER,
         opening_mask: np.ndarray | None = None,
     ):
         with self._widg_log:
@@ -864,10 +536,10 @@ class GridDetectorGUI(scishow.widgets.GUI):
 
     def set_mask_morphology(
         self,
-        close: bool = _Default.MORPH_CLOSE,
-        fill: bool = _Default.MORPH_FILL,
-        closing_structure: np.ndarray | float = _Default.MORPH_CLOSE_STRUCT_RADIUS,
-        closing_iterations: int = _Default.MORPH_CLOSE_ITER,
+        close: bool = Default.MORPH_CLOSE,
+        fill: bool = Default.MORPH_FILL,
+        closing_structure: np.ndarray | float = Default.MORPH_CLOSE_STRUCT_RADIUS,
+        closing_iterations: int = Default.MORPH_CLOSE_ITER,
         closing_mask: np.ndarray | None = None,
     ) -> None:
         with self._widg_log:
@@ -897,12 +569,12 @@ class GridDetectorGUI(scishow.widgets.GUI):
 
     def set_mask_ligsite(
         self,
-        count_lower: int | None = _Default.LIGSITE_COUNT_LOWER,
-        count_upper: int | None = _Default.LIGSITE_COUNT_UPPER,
-        dist_lower: float | None = _Default.LIGSITE_DIST_LOWER,
-        dist_upper: float | None = _Default.LIGSITE_DIST_UPPER,
-        dist_lower_mode: Literal["any", "all", "max", "min", "mean"] = _Default.LIGSITE_DIST_LOWER_MODE,
-        dist_upper_mode: Literal["any", "all", "max", "min", "mean"] = _Default.LIGSITE_DIST_UPPER_MODE,
+        count_lower: int | None = Default.LIGSITE_COUNT_LOWER,
+        count_upper: int | None = Default.LIGSITE_COUNT_UPPER,
+        dist_lower: float | None = Default.LIGSITE_DIST_LOWER,
+        dist_upper: float | None = Default.LIGSITE_DIST_UPPER,
+        dist_lower_mode: Literal["any", "all", "max", "min", "mean"] = Default.LIGSITE_DIST_LOWER_MODE,
+        dist_upper_mode: Literal["any", "all", "max", "min", "mean"] = Default.LIGSITE_DIST_UPPER_MODE,
     ) -> None:
         with self._widg_log:
             print("Setting LIGSITE mask.")
@@ -944,19 +616,19 @@ class GridDetectorGUI(scishow.widgets.GUI):
         return
 
     @property
-    def mask(self) -> jax.Array:
+    def mask(self) -> JAXArray:
         return self._detector.mask
 
     @property
-    def mask_morphology(self) -> jax.Array:
+    def mask_morphology(self) -> JAXArray:
         return self._detector.mask_morphology
 
     @property
-    def mask_ligsite(self) -> jax.Array | None:
+    def mask_ligsite(self) -> JAXArray | None:
         return self._detector.mask_ligsite
 
     @property
-    def mask_custom(self) -> jax.Array | None:
+    def mask_custom(self) -> JAXArray | None:
         return self._detector.mask_custom
 
     @property
@@ -994,20 +666,20 @@ class GridDetectorGUI(scishow.widgets.GUI):
         with self._widg_log:
             print("Morphology mask reset to default state.")
         with self._show_status(), self._gui__temporary_observation_toggle():
-            self._gui__get_widget(_WName.MORPH_CLOSE.value).value = _Default.MORPH_CLOSE
-            self._gui__get_widget(_WName.MORPH_FILL.value).value = _Default.MORPH_FILL
-            self._gui__get_widget(_WName.MORPH_CLOSE_ITER.value).value = _Default.MORPH_CLOSE_ITER
+            self._gui__get_widget(_WName.MORPH_CLOSE.value).value = Default.MORPH_CLOSE
+            self._gui__get_widget(_WName.MORPH_FILL.value).value = Default.MORPH_FILL
+            self._gui__get_widget(_WName.MORPH_CLOSE_ITER.value).value = Default.MORPH_CLOSE_ITER
             self._gui__get_widget(_WName.MORPH_CLOSE_MASK.value).layout.display = "none"
             self._custom_input[_WName.MORPH_CLOSE_MASK] = None
             self._set_structuring_element(
                 enum_prefix=_WName.MORPH_CLOSE.name,
-                structure=_Default.MORPH_CLOSE_STRUCT_RADIUS,
+                structure=Default.MORPH_CLOSE_STRUCT_RADIUS,
             )
             self._set_structuring_element(
                 enum_prefix=_WName.MORPH_FILL.name,
                 structure=(
-                    _Default.MORPH_FILL_STRUCT_CONNECT,
-                    _Default.MORPH_FILL_STRUCT_ITER
+                    Default.MORPH_FILL_STRUCT_CONNECT,
+                    Default.MORPH_FILL_STRUCT_ITER
                 )
             )
             self._morph__set_mask()
@@ -1088,19 +760,19 @@ class GridDetectorGUI(scishow.widgets.GUI):
         with self._widg_log:
             print("LIGSITE mask reset to default state.")
         with self._show_status(), self._gui__temporary_observation_toggle():
-            self._gui__get_widget(_WName.LIGSITE_COUNT.value).value = _Default.LIGSITE_COUNT
-            self._gui__get_widget(_WName.LIGSITE_DIST.value).value = _Default.LIGSITE_DIST
+            self._gui__get_widget(_WName.LIGSITE_COUNT.value).value = Default.LIGSITE_COUNT
+            self._gui__get_widget(_WName.LIGSITE_DIST.value).value = Default.LIGSITE_DIST
             self._gui__get_widget(_WName.LIGSITE_COUNT_RANGE.value).value = (
-                max(_Default.LIGSITE_COUNT_LOWER, self.ligsite.psp_count_min),
-                min(_Default.LIGSITE_COUNT_UPPER, self.ligsite.psp_count_max)
+                max(Default.LIGSITE_COUNT_LOWER, self.ligsite.psp_count_min),
+                min(Default.LIGSITE_COUNT_UPPER, self.ligsite.psp_count_max)
             )
             self._gui__get_widget(_WName.LIGSITE_DIST_RANGE.value).value = (
-                max(_Default.LIGSITE_DIST_LOWER, self.ligsite.psp_distance_min) if _Default.LIGSITE_DIST_LOWER is not None else self.ligsite.psp_distance_min,
-                min(_Default.LIGSITE_DIST_UPPER, self.ligsite.psp_distance_max) if _Default.LIGSITE_DIST_UPPER is not None else self.ligsite.psp_distance_max,
+                max(Default.LIGSITE_DIST_LOWER, self.ligsite.psp_distance_min) if Default.LIGSITE_DIST_LOWER is not None else self.ligsite.psp_distance_min,
+                min(Default.LIGSITE_DIST_UPPER, self.ligsite.psp_distance_max) if Default.LIGSITE_DIST_UPPER is not None else self.ligsite.psp_distance_max,
             )
             for side in ("min", "max"):
-                default_dist = _Default.LIGSITE_DIST_LOWER if side == "min" else _Default.LIGSITE_DIST_UPPER
-                default_mode = _Default.LIGSITE_DIST_LOWER_MODE if side == "min" else _Default.LIGSITE_DIST_UPPER_MODE
+                default_dist = Default.LIGSITE_DIST_LOWER if side == "min" else Default.LIGSITE_DIST_UPPER
+                default_mode = Default.LIGSITE_DIST_LOWER_MODE if side == "min" else Default.LIGSITE_DIST_UPPER_MODE
                 self._gui__get_widget(_WName[f"LIGSITE_DIST_{side.upper()}"].value).value = False if default_dist is None else default_mode
             self._ligsite__set_mask()
         return {}
@@ -1167,23 +839,23 @@ class GridDetectorGUI(scishow.widgets.GUI):
         with self._widg_log:
             print("Extraction mask reset to default state.")
         with self._show_status(), self._gui__temporary_observation_toggle():
-            self._gui__get_widget(_WName.EXTRACT_OPEN.value).value = _Default.EXTRACT_OPEN
-            self._gui__get_widget(_WName.EXTRACT_LABEL.value).value = _Default.EXTRACT_LABEL
-            self._gui__get_widget(_WName.EXTRACT_OPEN_ITER.value).value = _Default.EXTRACT_OPEN_ITER
+            self._gui__get_widget(_WName.EXTRACT_OPEN.value).value = Default.EXTRACT_OPEN
+            self._gui__get_widget(_WName.EXTRACT_LABEL.value).value = Default.EXTRACT_LABEL
+            self._gui__get_widget(_WName.EXTRACT_OPEN_ITER.value).value = Default.EXTRACT_OPEN_ITER
             self._gui__get_widget(_WName.EXTRACT_OPEN_MASK.value).layout.display = "none"
             self._custom_input[_WName.EXTRACT_OPEN_MASK] = None
             self._set_structuring_element(
                 enum_prefix=_WName.EXTRACT_OPEN.name,
                 structure=(
-                    _Default.EXTRACT_OPEN_STRUCT_CONNECT,
-                    _Default.EXTRACT_OPEN_STRUCT_ITER
+                    Default.EXTRACT_OPEN_STRUCT_CONNECT,
+                    Default.EXTRACT_OPEN_STRUCT_ITER
                 )
             )
             self._set_structuring_element(
                 enum_prefix=_WName.EXTRACT_LABEL.name,
                 structure=(
-                    _Default.EXTRACT_LABEL_STRUCT_CONNECT,
-                    _Default.EXTRACT_LABEL_STRUCT_ITER
+                    Default.EXTRACT_LABEL_STRUCT_CONNECT,
+                    Default.EXTRACT_LABEL_STRUCT_ITER
                 )
             )
             self._extract__set_mask()
@@ -1435,44 +1107,56 @@ class GridDetectorGUI(scishow.widgets.GUI):
         return
 
 
-def from_chemsys(
-    system: ChemicalSystem,
-    *,
-    field: Field | None = None,
-    grid: int | float | Sequence[int | float] | Grid = 0.3,
-    minimize_aabb: bool = True,
-    gui: bool = False,
-    display: bool = True
-) -> GridDetector | GridDetectorGUI:
-    """Create a grid-based pocket detector from a chemical system.
+class _WPrefix(Enum):
+    MORPH = "morph_"
+    LIGSITE = "ligsite_"
+    EXTRACT = "extract_"
 
-    Parameters
-    ----------
-    system
-        A `ChemicalSystem` object containing the receptor structure.
-    field
-        An optional `Field` representing the receptor's voxel grid.
-        If provided, it will be used directly
-        and all other parameters below will be ignored.
-        If not provided, the field will be generated from the receptor.
-    grid
-        The grid spacing for the voxel grid.
-        This can be a single value (e.g. `0.5` for 0.5 Ångstrom spacing),
-        or a Grid object specifying the grid.
-    minimize_aabb
-        Whether to minimize the axis-aligned bounding box (AABB) of the receptor
-        before creating the voxel grid, in order to reduce the size of the grid.
-    gui
-        Whether to create a GUI for the grid detector.
-    """
-    if not field:
-        if minimize_aabb:
-            system = system.new(trajectory=system.trajectory.minimize_aabb())
-        field = system.toxelate(grid=grid)
-    detector = GridDetector(receptor=system, field=field)
-    if not gui:
-        return detector
-    detector_gui = GridDetectorGUI(detector)
-    if display:
-        detector_gui.display()
-    return detector_gui
+
+class _WName(Enum):
+    """Widget names for the GUI."""
+
+    # Morphological Transformations
+    MORPH_REFRESH = f"_{_WPrefix.MORPH.value}refresh"
+    MORPH_RESET = f"_{_WPrefix.MORPH.value}reset"
+
+    # Morphological Closing
+    MORPH_CLOSE = f"{_WPrefix.MORPH.value}close"
+    MORPH_CLOSE_ITER = f"{_WPrefix.MORPH.value}close_iter"
+    MORPH_CLOSE_MASK = f"{_WPrefix.MORPH.value}close_mask"
+    # Morphological Closing Structure
+    MORPH_CLOSE_STRUCT_RADIUS = f"{_WPrefix.MORPH.value}close_struct_radius"
+    MORPH_CLOSE_STRUCT_CUSTOM = f"{_WPrefix.MORPH.value}close_struct_custom"
+
+    # Morphological Filling
+    MORPH_FILL = f"{_WPrefix.MORPH.value}fill"
+
+    # LIGSITE
+    LIGSITE_REFRESH = f"_{_WPrefix.LIGSITE.value}refresh"
+    LIGSITE_RESET = f"_{_WPrefix.LIGSITE.value}reset"
+
+    # LIGSITE PSP Count
+    LIGSITE_COUNT = f"{_WPrefix.LIGSITE.value}count"
+    LIGSITE_COUNT_RANGE = f"{_WPrefix.LIGSITE.value}count_range"
+
+    # LIGSITE PSP Distance
+    LIGSITE_DIST = f"{_WPrefix.LIGSITE.value}dist"
+    LIGSITE_DIST_RANGE = f"{_WPrefix.LIGSITE.value}dist_range"
+    LIGSITE_DIST_MIN = f"{_WPrefix.LIGSITE.value}dist_min"
+    LIGSITE_DIST_MAX = f"{_WPrefix.LIGSITE.value}dist_max"
+
+
+    # Extraction
+    EXTRACT_REFRESH = f"_{_WPrefix.EXTRACT.value}refresh"
+    EXTRACT_RESET = f"_{_WPrefix.EXTRACT.value}reset"
+
+    # Morphological Opening
+    EXTRACT_OPEN = f"{_WPrefix.EXTRACT.value}open"
+    EXTRACT_OPEN_ITER = f"{_WPrefix.EXTRACT.value}open_iter"
+    EXTRACT_OPEN_MASK = f"{_WPrefix.EXTRACT.value}open_mask"
+    # Morphological Opening Structure
+    EXTRACT_OPEN_STRUCT_RADIUS = f"{_WPrefix.EXTRACT.value}open_struct_radius"
+    EXTRACT_OPEN_STRUCT_CUSTOM = f"{_WPrefix.EXTRACT.value}open_struct_custom"
+
+    # Labeling
+    EXTRACT_LABEL = f"{_WPrefix.EXTRACT.value}label"
