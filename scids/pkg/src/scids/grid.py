@@ -58,6 +58,7 @@ class Grid:
 
         self._coordinates: jnp.ndarray = jnp.stack(mgrid, axis=-1)
         self._point_count = np.prod(self._shape)
+        self._point_volume = np.prod(self._spacings)
         self._indices: np.ndarray = np.array(list(np.ndindex(*self._shape))).reshape(
             *self._shape, -1
         )
@@ -133,6 +134,15 @@ class Grid:
     def point_count(self) -> int:
         """Total number of points in the grid."""
         return self._point_count
+
+    @property
+    def point_volume(self) -> float:
+        """Volume of a single grid point.
+
+        This is the volume of the hypercube defined by the grid spacings.
+        For an n-dimensional grid, this is the product of the spacings in all dimensions.
+        """
+        return self._point_volume
 
     @property
     def points(self) -> scids.pointcloud.PointCloud:
