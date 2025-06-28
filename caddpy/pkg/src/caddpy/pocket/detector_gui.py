@@ -675,13 +675,6 @@ class DetectorGUI(scishow.widgets.GUI):
                 enum_prefix=_WName.MORPH_CLOSE.name,
                 structure=Default.MORPH_CLOSE_STRUCT_RADIUS,
             )
-            self._set_structuring_element(
-                enum_prefix=_WName.MORPH_FILL.name,
-                structure=(
-                    Default.MORPH_FILL_STRUCT_CONNECT,
-                    Default.MORPH_FILL_STRUCT_ITER
-                )
-            )
             self._morph__set_mask()
         return
 
