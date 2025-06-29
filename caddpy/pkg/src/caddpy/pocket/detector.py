@@ -9,8 +9,8 @@ import jax.numpy as jnp
 import numpy as np
 import scipy as sp
 
+import arrayer
 from scids.field import Field
-from scids.grid import Grid
 
 from caddpy.chemsys import ChemicalSystem
 from caddpy.pocket.ligsite import LigSite
@@ -78,8 +78,10 @@ class Detector:
 
         # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.label.html
         label_tensor, num_features = sp.ndimage.label(mask_opened)
+        dtype = arrayer.dtype.smallest_integer(minimum=0, maximum=num_features)
         return Pockets(
-            labels=jnp.asarray(label_tensor),
+            grid=self.field.grid,
+            labels=jnp.asarray(label_tensor, dtype=dtype),
             num_features=num_features
         )
 
