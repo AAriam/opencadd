@@ -128,7 +128,7 @@ class ChemicalSystem:
         """
         if self.trajectory.batch_size == 1:
             atoms = self.composition.atoms.assign(model_num=0)
-            atoms[["x", "y", "z"]] = self.trajectory.points[(0, ) * self.trajectory.batch_ndim]
+            atoms[["x", "y", "z"]] = self.trajectory.points[self.trajectory.instance_index(0)]
             return scifile.pdb.PDBFile(atom=atoms)
         coordinates = self.trajectory.points[frames]
         if coordinates.shape[-2:] != (self.trajectory.point_count, 3):
@@ -397,16 +397,10 @@ class _ChemicalSystemNGLViewAdaptor(ngl.Structure, ngl.Trajectory):
         return
 
     def get_structure_string(self):
-        first_frame_index = 0 if self._chemsys.trajectory.batch_ndim == 0 else np.unravel_index(
-            0, self._chemsys.trajectory.batch_shape
-        )
-        return str(self._chemsys.to_pdb(frames=first_frame_index))
+        return str(self._chemsys.to_pdb(frames=self._chemsys.trajectory.instance_index(0)))
 
     def get_coordinates(self, index):
-        index_unraveled = index if self._chemsys.trajectory.batch_ndim == 0 else np.unravel_index(
-            index, self._chemsys.trajectory.batch_shape
-        )
-        return self._chemsys.trajectory.points[index_unraveled]
+        return self._chemsys.trajectory.points[self._chemsys.trajectory.instance_index(index)]
 
     @property
     def n_frames(self):
