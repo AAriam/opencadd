@@ -72,6 +72,8 @@ class Pocket(Field):
         name: str = "Pocket",
         contour: bool = True,
         visible: bool = True,
+        lazy: bool = True,
+        opacity: float = 0.8,
         color: tuple[float, float, float] = (0.8, 0.2, 0.2)
     ):
         nv = nglwidget or scishow.nglview.NGLWidget()
@@ -85,7 +87,9 @@ class Pocket(Field):
                 isolevel_type="value",
                 contour=contour,
                 color=color,
+                opacity=opacity,
                 visible=visible,
+                lazy=lazy,
             )
         )
         return nv
