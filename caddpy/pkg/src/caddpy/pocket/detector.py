@@ -81,8 +81,7 @@ class Detector:
         dtype = arrayer.dtype.smallest_integer(minimum=0, maximum=num_features)
         return Pockets(
             grid=self.field.grid,
-            labels=jnp.asarray(label_tensor, dtype=dtype),
-            num_features=num_features
+            pocket_labels=jnp.asarray(label_tensor, dtype=dtype),
         )
 
     def set_mask_morphology(
