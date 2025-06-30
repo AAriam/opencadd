@@ -112,6 +112,10 @@ class DataSet:
             )
         return np.squeeze(indices[:, 1])
 
+    def instance_index(self, flat_index: int | Sequence[int]) -> tuple[np.integer | np.ndarray, ...]:
+        """Get the indices of batch instances from a flat index."""
+        return np.unravel_index(flat_index, self.batch_shape)
+
     def __call__(self, **kwargs) -> jnp.ndarray:
         if not self._batch_instance_labels:
             raise exception.InputError(
