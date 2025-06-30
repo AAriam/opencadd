@@ -2,16 +2,22 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from scids.grid import Grid
+import numpy as np
+import sciapi
+import scifile
+import scids
 
 from caddpy.pocket.detector import Detector
 from caddpy.pocket.detector_gui import DetectorGUI
 from caddpy.pocket.pocket import Pocket
+from caddpy.pocket.pockets import Pockets
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from typing import Literal
     from caddpy.chemsys import ChemicalSystem
     from scids.field import Field
+    from scids.grid import Grid
     from caddpy.typing import ArrayLike
 
 
@@ -91,4 +97,95 @@ def from_data(
         tensor=voxels,
         grid=grid,
         batch=batch,
+    )
+
+
+def from_dogsite(
+    system: ChemicalSystem,
+    chain_id: str | None = None,
+    ligand_id: str | tuple[str, str, int] | None = None,
+    include_subpockets: bool = True,
+    calculate_druggability: bool = True,
+    algorithm: Literal["scorer", "3"] = "3",
+    ligand_bias: bool = False,
+) -> Pockets:
+    api = sciapi.proteinsplus()
+    pdb_content = str(system.to_pdb(frames=system.trajectory.instance_index(0)))
+    dummy_pdb_id = api.upload_pdb(pdb_content).dummy_pdb_id
+    pockets = api.dogsite(
+        pdb_id=dummy_pdb_id,
+        chain_id=chain_id,
+        ligand_id=ligand_id,
+        include_subpockets=include_subpockets,
+        calculate_druggability=calculate_druggability,
+        algorithm=algorithm,
+        ligand_bias=ligand_bias,
+    ).full_data
+
+    main_pockets = []
+    sub_pockets = []
+    starts = []
+    shapes = []
+    grid_vectors = []
+    grid_origins = []
+    for pocket in pockets:
+        pocket["mrc"] = scifile.mrc.read(pocket["mrc"])
+        starts.append(pocket["mrc"].nstart_xyz)
+        shapes.append(pocket["mrc"].n_xyz)
+        grid_vectors.append(pocket["mrc"].grid_vectors)
+        grid_origins.append(pocket["mrc"].grid_origin)
+        name = pocket["name"].split("_")
+        if len(name) == 2:
+            main_pockets.append(pocket)
+        elif len(name) == 3:
+            sub_pockets.append(pocket)
+        else:
+            raise ValueError(f"Unexpected pocket name format: {pocket['name']}.")
+    assert np.all(
+        [
+            np.allclose(grid_vectors[0], grid_vectors_n)
+            for grid_vectors_n in grid_vectors[1:]
+        ]
+    ), "Pockets do not share the same grid vectors. Please open an issue ticket."
+    starts = np.array(starts)
+    min_start = starts.min(axis=0)
+    starts = starts - min_start  # Normalize starts to (0, 0, 0)
+    ends = starts + np.array(shapes)
+    full_shape = np.max(ends, axis=0)
+    labels_main = np.zeros(full_shape, dtype=np.uint8)
+    labels_sub = np.zeros(full_shape, dtype=np.uint8)
+    main_pockets = sorted(main_pockets, key=lambda x: x["volume"], reverse=True)
+    sub_pockets = sorted(sub_pockets, key=lambda x: x["name"])
+    name_to_index = {}
+    for idx, pocket in enumerate(main_pockets, start=1):
+        name_to_index[pocket["name"]] = pocket["label"] = idx
+        start = pocket["mrc"].nstart_xyz - min_start
+        end = start + pocket["mrc"].n_xyz
+        slices = tuple(slice(start[i], end[i]) for i in range(3))
+        pocket_mask = pocket["mrc"].data.astype(bool)
+        labels_main[slices][pocket_mask] = idx
+    subpocket_parent_labels = {}
+    for idx, pocket in enumerate(sub_pockets, start=len(main_pockets) + 1):
+        pocket["label"] = idx
+        parent_name = "_".join(pocket["name"].split("_")[:2])
+        pocket["parent_label"] = name_to_index[parent_name]
+        subpocket_parent_labels[idx] = name_to_index[parent_name]
+        start = pocket["mrc"].nstart_xyz - min_start
+        end = start + pocket["mrc"].n_xyz
+        slices = tuple(slice(start[i], end[i]) for i in range(3))
+        pocket_mask = pocket["mrc"].data.astype(bool)
+        labels_sub[slices][pocket_mask] = idx
+    origin = np.array(grid_origins).min(axis=0)
+    spacings = np.diag(grid_vectors[0])
+    grid = scids.grid.from_anchor_shape_spacing(
+        shape=full_shape,
+        spacing=spacings,
+        anchor_type="lower",
+        anchor_coord=origin,
+    )
+    return Pockets(
+        grid=grid,
+        pocket_labels=labels_main,
+        subpocket_labels=labels_sub if len(sub_pockets) > 0 else None,
+        subpocket_parent_labels=subpocket_parent_labels,
     )
