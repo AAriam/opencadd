@@ -25,8 +25,9 @@ class Pockets:
         subpocket_labels: JAXArray | None = None,
         subpocket_parent_labels: dict[int, int] | None = None,
         batch: Sequence[str | tuple[str, Sequence[str]]] | None = None,
+        external_data: pd.DataFrame | None = None,
     ):
-        def f(labels: JAXArray, parent_labels: dict[int, int] | None = None) -> pd.DataFrame:
+        def process_labels(labels: JAXArray, parent_labels: dict[int, int] | None = None) -> pd.DataFrame:
             label_set = jnp.unique(labels)
             num_points_per_label = jnp.bincount(labels.ravel())
             if label_set[0] == 0:
@@ -71,14 +72,15 @@ class Pockets:
         self._grid = grid
         self._label_pockets = pocket_labels
         self._label_subpockets = subpocket_labels
+        self._external_data = external_data
 
-        self._pockets = f(pocket_labels)
+        self._pockets = process_labels(pocket_labels)
         if subpocket_labels is not None:
             if subpocket_parent_labels is None:
                 raise ValueError(
                     "Subpocket parent labels must be provided if subpocket labels are given."
                 )
-            subpockets = f(subpocket_labels, subpocket_parent_labels)
+            subpockets = process_labels(subpocket_labels, subpocket_parent_labels)
             self._pockets = pd.concat([self._pockets, subpockets], ignore_index=True)
         return
 
@@ -101,6 +103,11 @@ class Pockets:
     def labels_subpocket(self) -> JAXArray | None:
         """Labels array of the subpockets, if any."""
         return self._label_subpockets
+
+    @property
+    def external_data(self) -> pd.DataFrame | None:
+        """External data associated with the pockets, if any."""
+        return self._external_data
 
     def display(
         self,
