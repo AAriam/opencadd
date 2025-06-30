@@ -101,9 +101,9 @@ class ProteinsPlusAPI:
             - "scorer": DoGSiteScorer
             - "3": DoGSite3 (newer version)
         ligand_bias
-            Whether the grid should be biased by the coordinates od the selected ligand.
+            Whether the grid should be biased by the coordinates of the selected ligand.
             This is only used by the DoGSite3 algorithm
-            and only when `ligand_id_chain_num` is provided.
+            and only when `ligand_id` is provided.
 
         Returns
         -------
@@ -115,7 +115,6 @@ class ProteinsPlusAPI:
         ----------
         - [DoGSiteScorer API](https://proteins.plus/help/dogsite_rest)
         """
-
         params = {
             "pdbCode": pdb_id,
             "analysisDetail": str(int(include_subpockets)),
