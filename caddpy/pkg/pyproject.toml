@@ -10,6 +10,7 @@ dependencies = [
     "scicoda",
     "scifile",
     "scids",
+    "fileex >=0.2.1,<0.3"
     "loggerman",
     "pyshellman",
     "jax",
