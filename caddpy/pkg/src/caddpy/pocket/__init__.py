@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
 import sciapi
 import scifile
 import scids
@@ -188,4 +189,5 @@ def from_dogsite(
         pocket_labels=labels_main,
         subpocket_labels=labels_sub if len(sub_pockets) > 0 else None,
         subpocket_parent_labels=subpocket_parent_labels,
+        external_data=pd.DataFrame(main_pockets + sub_pockets)
     )
