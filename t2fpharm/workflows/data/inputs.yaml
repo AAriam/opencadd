@@ -1,0 +1,328 @@
+schema:
+  title: Evaluation Dataset
+  summary: Dataset of protein structures for evaluation.
+  description: |
+    Structures are mostly selected from the [Patel dataset](https://doi.org/10.1023/A:1021954728347),
+    which contains a collection of five structurally diverse and well-described protein families,
+    for which a large number of structural data is available
+    and has been used to evaluate other tools in the context of pharmacophore modelling.
+    Here, we only use four of the five families,
+    discarding the zinc-containing protein, thermolysin,
+    as this version of the T²F method is not suitable for the detection of metal coordinations.
+    Instead of thermolysin, the adenosine A2A receptor is included in our set
+    to represent the GPCR class of proteins.
+    The dataset thus contains ligand-enzyme complexes for:
+
+    - Cyclin-dependent kinase 2 (CDK2, 6 entries)
+    - Dihydrofolate reductase (DHFR, 6 entries)
+    - Thrombin (THROM, 7 entries)
+    - HIV-1 reverse transcriptase (HIVRT, 10 entries)
+    - Adenosine A2A receptor (A2AR, 3 entries)
+  type: array
+  items:
+    type: object
+    additionalProperties: false
+    required: [group_id, group_name, uniprot_id, reference_structure]
+    properties:
+      group_id:
+        type: string
+        description: Unique identifier for the protein family.
+      group_name:
+        type: string
+        description: Full name of the protein family.
+      uniprot_id:
+        type: string
+        description: UniProt identifier of the protein family.
+      reference_structure:
+        summary: Reference structure for the protein family.
+        $ref: '#/definitions/structure'
+      structures:
+        type: array
+        items:
+          title: Structure
+          summary: A structure in the protein family.
+          $ref: '#/definitions/structure'
+  definitions:
+    structure:
+      type: object
+      additionalProperties: false
+      required: [pdb_id, chain_id]
+      properties:
+        pdb_id:
+          title: PDB ID
+          summary: PDB ID of the structure.
+          type: string
+          pattern: '^[1-9][A-Za-z0-9]{3}$'
+        chain_id:
+          title: Chain ID
+          summary: Chain ID of the representative chain in the structure.
+          type: string
+        reference_ligand:
+          type: array
+          items:
+            type: string
+          description: Reference ligand in the structure (optional).
+        ligand:
+          type: array
+          items:
+            type: string
+          description: List of ligands in the structure (optional).
+data:
+  receptor_groups:
+    - id: CDK2
+      name: Cyclin-dependent kinase 2
+      uniprot_id: P24941
+      seq_begin: 1
+      seq_end: 298
+      color_bg: '#F0F8FF'
+      color_text: '#000000'
+      ref_structure:
+        pdb_id: 1AQ1
+        chain_id: A
+        ref_ligand:
+          res_name: STU
+          chain_id: A
+          res_seq: 299
+      structures:
+        - pdb_id: 1DI8
+          chain_id: A
+          ref_ligand:
+            res_name: DTQ
+            chain_id: A
+            res_seq: 500
+        - pdb_id: 1E1V
+          chain_id: A
+          ref_ligand:
+            res_name: CMG
+            chain_id: A
+            res_seq: 401
+        - pdb_id: 1E1X
+          chain_id: A
+          ref_ligand:
+            res_name: NW1
+            chain_id: A
+            res_seq: 401
+        - pdb_id: 1FIN
+          chain_id: A
+          ref_ligand:
+            res_name: ATP
+            chain_id: A
+            res_seq: 299
+        - pdb_id: 1FVV
+          chain_id: A
+          ref_ligand:
+            res_name: '107'
+            chain_id: A
+            res_seq: 501
+    - id: DHFR
+      name: Dihydrofolate reductase
+      uniprot_id: P00374
+      seq_begin: 1
+      seq_end: 186
+      color_bg: '#FFF0F5'
+      color_text: '#000000'
+      ref_structure:
+        pdb_id: 1DRF
+        chain_id: A
+        ref_ligand:
+          res_name: FOL
+          chain_id: A
+          res_seq: 187
+      structures:
+        - pdb_id: 1BOZ
+          chain_id: A
+          ref_ligand:
+            res_name: PRD
+            chain_id: A
+            res_seq: 400
+          ligands:
+            - res_name: NDP
+        - pdb_id: 1DLR
+          chain_id: A
+          ref_ligand:
+            res_name: MXA
+            chain_id: A
+            res_seq: 188
+          ligands:
+            - res_name: NDP
+        - pdb_id: 1HFP
+          chain_id: A
+          ref_ligand:
+            res_name: MOT
+            chain_id: A
+            res_seq: 188
+          ligands:
+            - res_name: NDP
+        - pdb_id: 1OHK
+          chain_id: A
+          ref_ligand:
+            res_name: COP
+            chain_id: A
+            res_seq: 188
+          ligands:
+            - res_name: NDP
+        - pdb_id: 2DHF
+          chain_id: A
+          ref_ligand:
+            res_name: DZF
+            chain_id: A
+            res_seq: 187
+    - id: THROM
+      name: Thrombin
+      uniprot_id: P00734
+      color_bg: '#FFF8DC'
+      color_text: '#000000'
+      ref_structure:
+        pdb_id: 1C4V
+        chain_id: 2
+        ref_ligand:
+          res_name: IH2
+          chain_id: 2
+          res_seq: 370
+        heterogens:
+          - res_name: HOH
+            chain_id: 2
+            res_seq: 404
+          - res_name: HOH
+            chain_id: 2
+            res_seq: 408
+          - res_name: HOH
+            chain_id: 2
+            res_seq: 410
+          - res_name: HOH
+            chain_id: 2
+            res_seq: 477
+      structures:
+        - pdb_id: 1D4P
+          chain_id: B
+          ref_ligand:
+            res_name: BPP
+            chain_id: B
+            res_seq: 400
+        - pdb_id: 1D6W
+          chain_id: A
+          ref_ligand:
+            res_name: 00R
+            chain_id: A
+            res_seq: 380
+        - pdb_id: 1D9I
+          chain_id: A
+          ref_ligand:
+            res_name: 00P
+            chain_id: A
+            res_seq: 380
+        - pdb_id: 1DWD
+          chain_id: H
+          ref_ligand:
+            res_name: MID
+            chain_id: H
+            res_seq: 1
+        - pdb_id: 1FPC
+          chain_id: H
+          ref_ligand:
+            res_name: OZI
+            chain_id: H
+            res_seq: 371
+        - pdb_id: 1TOM
+          chain_id: H
+          ref_ligand:
+            res_name: MIN
+            chain_id: H
+            res_seq: 1
+    - id: HIVRT
+      name: HIV-1 reverse transcriptase
+      uniprot_id: P03366
+      color_bg: '#F5F5DC'
+      color_text: '#000000'
+      ref_structure:
+        pdb_id: 1TVR
+        chain_id: A
+        ref_ligand:
+          res_name: TB9
+          chain_id: A
+          res_seq: 600
+      structures:
+        - pdb_id: 1BQM  # Mistakenly written as 1BMQ in the paper (Table 2)
+          chain_id: A
+          ref_ligand:
+            res_name: HBY
+            chain_id: A
+            res_seq: 557
+        - pdb_id: 1DTT
+          chain_id: A
+          ref_ligand:
+            res_name: FTC
+            chain_id: A
+            res_seq: 999
+        - pdb_id: 1EP4
+          ref_ligand:
+            res_name: S11
+            chain_id: A
+            res_seq: 999
+        - pdb_id: 1FK9
+          ref_ligand:
+            res_name: EFZ
+        - pdb_id: 1RT1
+          ref_ligand:
+            res_name: MKC
+        - pdb_id: 1RT3
+          ref_ligand:
+            res_name: U05
+        - pdb_id: 1RT5
+          ref_ligand:
+            res_name: P04
+        - pdb_id: 1KLM
+          ref_ligand:
+            res_name: SPP
+        - pdb_id: 1VRU
+          ref_ligand:
+            res_name: AAP
+    - id: A2AR
+      name: Adenosine A2A receptor
+      uniprot_id: P29274
+      color_bg: '#E6E6FA'
+      color_text: '#000000'
+      ref_structure:
+        pdb_id: 2YDO  # Mistakenly written as 2DYO in the paper (Table 2)
+        chain_id: A
+        ref_ligand:
+          res_name: ADN
+          chain_id: A
+          res_seq: 400
+      structures:
+        - pdb_id: 2YDV
+          chain_id: A
+          ref_ligand:
+            res_name: NEC
+            chain_id: A
+            res_seq: 400
+        - pdb_id: 3EML
+          chain_id: A
+          ref_ligand:
+            res_name: ZMA
+            chain_id: A
+            res_seq: 401
+  grid_spacing: 0.6
+  grid_length: 16
+
+  energy_cutoff:
+    HD: -0.35
+    OA: -0.6
+    C: -0.4
+    anion: -1
+    cation: -1
+
+
+
+  pocket:
+    feature_id: OA
+    max_energy: 0.6
+    psp_directions: 7
+    min_psp: 4
+
+
+  clustering:
+    max_distance: 1.21
+    min_neighbors: [6, 12, 16]
+    min_members: 15
+    max_members: 80
