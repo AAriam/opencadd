@@ -1,6 +1,6 @@
-class Receptor:
-    def __init__(
-        self,
-        pdb_id: str,
-        add_
-    )
+from caddpy.chemsys import ChemicalSystem as Receptor, from_pdb
+
+__all__ = [
+    "Receptor",
+    "from_pdb",
+]
