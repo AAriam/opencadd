@@ -13,17 +13,8 @@ from t2fpharm.ligand import LigandPharmacophore
 
 
 class Pharmacophore:
-    def __init__(
-        self,
-        features: pd.DataFrame,
-        pocket: Pocket,
-        field: Field,
-        args
-    ):
-        self.features = features
-        self.pocket = pocket
-        self.field = field
-        self.args = args
+
+    def __init__(self):
         self._feature_colors = {
             "HD": (0, 0.6, 0),
             "OA": (0.6, 0, 0),
@@ -31,6 +22,45 @@ class Pharmacophore:
             "e+": (0, 0, 1.0),
             "e-": (1.0, 0, 0),
         }
+        return
+
+    def set_feature_color(self, **kwargs: tuple[int, int, int] | tuple[float, float, float]) -> None:
+        """Set custom colors for pharmacophore features.
+
+        Parameters
+        ----------
+        **kwargs
+            Feature types as keys and RGB color tuples as values.
+            Each color can be a tuple of three integers (0-255) or floats (0.0-1.0).
+            Example: `set_feature_color(HD=(0, 255, 0), OA=(255, 0, 0))`
+        """
+        for feature, color in kwargs.items():
+            if isinstance(color, Sequence) and len(color) == 3:
+                if all(isinstance(c, (int, float)) for c in color):
+                    self._feature_colors[feature] = tuple(color)
+                else:
+                    raise ValueError(f"Invalid color format for feature '{feature}': {color}")
+            else:
+                raise ValueError(f"Color must be a tuple of three values for feature '{feature}'")
+        return
+
+
+
+class ReceptorPharmacophore(Pharmacophore):
+    def __init__(
+        self,
+        features: pd.DataFrame,
+        pocket: Pocket,
+        field: Field,
+        args,
+        extra: dict[str, Any] | None = None
+    ):
+        self.features = features
+        self.pocket = pocket
+        self.field = field
+        self.args = args
+        self.extra = extra or {}
+        super().__init__()
         return
 
     def match_spherical(self, ligand: LigandPharmacophore) -> pd.DataFrame:
@@ -97,7 +127,15 @@ class Pharmacophore:
         show_fields: bool = False,
         show_feature_points: bool = False,
         show_feature_centers: bool = True,
+        feature_colors: dict[str, tuple[float, float, float] | tuple[int, int, int]] | None = None,
     ):
+        def feature_color(feature_id: str) -> tuple[float, float, float] | tuple[int, int, int]:
+            """Get color for a feature type, defaulting to gray if not set."""
+            return feature_colors.get(
+                feature_id,
+                self._feature_colors.get(feature_id, (0.5, 0.5, 0.5))
+            )
+
         nv = nglwidget or scishow.nglview.NGLWidget()
         if receptor:
             nv.add_trajectory(receptor)
@@ -106,6 +144,7 @@ class Pharmacophore:
             show_box=show_box,
             visible=show_pocket,
         )
+        feature_colors = feature_colors or {}
         for feature_id in self.field.batch_instance_labels["feature"]:
             nv.add_volume(
                 data=self.field(feature=feature_id),
@@ -117,7 +156,7 @@ class Pharmacophore:
                     isolevel_type="value",
                     contour=False,
                     wireframe=True,
-                    color=self._feature_colors.get(feature_id, (0.5, 0.5, 0.5)),
+                    color=feature_color(feature_id),
                     visible=show_fields,
                 )
             )
@@ -126,7 +165,7 @@ class Pharmacophore:
                 coords=feature["points"],
                 radii=self.field.grid.spacings[0] / 2,
                 name=f"{feature['type'].upper()}_{feature['label']} Points",
-                colors=self._feature_colors.get(feature["type"], (0.5, 0.5, 0.5)),
+                colors=feature_color(feature["type"]),
                 representation_params=scishow.nglview.RepresentationParameters(
                     visible=show_feature_points,
                 )
@@ -135,7 +174,7 @@ class Pharmacophore:
                 coords=[feature["center"]],
                 radii=feature["radius"],
                 name=f"{feature['type'].upper()}_{feature['label']} Center",
-                colors=self._feature_colors.get(feature["type"], (0.5, 0.5, 0.5)),
+                colors=feature_color(feature["type"]),
                 representation_params=scishow.nglview.RepresentationParameters(
                     opacity=0.8,
                     visible=show_feature_centers,
@@ -143,4 +182,3 @@ class Pharmacophore:
                 )
             )
         return nv.display(gui=True)
-
