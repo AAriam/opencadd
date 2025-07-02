@@ -1,6 +1,7 @@
 from typing import Annotated
 
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 from pydantic import Field
 
 
