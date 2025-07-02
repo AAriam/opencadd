@@ -11,6 +11,7 @@ import scishow
 from caddpy.chemsys import ChemicalSystem
 from caddpy.typing import ArrayLike
 
+
 class Pocket(Field):
     """Binding pocket."""
 
@@ -82,8 +83,11 @@ class Pocket(Field):
     def display(
         self,
         nglwidget: scishow.nglview.NGLWidget | None = None,
+        show_box: bool = False,
         name: str = "Pocket",
-        contour: bool = True,
+        box_name: str = "BBox",
+        contour: bool = False,
+        wireframe: bool = True,
         visible: bool = True,
         lazy: bool = True,
         opacity: float = 0.8,
@@ -96,6 +100,12 @@ class Pocket(Field):
                 nv.add_trajectory(receptor)
             elif self._receptor is not None:
                 nv.add_trajectory(self._receptor)
+        if show_box:
+            nv.add_box(
+                lower_bounds=self.grid.lower_bounds,
+                upper_bounds=self.grid.upper_bounds,
+                name=box_name,
+            )
         nv.add_volume(
             data=self._tensor_dialated,
             basis=self._grid_dialated.unit_vectors,
@@ -105,6 +115,7 @@ class Pocket(Field):
                 isolevel=0.5,
                 isolevel_type="value",
                 contour=contour,
+                wireframe=wireframe,
                 color=color,
                 opacity=opacity,
                 visible=visible,
