@@ -189,5 +189,6 @@ def from_dogsite(
         pocket_labels=labels_main,
         subpocket_labels=labels_sub if len(sub_pockets) > 0 else None,
         subpocket_parent_labels=subpocket_parent_labels,
+        receptor=system,
         external_data=pd.DataFrame(main_pockets + sub_pockets)
     )
