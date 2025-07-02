@@ -7,18 +7,14 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 import scishow
 import caddpy
+from t2fpharm.pharmacophore import Pharmacophore
 
 
-class LigandPharmacophore:
-    def __init__(self, features: Any):
+class LigandPharmacophore(Pharmacophore):
+    def __init__(self, features: Any, extra: dict[str, Any] | None = None):
         self.features = _LigandInput(features=features).features
-        self._feature_colors = {
-            "HD": (0, 0.6, 0),
-            "OA": (0.6, 0, 0),
-            "C": (1.0, 1.0, 0),
-            "e+": (0, 0, 1.0),
-            "e-": (1.0, 0, 0),
-        }
+        self.extra = extra or {}
+        super().__init__()
         return
 
     def display(
@@ -26,6 +22,7 @@ class LigandPharmacophore:
         nglwidget: scishow.nglview.NGLWidget | None = None,
         receptor: Any | None = None,
         default_radius: float = 1.0,
+        feature_colors: dict[str, tuple[float, float, float] | tuple[int, int, int]] | None = None,
     ):
         nv = nglwidget or scishow.nglview.NGLWidget()
         if receptor:
@@ -35,7 +32,10 @@ class LigandPharmacophore:
                 coords=feature["position"],
                 radii=feature["radius"] or default_radius,
                 name=f"{feature['type'].upper()}_{feature_idx}",
-                colors=self._feature_colors.get(feature["type"], (0.5, 0.5, 0.5)),
+                colors=feature_colors.get(
+                    feature["type"],
+                    self._feature_colors.get(feature["type"], (0.5, 0.5, 0.5))
+                ),
                 representation_params=scishow.nglview.RepresentationParameters(
                     opacity=0.8,
                     visible=True,
@@ -97,7 +97,7 @@ class _LigandInput(BaseModel):
 
         # Validate 'feature'
         if not pd.api.types.is_string_dtype(df['type']):
-            df['type'] = df['type'].astype(str)
+            raise ValueError("Feature column 'type' must be strings")
 
         # Validate and normalize 'position'
         df['position'] = df['position'].apply(to_array)
@@ -134,18 +134,26 @@ def from_plip(
         match row["interaction_type"]:
             case "hbond":
                 if row["r_is_d"]:
-                    probe = type_hbond_acceptor
+                    feature_type = type_hbond_acceptor
                 else:
-                    probe = type_hbond_donor
+                    feature_type = type_hbond_donor
                     position_col = "h_position"
             case "water_bridge":
                 position_col = "w_position"
-                probe = type_hbond_acceptor if row["r_is_d"] else type_hbond_donor
+                feature_type = type_hbond_acceptor if row["r_is_d"] else type_hbond_donor
             case "salt_bridge":
-                probe = type_anion if row["r_is_cation"] else type_cation
+                feature_type = type_anion if row["r_is_cation"] else type_cation
             case "hydrophobic":
-                probe = type_hydrophobic
+                feature_type = type_hydrophobic
             case _:
                 continue
-        out.append({"type": probe, "position": row[position_col]})
-    return LigandPharmacophore(out)
+        position = row[position_col]
+        # Sometimes a single atom can be involved
+        # in multiple interactions of the same type, e.g., hydrophobic interactions with different residues.
+        # Therefore, we only add a new feature if not already present
+        for entry in out:
+            if entry["type"] == feature_type and np.allclose(entry["position"], position):
+                break
+        else:
+            out.append({"type": feature_type, "position": position})
+    return LigandPharmacophore(features=out, extra={"plip": plip})
