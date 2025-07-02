@@ -9,6 +9,8 @@ import pyserials
 import sciapi
 import scifile
 
+import t2fpharm
+
 
 class Dataset:
     def __init__(
@@ -185,10 +187,14 @@ def load(
             fixer.addMissingAtoms()
             fixer.addMissingHydrogens(7.0)
             PDBFile.writeFile(fixer.topology, fixer.positions, str(filepath_pdb_fixed), keepIds=True)
-        # if is_ref:
-        #     filepath_pdb_apo = structure["filepath_pdb_apo"]
-        #     if not filepath_pdb_apo.is_file():
-
+        comp = structure["complex"] = t2fpharm.receptor.from_pdb(filepath_pdb_fixed)
+        if is_ref:
+            filepath_pdb_apo = structure["filepath_pdb_apo"]
+            if not filepath_pdb_apo.is_file():
+                receptor = structure["receptor"] = comp.select(comp.composition.atoms["res_poly"])
+                filepath_pdb_apo.write_text(str(receptor.to_pdb()))
+            else:
+                structure["receptor"] = scifile.pdb.read(filepath_pdb_apo)
         return
 
 
