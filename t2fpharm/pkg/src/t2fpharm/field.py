@@ -1,23 +1,101 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+import scids
+import caddpy
+import jax.numpy as jnp
+from scids.field import Field
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from jax.typing import ArrayLike, DTypeLike
+    from scids.grid import Grid
+    from pathlib import Path
 
 
-class Field:
-    def __init__(
-        self,
-        tensor,
-        ids,
-    ):
-        self._tensor = tensor
-        self._ids = ids
-        return
+__all__ = [
+    "from_data",
+    "from_autogrid",
+    "Field",
+]
 
-    @property
-    def tensor(self):
-        return self._tensor
 
-    @property
-    def ids(self):
-        return self._ids
+def from_data(
+    grid: Grid,
+    tensor: ArrayLike,
+    feature_ids: Sequence[str],
+    dtype: DTypeLike | None = None,
+) -> Field:
+    # Check grid
+    if not isinstance(grid, scids.grid.Grid):
+        raise TypeError(
+            f"Expected Grid object, got {type(grid).__name__}."
+        )
+    if grid.dimension != 3:
+        raise ValueError(
+            f"Expected 3D grid, got {grid.dimension}D."
+        )
+    # Check feature IDs
+    if isinstance(feature_ids, str | bytes) or not isinstance(feature_ids, Sequence):
+        raise TypeError(
+            f"Expected sequence of feature ID strings, got {type(feature_ids).__name__}."
+        )
+    # Check tensor
+    tensor = jnp.asarray(tensor, dtype=dtype)
+    if not jnp.issubdtype(tensor.dtype, jnp.floating):
+        raise TypeError(
+            f"Expected floating-point tensor, got {tensor.dtype}."
+        )
+    if tensor.ndim < 4:
+        raise ValueError(
+            f"Expected at least 4D tensor, got {tensor.ndim}D."
+        )
+    if tensor.shape[0] != len(feature_ids):
+        raise ValueError(
+            f"Tensor first dimension ({tensor.shape[0]}) does not match "
+            f"number of feature IDs ({len(feature_ids)})."
+        )
+    if jnp.any(grid.shape != tensor.shape[-3:]):
+        raise ValueError(
+            f"Grid shape {grid.shape} does not match tensor shape along last axes {tensor.shape[-3:]}"
+        )
+    batch = [("feature", feature_ids)] + [f"receptor_{i}" for i in range(1, tensor.ndim - 3)]
+    return scids.field.from_tensor(
+        tensor=tensor,
+        grid=grid,
+        batch=batch,
+    )
 
-    @property
-    def batch_shape(self) -> tuple[int, ...]:
-        return self.tensor.shape[1:-3]
+
+def from_autogrid(
+    grid: Grid,
+    receptor_files: str | bytes | Path | ArrayLike,
+    ligand_types: Sequence[str] = ("HD", "C", "NA", "OA", "e-", "e+"),
+    receptor_types: Sequence[str] | None = None,
+    identical_receptor_types: bool = True,
+    smooth: float = 0.5,
+    dielectric: float = -0.1465,
+    parameter_files: str | bytes | Path | ArrayLike | None = None,
+    receptor_file_ids: str | Sequence[tuple[str, Sequence[str]]] | None = None,
+    parameter_file_ids: str | Sequence[tuple[str, Sequence[str]]] | None = None,
+    field_dtype: DTypeLike = jnp.single,
+    output_dir: str | Path = None,
+    allow_copy: bool = True,
+) -> Field:
+    return caddpy.mif.autogrid.from_pdbqt(
+        receptor_files=receptor_files,
+        grid=grid,
+        ligand_types=ligand_types,
+        receptor_types=receptor_types,
+        identical_receptor_types=identical_receptor_types,
+        smooth=smooth,
+        dielectric=dielectric,
+        parameter_files=parameter_files,
+        receptor_file_ids=receptor_file_ids,
+        parameter_file_ids=parameter_file_ids,
+        field_dtype=field_dtype,
+        field_batch_order=("ligand", "receptor", "parameter"),
+        output_dir=output_dir,
+        allow_copy=allow_copy,
+        ligand_axis_id="feature",
+    )
