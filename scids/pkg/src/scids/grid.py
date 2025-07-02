@@ -107,7 +107,7 @@ class Grid:
 
     @property
     def dimension(self) -> int:
-        """Mumber of axes in the grid."""
+        """Number of axes in the grid."""
         return self._shape.size
 
     @property
@@ -178,6 +178,42 @@ class Grid:
     def upper_bounds(self) -> np.ndarray:
         """Coordinates of the point with maximum index values in all dimensions."""
         return np.array(self._upper_bounds)
+
+    def nearest_point(self, points: ArrayLike) -> tuple[np.ndarray, np.ndarray]:
+        """Find the nearest grid point for each point in the input.
+
+        Parameters
+        ----------
+        points
+            An array of shape `(..., self.dimension)`,
+            containing the coordinates of points in the same space as the grid.
+
+        Returns
+        -------
+        indices
+            An array of shape `(..., self.dimension)`
+            containing the indices of the nearest grid point
+            for each point in the input.
+        distances
+            An array of shape `(...)` containing the distances
+            from each point in the input to the nearest grid point.
+        is_inside
+            A boolean array of shape `(...)` indicating whether each point
+            is inside the grid bounds.
+        """
+        points = jnp.asarray(points)
+        if points.ndim < 1 or points.shape[-1] != self.dimension:
+            raise ValueError(
+                f"Input points must have at least one dimension and "
+                f"the last dimension must have size {self.dimension}, "
+                f"but input had shape {points.shape}."
+            )
+        uvw = (points - self.lower_bounds) / self.spacings
+        is_inside = jnp.all((uvw >= -0.5) & (uvw <= (self.shape - 0.5)), axis=-1)
+        indices = jnp.clip(jnp.rint(uvw).astype(int), min=0, max=self.shape - 1)
+        self_coords = self.index_coordinates(indices)
+        distances = jnp.linalg.norm(points - self_coords, axis=-1)
+        return indices, distances, is_inside
 
     def index_coordinates(self, indices: ArrayLike) -> jnp.ndarray:
         """Get coordinates of grid points given their indices.
