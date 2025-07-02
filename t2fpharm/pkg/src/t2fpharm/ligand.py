@@ -27,6 +27,7 @@ class LigandPharmacophore(Pharmacophore):
         nv = nglwidget or scishow.nglview.NGLWidget()
         if receptor:
             nv.add_trajectory(receptor)
+        feature_colors = feature_colors or {}
         for feature_idx, feature in self.features.iterrows():
             nv.add_spheres(
                 coords=feature["position"],
