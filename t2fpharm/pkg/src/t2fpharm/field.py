@@ -70,7 +70,7 @@ def from_data(
 def from_autogrid(
     grid: Grid,
     receptor_files: str | bytes | Path | ArrayLike,
-    ligand_types: Sequence[str] = ("HD", "C", "NA", "OA", "e-", "e+"),
+    ligand_types: Sequence[str] = ("HD", "C", "OA", "e-", "e+"),
     receptor_types: Sequence[str] | None = None,
     identical_receptor_types: bool = True,
     smooth: float = 0.5,
