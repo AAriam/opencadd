@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
+import numpy as np
 import scipy as sp
 import pandas as pd
 
@@ -12,9 +13,11 @@ import scishow
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from typing import Any, Literal
     from scids.grid import Grid
     from caddpy.pocket.pocket import Pocket
-    from caddpy.typing import JAXArray
+    from caddpy.typing import JAXArray, ArrayLike
+    from caddpy.chemsys import ChemicalSystem
 
 
 class Pockets:
@@ -26,6 +29,7 @@ class Pockets:
         subpocket_parent_labels: dict[int, int] | None = None,
         batch: Sequence[str | tuple[str, Sequence[str]]] | None = None,
         external_data: pd.DataFrame | None = None,
+        receptor: ChemicalSystem | None = None,
     ):
         def process_labels(labels: JAXArray, parent_labels: dict[int, int] | None = None) -> pd.DataFrame:
             label_set = jnp.unique(labels)
@@ -53,6 +57,7 @@ class Pockets:
                     tensor=pocket_tensor,
                     grid=pocket_grid,
                     batch=batch,
+                    receptor=receptor,
                 )
                 pockets.append(pocket)
                 parents.append(
@@ -72,6 +77,7 @@ class Pockets:
         self._grid = grid
         self._label_pockets = pocket_labels
         self._label_subpockets = subpocket_labels
+        self._receptor = receptor
         self._external_data = external_data
 
         self._pockets = process_labels(pocket_labels)
@@ -82,6 +88,7 @@ class Pockets:
                 )
             subpockets = process_labels(subpocket_labels, subpocket_parent_labels)
             self._pockets = pd.concat([self._pockets, subpockets], ignore_index=True)
+        self._pockets.set_index("label", inplace=True, drop=False)
         return
 
     @property
@@ -109,23 +116,41 @@ class Pockets:
         """External data associated with the pockets, if any."""
         return self._external_data
 
+    def point_coverage(self, points: ArrayLike):
+        cols = {}
+        for label, row in self._pockets.iterrows():
+            pocket = row["pocket"]
+            coverage = pocket.point_coverage(points)
+            cols[label] = coverage
+        return pd.DataFrame(cols)
+
     def display(
         self,
         nglwidget=None,
         name_prefix: str = "P ",
         contour: bool = True,
         visible: bool = True,
-        color: tuple[float, float, float] = (0.8, 0.2, 0.2),
+        color: tuple[float, float, float] | Sequence[tuple[float, float, float]] | None = None,
+        receptor: Any | Literal[False] | None = None,
     ):
         """Display the pockets in an NGLWidget."""
         nv = nglwidget or scishow.nglview.NGLWidget()
-        for _, pocket in self._pockets.iterrows():
+        if receptor is not False:
+            if receptor is not None:
+                nv.add_trajectory(receptor)
+            elif self._receptor is not None:
+                nv.add_trajectory(self._receptor)
+        if color is None:
+            color = np.random.rand(len(self._pockets), 3).tolist()
+        elif isinstance(color, tuple):
+            color = [color] * len(self._pockets)
+        for idx, (_, pocket) in enumerate(self._pockets.iterrows()):
             pocket.pocket.display(
                 nglwidget=nv,
                 name=f"{name_prefix}{pocket.label}",
                 contour=contour,
                 visible=visible,
-                color=color,
+                color=color[idx],
+                receptor=False,
             )
         return nv
-
