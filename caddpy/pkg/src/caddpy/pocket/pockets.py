@@ -126,9 +126,12 @@ class Pockets:
 
     def display(
         self,
-        nglwidget=None,
+        nglwidget: scishow.nglview.NGLWidget | None = None,
+        show_box: bool = False,
         name_prefix: str = "P ",
-        contour: bool = True,
+        box_name_prefix: str = "BBox ",
+        contour: bool = False,
+        wireframe: bool = True,
         visible: bool = True,
         color: tuple[float, float, float] | Sequence[tuple[float, float, float]] | None = None,
         receptor: Any | Literal[False] | None = None,
@@ -147,8 +150,11 @@ class Pockets:
         for idx, (_, pocket) in enumerate(self._pockets.iterrows()):
             pocket.pocket.display(
                 nglwidget=nv,
+                show_box=show_box,
                 name=f"{name_prefix}{pocket.label}",
+                box_name=f"{box_name_prefix}{pocket.label}",
                 contour=contour,
+                wireframe=wireframe,
                 visible=visible,
                 color=color[idx],
                 receptor=False,
