@@ -1,27 +1,53 @@
 
 from typing import Any, Sequence, Self
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+
 
 import numpy as np
 import pandas as pd
+import scishow
+
+from t2fpharm.field import Field
+from t2fpharm.pocket import Pocket
+from t2fpharm.ligand import LigandPharmacophore
 
 
 class Pharmacophore:
     def __init__(
         self,
         features: pd.DataFrame,
-        field,
+        pocket: Pocket,
+        field: Field,
+        args
     ):
         self.features = features
+        self.pocket = pocket
         self.field = field
+        self.args = args
+        self._feature_colors = {
+            "HD": (0, 0.6, 0),
+            "OA": (0.6, 0, 0),
+            "C": (1.0, 1.0, 0),
+            "e+": (0, 0, 1.0),
+            "e-": (1.0, 0, 0),
+        }
         return
 
-    def match_spherical(self, ligand: Any) -> pd.DataFrame:
-        ligand = _LigandInput(
-            ligand=ligand,
-            allowed_features=self.field.ids
-        ).ligand.reset_index().rename(columns={'index': 'ligand_idx'})
+    def match_spherical(self, ligand: LigandPharmacophore) -> pd.DataFrame:
+        if not isinstance(ligand, LigandPharmacophore):
+            raise TypeError(
+                f"Expected LigandPharmacophore, got {type(ligand)}"
+            )
+        ligand = ligand.features
+        ligand_features = set(ligand['type'])
+        self_features = set(self.field.batch_instance_labels["feature"])
+        if (invalid_features := ligand_features - self_features):
+            raise ValueError(
+                f"Invalid feature values: {sorted(invalid_features)}. "
+                f"Allowed: {sorted(self_features)}"
+            )
+        ligand = ligand.reset_index().rename(columns={'index': 'ligand_idx'})
+
         # Get all unique instances
         instances = pd.DataFrame({'instance': self.features['instance'].unique()})
         # Cross-join ligand × instance
@@ -59,85 +85,62 @@ class Pharmacophore:
             .drop(columns=['dist_sort', 'position', 'center', 'radius_lig', 'radius_feat'])
         )
         # Reorder & return
-        final_cols = ['ligand_idx', 'instance', 'match', 'label', 'distance', 'max_distance']
+        final_cols = ['ligand_idx', 'instance', 'label', 'type', 'match', 'distance', 'max_distance']
         return best[final_cols].reset_index(drop=True)
 
-
-class _LigandInput(BaseModel):
-    """
-    Pydantic v2 model to validate and normalize a ligand DataFrame.
-
-    This model accepts any input convertible to a pandas DataFrame and ensures:
-    - Columns 'feature' and 'position' are present.
-    - 'feature' values are strings drawn from `allowed_features`.
-    - 'position' entries become 1D numpy arrays of three floats.
-    - A non-negative 'radius' column is present (added with zeros if missing).
-
-    Attributes
-    ----------
-    ligand
-        Normalized DataFrame with columns ['feature', 'position', 'radius'].
-    """
-    ligand: pd.DataFrame
-    allowed_features: Sequence[str]
-
-    # Allow arbitrary types like pandas DataFrame
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    @field_validator('ligand', mode='before')
-    def ensure_dataframe(cls, v: Any) -> pd.DataFrame:
-        """Convert input to a pandas DataFrame if it isn't already."""
-        if isinstance(v, pd.DataFrame):
-            return v.copy().convert_dtypes()
-        try:
-            return pd.DataFrame(v).convert_dtypes()
-        except Exception as e:
-            raise ValueError(f"Cannot convert input to DataFrame: {e}")
-
-    @model_validator(mode='after')
-    def validate_and_normalize(self) -> Self:
-        """Validate and normalize the ligand DataFrame."""
-        def to_array(val: Any) -> np.ndarray:
-            """Convert position to a 1D numpy array of three floats."""
-            arr = np.asarray(val, dtype=float)
-            if arr.shape != (3,):
-                raise ValueError(
-                    f"Position must be sequence of 3 numbers, got shape {arr.shape}"
+    def display(
+        self,
+        nglwidget: scishow.nglview.NGLWidget | None = None,
+        receptor: Any | None = None,
+        show_box: bool = True,
+        show_pocket: bool = True,
+        show_fields: bool = False,
+        show_feature_points: bool = False,
+        show_feature_centers: bool = True,
+    ):
+        nv = nglwidget or scishow.nglview.NGLWidget()
+        if receptor:
+            nv.add_trajectory(receptor)
+        self.pocket.display(
+            nglwidget=nv,
+            show_box=show_box,
+            visible=show_pocket,
+        )
+        for feature_id in self.field.batch_instance_labels["feature"]:
+            nv.add_volume(
+                data=self.field(feature=feature_id),
+                basis=self.field.grid.unit_vectors,
+                origin=self.field.grid.lower_bounds,
+                name=f"{feature_id.upper()} Field",
+                representation_params=scishow.nglview.SurfaceRepresentationParameters(
+                    isolevel=0,
+                    isolevel_type="value",
+                    contour=False,
+                    wireframe=True,
+                    color=self._feature_colors.get(feature_id, (0.5, 0.5, 0.5)),
+                    visible=show_fields,
                 )
-            return arr
-
-        df = self.ligand
-
-        # Check required columns
-        required_cols = {'feature', 'position'}
-        missing_cols = required_cols - set(df.columns)
-        if missing_cols:
-            raise ValueError(f"Missing required columns: {missing_cols}")
-
-        # Validate 'feature'
-        if not pd.api.types.is_string_dtype(df['feature']):
-            df['feature'] = df['feature'].astype(str)
-        invalid_feats = set(df['feature']) - self.allowed_features
-        if invalid_feats:
-            raise ValueError(
-                f"Invalid feature values: {sorted(invalid_feats)}. "
-                f"Allowed: {sorted(self.allowed_features)}"
             )
+        for _, feature in self.features.iterrows():
+            nv.add_spheres(
+                coords=feature["points"],
+                radii=self.field.grid.spacings[0] / 2,
+                name=f"{feature['type'].upper()}_{feature['label']} Points",
+                colors=self._feature_colors.get(feature["type"], (0.5, 0.5, 0.5)),
+                representation_params=scishow.nglview.RepresentationParameters(
+                    visible=show_feature_points,
+                )
+            )
+            nv.add_spheres(
+                coords=[feature["center"]],
+                radii=feature["radius"],
+                name=f"{feature['type'].upper()}_{feature['label']} Center",
+                colors=self._feature_colors.get(feature["type"], (0.5, 0.5, 0.5)),
+                representation_params=scishow.nglview.RepresentationParameters(
+                    opacity=0.8,
+                    visible=show_feature_centers,
+                    lazy=True,
+                )
+            )
+        return nv.display(gui=True)
 
-        # Validate and normalize 'position'
-        df['position'] = df['position'].apply(to_array)
-
-        # Handle 'radius' column
-        if 'radius' in df.columns:
-            try:
-                df['radius'] = df['radius'].astype(float)
-            except Exception:
-                raise ValueError("Radius column must be real numbers")
-            neg_idx = df.index[df['radius'] < 0].tolist()
-            if neg_idx:
-                raise ValueError(f"Negative radius at rows: {neg_idx}")
-        else:
-            df['radius'] = 0.0
-
-        self.ligand = df
-        return self
