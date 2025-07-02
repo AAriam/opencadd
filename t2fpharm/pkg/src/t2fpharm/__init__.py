@@ -1,9 +1,19 @@
+from t2fpharm import field, grid, ligand, pocket, receptor, modeler
 
-from t2fpharm.simple import T2FPharm
+__all__ = [
+    "field",
+    "grid",
+    "ligand",
+    "pocket",
+    "receptor",
+]
 
-# from t2fpharm import input, original
 
-# __all__ = [
-#     "input",
-#     "original",
-# ]
+def load(
+    pocket: pocket.Pocket,
+    field: field.Field,
+):
+    return modeler.Modeler(
+        pocket=pocket,
+        field=field,
+    )
