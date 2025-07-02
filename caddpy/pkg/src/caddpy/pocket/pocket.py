@@ -1,5 +1,5 @@
 
-from typing import Sequence
+from typing import Sequence, Any, Literal
 
 import jax.numpy as jnp
 
@@ -8,7 +8,7 @@ import scids
 from scids.field import Field
 from scids.grid import Grid
 import scishow
-
+from caddpy.chemsys import ChemicalSystem
 from caddpy.typing import ArrayLike
 
 class Pocket(Field):
@@ -19,6 +19,7 @@ class Pocket(Field):
         tensor: ArrayLike,
         grid: Grid,
         batch: Sequence[str | tuple[str, Sequence[str]]] | None = None,
+        receptor: ChemicalSystem | None = None,
     ):
         tensor = jnp.asarray(tensor, dtype=bool)
         if tensor.ndim < 3:
@@ -64,19 +65,37 @@ class Pocket(Field):
             anchor_type="lower",
             anchor_coord=grid.lower_bounds - 3 * grid.spacings,
         )
+        self._receptor = receptor
         return
+
+    def point_coverage(self, points: ArrayLike):
+        points = jnp.asarray(points)
+        if points.ndim != 2:
+            raise ValueError(
+                "Expected points to be a 2D array with shape (n_points, n_dims), "
+                f"but got a {points.ndim}D array with shape {points.shape}."
+            )
+        indices, distances, is_inside = self.grid.nearest_point(points)
+        idx_tuple = tuple(indices[..., dim] for dim in range(indices.shape[-1]))
+        return jnp.logical_and(is_inside, self.tensor[..., *idx_tuple])
 
     def display(
         self,
-        nglwidget=None,
+        nglwidget: scishow.nglview.NGLWidget | None = None,
         name: str = "Pocket",
         contour: bool = True,
         visible: bool = True,
         lazy: bool = True,
         opacity: float = 0.8,
-        color: tuple[float, float, float] = (0.8, 0.2, 0.2)
+        color: tuple[float, float, float] = (0.8, 0.2, 0.2),
+        receptor: Any | Literal[False] | None = None,
     ):
         nv = nglwidget or scishow.nglview.NGLWidget()
+        if receptor is not False:
+            if receptor is not None:
+                nv.add_trajectory(receptor)
+            elif self._receptor is not None:
+                nv.add_trajectory(self._receptor)
         nv.add_volume(
             data=self._tensor_dialated,
             basis=self._grid_dialated.unit_vectors,
