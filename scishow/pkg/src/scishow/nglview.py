@@ -408,6 +408,12 @@ class NGLWidget(nv.NGLWidget):
         self._js(js_code)
         return
 
+    def set_component_visibility(self, visibile: bool) -> None:
+        """Set the visibility of components in the stage."""
+        visibility = str(bool(visibile)).lower()
+        self._js(f"this.stage.compList.forEach(comp => comp.setVisibility({visibility}));")
+        return
+
     @staticmethod
     def _to_js_array(array: np.ndarray) -> str:
         """Convert a numpy array to a JavaScript array."""
