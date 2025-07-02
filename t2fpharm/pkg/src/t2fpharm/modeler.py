@@ -10,7 +10,7 @@ import scids
 
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
-from t2fpharm.pharmacophore import Pharmacophore
+from t2fpharm.pharmacophore import ReceptorPharmacophore
 from t2fpharm.typing import PositiveInt, PositiveIntTuple, PositiveFloatTuple, is_real_number, is_integer, is_float
 
 
@@ -47,15 +47,97 @@ class Modeler:
     def field(self) -> Field:
         return self._field
 
-    def original(
+    def cnn(
         self,
         max_value: float | Sequence[float] = (-0.35, -0.4, -0.6, -1, -1),
-        max_distance: float | Sequence[float] | Sequence[Sequence[float]] = 1.21,
-        min_neighbors: int | Sequence[int] | Sequence[Sequence[int]] = (6, 12, 16, 20),
-        min_members: int | Sequence[int] = 15,
-        max_members: int | None | Sequence[int | None] = 80,
+        max_distance: float | Sequence[float] | Sequence[Sequence[float]] | None = None,
+        min_neighbors: int | Sequence[int] | Sequence[Sequence[int]] = tuple(range(6, 100, 4)),
+        min_members: int | Sequence[int] | None = None,
+        max_members: int | Sequence[int | None] | None = None,
     ):
-        args = _OriginalArgs(
+        """Perceive pharmacophore features using the CNN algorithm.
+
+        This method first selects points from the field tensor
+        that are within the pocket and below a specified `max_value`,
+        then clusters these points using the Common Nearest Neighbor (CNN) algorithm
+        with the specified parameters.
+
+        Parameters
+        ----------
+        max_value
+            Maximum value for feature types in the field tensor.
+            - If a single number is provided, it applies to all feature types.
+            - If a sequence is provided, it must match
+              the order and number of feature types in the field.
+        max_distance
+            Maximum distance between two points to consider them as neighbors during clustering.
+            - If a single number is provided, it applies to all feature types and all (re)clustering runs.
+            - If a sequence of numbers is provided, the sequence is applied to all feature types,
+              where the i-th number in the sequence corresponds to the input for the i-th clustering run
+              (see the `max_members` parameter below for more details).
+            - If a sequence of sequences is provided, the outer sequence must match
+              the order and number of feature types in the field.
+            - If `None`, defaults to 2.1 times the grid spacing of the field
+              for all feature types and clustering runs.
+              This ensures that for each grid point, all 26 first neighbors
+              plus 6 orthogonal second neighbors are included in the clustering.
+        min_neighbors
+            Minimum number of common neighbors between two points
+            that belong to the same cluster.
+            Similar to `max_distance`, this can be a single integer,
+            a sequence of integers, or a sequence of sequences.
+        min_members
+            Minimum number of members in a cluster.
+            Cluster with fewer members than this are discarded.
+            - If a single integer is provided, it applies to all feature types.
+            - If a sequence of integers is provided, it must match
+              the order and number of feature types in the field.
+            - If `None`, defaults to the number of grid points with the same
+              volume as half the van der Waals volume of a hydrogen atom.
+            - To disable this filtering, set `min_members` to 1
+              for all or selected feature types.
+        max_members
+            Maximum number of members in a cluster.
+            If specified, clusters with more members than this
+            are reclustered into smaller clusters.
+            For this, either one or both of `max_distance` and `min_neighbors`
+            must be a sequence (or sequence of sequences) of values,
+            where the i-th value corresponds to the i-th clustering step.
+            In each step, clusters from the last step
+            with more members than `max_members`
+            are reclustered until either all clusters
+            have maximum `max_members` members,
+            or the end of the sequence is reached.
+            If only one of `max_distance` or `min_neighbors`
+            is a sequence, the other one is assumed to be constant
+            for all clustering steps.
+            If both are sequences,
+            they must have the same length,
+            and the i-th value of `max_distance` and `min_neighbors`
+            is used for the i-th clustering step.
+            - If a single integer is provided,
+              it applies to all feature types and clustering runs.
+            - If a sequence of integers is provided,
+              it must match the order and number of feature types in the field.
+            - If `None`, defaults to 5 times the `min_members` value
+              for each feature type.
+        """
+        if max_distance is None:
+            # As default, include all 26 neighbors in a 3D grid
+            # plus orthogonal second neighbors (i.e., 26 + 6 = 32 neighbors)
+            max_distance = self.field.grid.spacings[0] * 2.1
+        if min_members is None:
+            hydrogen_radius = 1.2
+            hydrogen_volume = (4/3) * np.pi * hydrogen_radius**3
+            half_hydrogen_volume = hydrogen_volume / 2
+            voxel_volume = self.field.grid.point_volume
+            min_members = int(np.ceil(half_hydrogen_volume / voxel_volume))
+        if max_members is None:
+            max_members = min_members * 5 if isinstance(min_members, int) else [
+                min_member * 5 for min_member in min_members
+            ]
+
+        args = _CNNArgs(
             field_count=self.field.tensor.shape[0],
             max_value=max_value,
             max_distance=max_distance,
@@ -101,7 +183,7 @@ class Modeler:
                         "points": point_coordinates,
                     }
                 )
-        return Pharmacophore(
+        return ReceptorPharmacophore(
             features=pd.DataFrame(features),
             pocket=self.pocket,
             field=self.field,
@@ -109,7 +191,8 @@ class Modeler:
         )
 
 
-class _OriginalArgs(BaseModel):
+class _CNNArgs(BaseModel):
+    method: str = "cnn"
     field_count: int
     max_value: tuple[float, ...]
     max_distance: tuple[PositiveFloatTuple, ...]
