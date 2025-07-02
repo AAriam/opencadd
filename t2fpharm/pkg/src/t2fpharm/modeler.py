@@ -1,17 +1,17 @@
 
-from typing import Sequence, Self
+from typing import Sequence
 
 import pandas as pd
-import jax.numpy as jnp
 import numpy as np
-from pydantic import BaseModel, Field, field_validator, model_validator
+import jax.numpy as jnp
+from pydantic import BaseModel, Field, model_validator
 
 import scids
 
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
-from t2fpharm.pharmacophore import ReceptorPharmacophore
-from t2fpharm.typing import PositiveInt, PositiveIntTuple, PositiveFloatTuple, is_real_number, is_integer, is_float
+from t2fpharm.pharmacophore_receptor import ReceptorPharmacophore
+from t2fpharm.typing import PositiveInt, PositiveIntTuple, PositiveFloatTuple, is_real_number, is_integer
 
 
 class Modeler:
@@ -145,11 +145,11 @@ class Modeler:
             min_members=min_members,
             max_members=max_members,
         )
-        field_masks = np.less_equal(
+        field_masks = jnp.less_equal(
             self.field.tensor,
-            np.array(args.max_value).reshape(-1, *(1,) * (self.field.tensor.ndim - 1)),
+            jnp.array(args.max_value).reshape(-1, *(1,) * (self.field.tensor.ndim - 1)),
         )
-        final_masks = np.logical_and(
+        final_masks = jnp.logical_and(
             field_masks,
             self.pocket.tensor
         )
