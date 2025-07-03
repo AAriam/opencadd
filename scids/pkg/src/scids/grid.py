@@ -275,6 +275,46 @@ class Grid:
             dimensions = np.arange(1, self.dimension + 1)
         return self._direction_vectors[np.isin(self._direction_vectors_dimension, dimensions)]
 
+    def footprint_spherical(self, radius: float) -> np.ndarray:
+        """Create a spherical footprint (a.k.a. structuring element).
+
+        This method generates a centrosymmetric
+        binary array representing a filled n-sphere
+        (i.e., a disc in 2D, a sphere in 3D, and a hypersphere in nD)
+        with a given radius.
+
+        The footprint can be used in morphological operations
+        on fields corresponding to this grid.
+
+        Parameters
+        ----------
+        radius
+            Radius of the sphere in the same units as the grid's coordinates.
+        """
+        if radius <= 0:
+            raise ValueError("`radius` must be positive.")
+
+        # Calculate integer radius per axis,
+        # i.e., number of grid spacings from center to edge along each axis.
+        r_discrete = np.rint(radius / self.spacings).astype(int)
+
+        # Calculate output shape, ensuring an odd number of points in each dimension
+        # to maintain centrosymmetry.
+        shape = tuple(2 * r_discrete + 1)
+
+        # Create open grid of indices for each dimension.
+        # coords[i] has shape with length = shape[i] in acis i, 1 elsewhere.
+        coords = np.ogrid[tuple(slice(0, n) for n in shape)]
+
+        # For each point, calculate physical (squared) distance from center
+        dist2 = np.zeros(shape, dtype=float)
+        for grid_coord_i, r_i, spacing_i in zip(coords, r_discrete, self.spacings):
+            # shift index so center is at zero, multiply by spacing to get physical
+            dist2 += ((grid_coord_i - r_i) * spacing_i) ** 2
+
+        # Threshold against (squared) physical radius
+        return dist2 <= (radius ** 2)
+
     def __eq__(self, other: object) -> bool:
         """Check if two grids are equal.
 
