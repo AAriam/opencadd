@@ -204,30 +204,19 @@ class Detector:
         return self._receptor
 
     def _create_structuring_element(self, structure: float | np.ndarray) -> np.ndarray:
-        """Create a centrosymmetric 3D binary array representing a filled sphere.
+        """Return a structuring element.
 
         Parameters
         ----------
-        diameter
-            Diameter of the sphere in the same units as the Grid's `spacing`.
+        structure
+            Either a user-defined structuring element,
+            or the radius of a sphere in the same units as the Grid's `spacing`.
 
         Returns
         -------
-        A 3D boolean array of shape (N, N, N), where N is odd.
+        If `structure` is an array, it is returned as-is.
+        If `structure` is a number, a centrosymmetric 3D boolean array representing a filled sphere.
         """
         if not isinstance(structure, int | float):
             return structure
-        if structure <= 0:
-            raise ValueError("`diameter` and `spacing` must both be positive.")
-        # how many “steps” from center to edge, in integer voxels
-        radius_vox = int(np.floor(structure / np.mean(self.field.grid.spacings)))
-        # grid size: 2*radius + 1 → odd
-        N = 2 * radius_vox + 1
-        z, y, x = np.ogrid[:N, :N, :N]
-        dist2 = (x - radius_vox)**2 + (y - radius_vox)**2 + (z - radius_vox)**2
-        return dist2 <= radius_vox**2
-
-
-
-
-
+        return self.field.grid.footprint_spherical(radius=structure)
