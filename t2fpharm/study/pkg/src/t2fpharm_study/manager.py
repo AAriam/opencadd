@@ -6,6 +6,7 @@ from pdbfixer import PDBFixer
 from openmm.app import PDBFile
 
 import pyserials
+import pkgdata
 
 import sciapi
 import scifile
@@ -123,18 +124,24 @@ class Manager:
 
 
 def load(
-    filepath_inputs: Path | str  = "data/inputs.yaml",
-    dirpath_pdb_raw: Path | str = "data/pdb_raw",
-    dirpath_pdb_fixed: Path | str = "data/pdb_fixed",
-    dirpath_pdb_apo: Path | str = "data/pdb_apo",
-    dirpath_pdbqt: Path | str = "data/pdbqt",
+    dirpath_data: Path | str | None = None,
+    *,
+    filepath_inputs: Path | str  = "inputs.yaml",
+    dirpath_pdb_raw: Path | str = "pdb_raw",
+    dirpath_pdb_fixed: Path | str = "pdb_fixed",
+    dirpath_pdb_apo: Path | str = "pdb_apo",
+    dirpath_pdbqt: Path | str = "pdbqt",
 ) -> Manager:
     """Load the manager.
 
     Parameters
     ----------
+    dirpath_data
+        Path to the data directory.
+        If not provided, the default data directory is used.
     filepath_inputs
-        Path to the inputs file (JSON, YAML, or TOML).
+        Path to the inputs file (JSON, YAML, or TOML)
+        relative to `dirpath`.
     """
     def make_group(group):
         return {
@@ -221,11 +228,12 @@ def load(
                 structure["receptor"] = t2fpharm.receptor.from_pdb(filepath_pdb_apo)
         return
 
-    filepath_inputs = Path(filepath_inputs)
-    dirpath_pdb_raw = Path(dirpath_pdb_raw)
-    dirpath_pdb_fixed = Path(dirpath_pdb_fixed)
-    dirpath_pdb_apo = Path(dirpath_pdb_apo)
-    dirpath_pdbqt = Path(dirpath_pdbqt)
+    dirpath_data = Path(dirpath_data) if dirpath_data else pkgdata.get_package_path_from_caller(top_level=True) / "data"
+    filepath_inputs = dirpath_data / filepath_inputs
+    dirpath_pdb_raw = dirpath_data / dirpath_pdb_raw
+    dirpath_pdb_fixed = dirpath_data / dirpath_pdb_fixed
+    dirpath_pdb_apo = dirpath_data / dirpath_pdb_apo
+    dirpath_pdbqt = dirpath_data / dirpath_pdbqt
 
     for dirpath in [dirpath_pdb_raw, dirpath_pdb_fixed, dirpath_pdb_apo, dirpath_pdbqt]:
         dirpath.mkdir(parents=True, exist_ok=True)
