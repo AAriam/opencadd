@@ -1,4 +1,5 @@
 from pathlib import Path
+import io
 
 import pandas as pd
 from pdbfixer import PDBFixer
@@ -12,7 +13,7 @@ import scifile
 import t2fpharm
 
 
-class Dataset:
+class Manager:
     def __init__(
         self,
         data: pd.DataFrame,
@@ -127,8 +128,8 @@ def load(
     dirpath_pdb_fixed: Path | str = "data/pdb_fixed",
     dirpath_pdb_apo: Path | str = "data/pdb_apo",
     dirpath_pdbqt: Path | str = "data/pdbqt",
-) -> Dataset:
-    """Load the data defining the evaluation dataset.
+) -> Manager:
+    """Load the manager.
 
     Parameters
     ----------
@@ -171,6 +172,25 @@ def load(
         return structure_full
 
     def prepare_structure(structure, is_ref: bool = False):
+        def remove_nonpolymeric_ter(pdb_str: str) -> str:
+            """Temporary fix for https://github.com/openmm/pdbfixer/issues/336"""
+            lines = pdb_str.splitlines(keepends=True)
+            # Gather indices of all 'TER ' lines
+            ter_indices = [i for i, line in enumerate(lines) if line.startswith("TER ")]
+            if len(ter_indices) < 2:
+                return pdb_str
+            # Determine which TER lines to remove
+            remove_indices: list[int] = []
+            for prev, curr in zip(ter_indices, ter_indices[1:]):
+                segment = lines[prev + 1 : curr]
+                # Only remove if there's at least one line and all start with 'HETATM'
+                if segment and all(line.startswith("HETATM") for line in segment):
+                    remove_indices.append(curr)
+            # Remove in reverse order to keep indices valid
+            for idx in sorted(remove_indices, reverse=True):
+                lines.pop(idx)
+            return ''.join(lines)
+
         filepath_pdb_raw = structure["filepath_pdb_raw"]
         if not filepath_pdb_raw.is_file():
             pdb_raw_bytes = sciapi.pdb.file.entry(pdb_id=structure["pdb_id"], file_format="pdb")
@@ -186,7 +206,11 @@ def load(
             fixer.findMissingAtoms()
             fixer.addMissingAtoms()
             fixer.addMissingHydrogens(7.0)
-            PDBFile.writeFile(fixer.topology, fixer.positions, str(filepath_pdb_fixed), keepIds=True)
+            pdb_fixed_buffer = io.StringIO()
+            PDBFile.writeFile(topology=fixer.topology, positions=fixer.positions, file=pdb_fixed_buffer, keepIds=True)
+            pdb_fixed_buffer.seek(0)
+            pdb_fixed_str = remove_nonpolymeric_ter(pdb_fixed_buffer.getvalue())
+            filepath_pdb_fixed.write_text(pdb_fixed_str)
         comp = structure["complex"] = t2fpharm.receptor.from_pdb(filepath_pdb_fixed)
         if is_ref:
             filepath_pdb_apo = structure["filepath_pdb_apo"]
@@ -194,9 +218,8 @@ def load(
                 receptor = structure["receptor"] = comp.select(comp.composition.atoms["res_poly"])
                 filepath_pdb_apo.write_text(str(receptor.to_pdb()))
             else:
-                structure["receptor"] = scifile.pdb.read(filepath_pdb_apo)
+                structure["receptor"] = t2fpharm.receptor.from_pdb(filepath_pdb_apo)
         return
-
 
     filepath_inputs = Path(filepath_inputs)
     dirpath_pdb_raw = Path(dirpath_pdb_raw)
@@ -229,4 +252,4 @@ def load(
             rows.append(row)
     df = pd.DataFrame(rows).convert_dtypes()
     df.set_index("pdb_id", inplace=True, drop=False)
-    return Dataset(data=df, group_color=group_color)
+    return Manager(data=df, group_color=group_color)
