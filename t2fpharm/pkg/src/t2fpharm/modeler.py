@@ -1,46 +1,50 @@
 
-from typing import Sequence
+from typing import Sequence, Literal
 
 import pandas as pd
 import numpy as np
 import jax.numpy as jnp
 from pydantic import BaseModel, Field, model_validator
+import skimage
+import arrayer
 
 import scids
+from scids.functional.dist import points_with_min_dist
 
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
 from t2fpharm.pharmacophore_receptor import ReceptorPharmacophore
-from t2fpharm.typing import PositiveInt, PositiveIntTuple, PositiveFloatTuple, is_real_number, is_integer
+from t2fpharm.typing import PositiveInt, PositiveFloat, PositiveIntTuple, PositiveFloatTuple, is_real_number, is_integer
 
 
 class Modeler:
     def __init__(
         self,
-        pocket: Pocket,
         field: Field,
+        pocket: Pocket | None = None,
     ):
-        if not isinstance(pocket, Pocket):
-            raise TypeError(f"Expected Pocket object, got {type(pocket).__name__}.")
         if not isinstance(field, Field):
             raise TypeError(f"Expected Field object, got {type(field).__name__}.")
-        if pocket.grid != field.grid:
-            raise ValueError(
-                "Pocket and field must have the same grid, "
-                f"but got pocket grid {pocket.grid} and field grid {field.grid}."
-            )
-        if pocket.tensor.shape != field.tensor.shape[1:]:
-            raise ValueError(
-                "Pocket and field tensors must have the same shape along their last dimensions, "
-                f"but got pocket tensor shape {pocket.tensor.shape} "
-                f"and field tensor shape {field.tensor.shape}."
-            )
+        if pocket is not None:
+            if not isinstance(pocket, Pocket):
+                raise TypeError(f"Expected Pocket object, got {type(pocket).__name__}.")
+            if pocket.grid != field.grid:
+                raise ValueError(
+                    "Pocket and field must have the same grid, "
+                    f"but got pocket grid {pocket.grid} and field grid {field.grid}."
+                )
+            if pocket.tensor.shape != field.tensor.shape[1:]:
+                raise ValueError(
+                    "Pocket and field tensors must have the same shape along their last dimensions, "
+                    f"but got pocket tensor shape {pocket.tensor.shape} "
+                    f"and field tensor shape {field.tensor.shape}."
+                )
         self._pocket = pocket
         self._field = field
         return
 
     @property
-    def pocket(self) -> Pocket:
+    def pocket(self) -> Pocket | None:
         return self._pocket
 
     @property
@@ -66,6 +70,8 @@ class Modeler:
         ----------
         max_value
             Maximum value for feature types in the field tensor.
+            Points in the field tensor with values greater than this
+            are not considered for clustering.
             - If a single number is provided, it applies to all feature types.
             - If a sequence is provided, it must match
               the order and number of feature types in the field.
@@ -149,14 +155,10 @@ class Modeler:
             self.field.tensor,
             jnp.array(args.max_value).reshape(-1, *(1,) * (self.field.tensor.ndim - 1)),
         )
-        final_masks = jnp.logical_and(
-            field_masks,
-            self.pocket.tensor
-        )
+        final_masks = field_masks if self.pocket is None else jnp.logical_and(field_masks, self.pocket.tensor)
         features = []
         for idx in np.ndindex(tuple(self.field.batch_shape)):
             field_idx = idx[0]
-            field_id = self.field.batch_instance_labels["feature"][field_idx]
             mask = final_masks[idx]
             points = self.field.grid.coordinates[mask]
             labels = scids.pointcloud.from_array(points).cluster_cnn(
@@ -174,13 +176,85 @@ class Modeler:
                 features.append(
                     {
                         "instance": idx[1:] or 0,
-                        "type": field_id,
+                        "type": self.field.batch_instance_labels["feature"][field_idx],
+                        "label": cluster_label,
                         "n_points": n_points,
                         "volume": volume,
                         "radius": (volume / ((4/3) * np.pi)) ** (1/3),
                         "center": point_coordinates.mean(axis=0),
-                        "label": cluster_label,
                         "points": point_coordinates,
+                    }
+                )
+        return ReceptorPharmacophore(
+            features=pd.DataFrame(features),
+            pocket=self.pocket,
+            field=self.field,
+            args=args,
+        )
+
+    def largest_peaks(
+        self,
+        peak_type: Literal["min", "max"] |  Sequence[Literal["min", "max"]] = "min",
+        max_features: int | Sequence[int | None] | None = None,
+        value_threshold: float | Sequence[float | None] | None = None,
+        include_equal_threshold: bool | Sequence[bool] = True,
+        min_distance: float | Sequence[float | None] | None = None,
+    ):
+        """Perceive pharmacophore features as largest minima/maxima in the field tensor.
+
+        Parameters
+        ----------
+        max_value
+            Maximum value for feature types in the field tensor.
+            Local minima with values greater than this are not considered.
+            - If a single number is provided, it applies to all feature types.
+            - If a sequence is provided, it must match
+              the order and number of feature types in the field.
+            - If `None` (default), all local minima are considered regardless of their value.
+        local_radius
+            Radius of the local region around each grid point within which to search for minima.
+
+        """
+
+        args = _LargesPeaksArgs(
+            field_count=self.field.tensor.shape[0],
+            peak_type=peak_type,
+            max_features=max_features,
+            value_threshold=value_threshold,
+            include_equal_threshold=include_equal_threshold,
+            min_distance=min_distance,
+        )
+
+        features = []
+        for idx in np.ndindex(tuple(self.field.batch_shape)):
+            field_idx = idx[0]
+            instance_idx = idx[1:]
+            peaks_indices = arrayer.tensor.indices_sorted_by_value(
+                tensor=self.field.tensor[idx],
+                first=args.peak_type[field_idx],
+                threshold=args.value_threshold[field_idx],
+                include_equal=args.include_equal_threshold[field_idx],
+                mask=None if self.pocket is None else self.pocket.tensor[instance_idx],
+            )
+            if peaks_indices.size == 0:
+                continue
+            peaks_coordinates = self.field.grid.index_coordinates(peaks_indices)
+            if args.min_distance[field_idx] is not None:
+                peaks_coordinates = points_with_min_dist(
+                    points=peaks_coordinates,
+                    min_distance=args.min_distance[field_idx],
+                    max_points=args.max_features[field_idx],
+                )
+            if peaks_coordinates.size == 0:
+                continue
+            for peak_idx, peak_coordinates in enumerate(peaks_coordinates, start=1):
+                features.append(
+                    {
+                        "instance": instance_idx or 0,
+                        "type": self.field.batch_instance_labels["feature"][field_idx],
+                        "label": peak_idx,
+                        "radius": args.min_distance[field_idx] or self.field.grid.spacings[0] / 2,
+                        "center": peak_coordinates,
                     }
                 )
         return ReceptorPharmacophore(
@@ -333,4 +407,85 @@ class _CNNArgs(BaseModel):
         values["min_neighbors"] = tuple(min_neighbors)
         values["min_members"] = min_members
         values["max_members"] = max_members
+        return values
+
+
+class _LargesPeaksArgs(BaseModel):
+    method: str = "largest_peaks"
+    field_count: int
+    peak_type: tuple[Literal["min", "max"], ...]
+    max_features: tuple[PositiveInt | None, ...]
+    value_threshold: tuple[float | None, ...]
+    include_equal_threshold: tuple[bool, ...]
+    min_distance: tuple[PositiveFloat | None, ...]
+
+    @model_validator(mode="before")
+    def _preprocess(cls, values: dict[str, object]) -> dict[str, object]:
+        field_count = values["field_count"]
+        peak_type_raw = values["peak_type"]
+        max_features_raw = values["max_features"]
+        value_threshold_raw = values["value_threshold"]
+        include_equal_threshold_raw = values["include_equal_threshold"]
+        min_distance_raw = values["min_distance"]
+
+        # Process `peak_type`
+        if isinstance(peak_type_raw, str):
+            peak_type = (peak_type_raw,) * field_count
+        else:
+            peak_type = tuple(max_features_raw)
+            if len(peak_type) != field_count:
+                raise ValueError(
+                    f"`peak_type` must have length {field_count}, "
+                    f"but got {len(peak_type)}."
+                )
+
+        # Process `max_features`
+        if is_integer(max_features_raw) or max_features_raw is None:
+            max_features = (max_features_raw,) * field_count
+        else:
+            max_features = tuple(max_features_raw)
+            if len(max_features) != field_count:
+                raise ValueError(
+                    f"`max_features` must have length {field_count}, "
+                    f"but got {len(max_features)}."
+                )
+
+        # Process `value_threshold`
+        if is_real_number(value_threshold_raw) or value_threshold_raw is None:
+            value_threshold = (value_threshold_raw,) * field_count
+        else:
+            value_threshold = tuple(value_threshold_raw)
+            if len(value_threshold) != field_count:
+                raise ValueError(
+                    f"`value_threshold` must have length {field_count}, "
+                    f"but got {len(value_threshold)}."
+                )
+
+        # Process `include_equal_threshold`
+        if isinstance(include_equal_threshold_raw, bool):
+            include_equal_threshold = (include_equal_threshold_raw,) * field_count
+        else:
+            include_equal_threshold = tuple(include_equal_threshold_raw)
+            if len(include_equal_threshold) != field_count:
+                raise ValueError(
+                    f"`include_equal_threshold` must have length {field_count}, "
+                    f"but got {len(include_equal_threshold)}."
+                )
+
+        # Process `min_distance`
+        if is_real_number(min_distance_raw) or min_distance_raw is None:
+            min_distance = (min_distance_raw,) * field_count
+        else:
+            min_distance = tuple(min_distance_raw)
+            if len(min_distance) != field_count:
+                raise ValueError(
+                    f"`min_distance` must have length {field_count}, "
+                    f"but got {len(min_distance)}."
+                )
+
+        values["peak_type"] = peak_type
+        values["max_features"] = max_features
+        values["value_threshold"] = value_threshold
+        values["include_equal_threshold"] = include_equal_threshold
+        values["min_distance"] = min_distance
         return values
