@@ -302,6 +302,7 @@ data:
             res_name: ZMA
             chain_id: A
             res_seq: 401
+
   grid_spacing: 0.6
   grid_length: 16
 
@@ -312,14 +313,11 @@ data:
     anion: -1
     cation: -1
 
-
-
   pocket:
     feature_id: OA
     max_energy: 0.6
     psp_directions: 7
     min_psp: 4
-
 
   clustering:
     max_distance: 1.21
