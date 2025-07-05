@@ -2,6 +2,7 @@
 from typing import Sequence, Any, Literal
 
 import jax.numpy as jnp
+import pandas as pd
 
 import arrayer
 import scids
@@ -21,6 +22,7 @@ class Pocket(Field):
         grid: Grid,
         batch: Sequence[str | tuple[str, Sequence[str]]] | None = None,
         receptor: ChemicalSystem | None = None,
+        pocket_atom_serials: Sequence[int] | None = None,
     ):
         tensor = jnp.asarray(tensor, dtype=bool)
         if tensor.ndim < 3:
@@ -67,7 +69,26 @@ class Pocket(Field):
             anchor=grid.lower_bounds - 3 * grid.spacings,
         )
         self._receptor = receptor
+        self._pocket_atom_serials = jnp.asarray(pocket_atom_serials)
         return
+
+    @property
+    def receptor(self) -> ChemicalSystem | None:
+        """Receptor associated with the pocket."""
+        return self._receptor
+
+    @property
+    def atom_serials(self) -> jnp.ndarray | None:
+        """Serials of atoms that make up the pocket."""
+        return self._pocket_atom_serials
+
+    @property
+    def atoms(self) -> pd.DataFrame | None:
+        """Atoms that make up the pocket."""
+        if self._pocket_atom_serials is None or self._receptor is None:
+            return None
+        mask = self._receptor.composition.atoms["serial"].isin(self._pocket_atom_serials)
+        return self._receptor.composition.atoms[mask]
 
     def point_coverage(self, points: ArrayLike):
         points = jnp.asarray(points)
@@ -100,6 +121,7 @@ class Pocket(Field):
                 nv.add_trajectory(receptor)
             elif self._receptor is not None:
                 nv.add_trajectory(self._receptor)
+
         if show_box:
             nv.add_box(
                 lower_bounds=self.grid.lower_bounds,
