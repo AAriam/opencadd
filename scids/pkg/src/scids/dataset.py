@@ -10,7 +10,7 @@ from scids import exception
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from jax.typing import ArrayLike
+    from jax.typing import ArrayLike, DTypeLike
 
 
 class DataSet:
@@ -43,7 +43,6 @@ class DataSet:
         batch: int | jnp.integer | Sequence[str | tuple[str, Sequence[str]]],
     ):
         self._data = jnp.asarray(data)
-        self._batch_input = batch
         batch_is_int = isinstance(batch, int | jnp.integer)
         self._batch_ndim = batch if batch_is_int else len(batch)
         if self._data.ndim <= self._batch_ndim:
@@ -57,12 +56,16 @@ class DataSet:
         self._batch_dim_labels = []
         self._batch_instance_labels = {}
         if batch_is_int:
+            self._batch_input = int(batch)
             return
+        self._batch_input = []
         for batch_idx, batch_data in enumerate(batch):
             if isinstance(batch_data, str):
+                self._batch_input.append(batch_data)
                 self._batch_dim_labels.append(batch_data)
                 continue
             batch_dim_label, batch_instance_labels = batch_data
+            self._batch_input.append([batch_dim_label, list(batch_instance_labels)])
             self._batch_dim_labels.append(batch_dim_label)
             if len(batch_instance_labels) != self._batch_shape[batch_idx]:
                 raise exception.InputError(
@@ -122,6 +125,15 @@ class DataSet:
     def instance_index(self, flat_index: int | Sequence[int]) -> tuple[np.integer | np.ndarray, ...]:
         """Get the indices of batch instances from a flat index."""
         return np.unravel_index(flat_index, self.batch_shape)
+
+    def to_dict(self, data_key: str = "data", dtype: DTypeLike | None = None) -> dict[str, list]:
+        """Convert the dataset to a dictionary representation."""
+        data = self._data.astype(dtype) if dtype is not None else self._data
+        return {
+            "dtype": str(self._data.dtype),
+            "batch": self.batch_input,
+            data_key: data.tolist(),
+        }
 
     def __call__(self, **kwargs) -> jnp.ndarray:
         if not self._batch_instance_labels:
