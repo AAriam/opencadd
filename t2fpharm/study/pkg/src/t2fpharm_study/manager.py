@@ -10,6 +10,7 @@ import pkgdata
 
 import sciapi
 import scifile
+import caddpy
 
 import t2fpharm
 
@@ -127,10 +128,12 @@ def load(
     dirpath_data: Path | str | None = None,
     *,
     filepath_inputs: Path | str  = "inputs.yaml",
-    dirpath_pdb_raw: Path | str = "pdb_raw",
-    dirpath_pdb_fixed: Path | str = "pdb_fixed",
-    dirpath_pdb_apo: Path | str = "pdb_apo",
-    dirpath_pdbqt: Path | str = "pdbqt",
+    dirpath_pdb_raw: Path | str = "structure/1-pdb-raw",
+    dirpath_pdb_fixed: Path | str = "structure/2-pdb-fixed",
+    dirpath_pdb_apo: Path | str = "structure/3-pdb-apo",
+    dirpath_pdbqt: Path | str = "structure/4-pdbqt",
+    dirpath_pocket: Path | str = "pocket",
+    dirpath_autogrid: Path | str = "autogrid",
 ) -> Manager:
     """Load the manager.
 
@@ -143,99 +146,23 @@ def load(
         Path to the inputs file (JSON, YAML, or TOML)
         relative to `dirpath`.
     """
-    def make_group(group):
-        return {
-            "group_id": group["id"],
-            "group_name": group["name"],
-            "uniprot_id": group.get("uniprot_id"),
-        }
-
-    def make_structure(group, structure, is_ref: bool = False):
-        heterogens = []
-        for heterogen in structure.get("heterogens", []):
-            heterogens.append(
-                {
-                    "res_name": heterogen.get("res_name"),
-                    "chain_id": heterogen.get("chain_id"),
-                    "res_seq": heterogen.get("res_seq"),
-                }
-            )
-        heterogens = pd.DataFrame(heterogens, columns=["res_name", "chain_id", "res_seq"])
-        pdb_id = structure["pdb_id"].upper()
-        structure_full = group | {
-            "pdb_id": pdb_id,
-            "is_ref": is_ref,
-            "chain_id": structure.get("chain_id"),
-            "ligand_res_name": structure.get("ref_ligand", {}).get("res_name"),
-            "ligand_chain_id": structure.get("ref_ligand", {}).get("chain_id"),
-            "ligand_res_seq": structure.get("ref_ligand", {}).get("res_seq"),
-            "heterogens": heterogens,
-            "filepath_pdb_raw": dirpath_pdb_raw / f"{pdb_id}.pdb",
-            "filepath_pdb_fixed": dirpath_pdb_fixed / f"{pdb_id}.pdb",
-            "filepath_pdb_apo": dirpath_pdb_apo / f"{pdb_id}.pdb" if is_ref else None,
-            "filepath_pdbqt": dirpath_pdbqt / f"{pdb_id}.pdbqt" if is_ref else None,
-        }
-        prepare_structure(structure_full, is_ref=is_ref)
-        return structure_full
-
-    def prepare_structure(structure, is_ref: bool = False):
-        def remove_nonpolymeric_ter(pdb_str: str) -> str:
-            """Temporary fix for https://github.com/openmm/pdbfixer/issues/336"""
-            lines = pdb_str.splitlines(keepends=True)
-            # Gather indices of all 'TER ' lines
-            ter_indices = [i for i, line in enumerate(lines) if line.startswith("TER ")]
-            if len(ter_indices) < 2:
-                return pdb_str
-            # Determine which TER lines to remove
-            remove_indices: list[int] = []
-            for prev, curr in zip(ter_indices, ter_indices[1:]):
-                segment = lines[prev + 1 : curr]
-                # Only remove if there's at least one line and all start with 'HETATM'
-                if segment and all(line.startswith("HETATM") for line in segment):
-                    remove_indices.append(curr)
-            # Remove in reverse order to keep indices valid
-            for idx in sorted(remove_indices, reverse=True):
-                lines.pop(idx)
-            return ''.join(lines)
-
-        filepath_pdb_raw = structure["filepath_pdb_raw"]
-        if not filepath_pdb_raw.is_file():
-            pdb_raw_bytes = sciapi.pdb.file.entry(pdb_id=structure["pdb_id"], file_format="pdb")
-            filepath_pdb_raw.write_bytes(pdb_raw_bytes)
-        else:
-            pdb_raw_bytes = filepath_pdb_raw.read_bytes()
-        pdb = scifile.pdb.read(pdb_raw_bytes)
-        structure["pdb_raw"] = pdb
-        filepath_pdb_fixed = structure["filepath_pdb_fixed"]
-        if not filepath_pdb_fixed.is_file():
-            fixer = PDBFixer(filename=str(filepath_pdb_raw))
-            fixer.findMissingResidues()
-            fixer.findMissingAtoms()
-            fixer.addMissingAtoms()
-            fixer.addMissingHydrogens(7.0)
-            pdb_fixed_buffer = io.StringIO()
-            PDBFile.writeFile(topology=fixer.topology, positions=fixer.positions, file=pdb_fixed_buffer, keepIds=True)
-            pdb_fixed_buffer.seek(0)
-            pdb_fixed_str = remove_nonpolymeric_ter(pdb_fixed_buffer.getvalue())
-            filepath_pdb_fixed.write_text(pdb_fixed_str)
-        comp = structure["complex"] = t2fpharm.receptor.from_pdb(filepath_pdb_fixed)
-        if is_ref:
-            filepath_pdb_apo = structure["filepath_pdb_apo"]
-            if not filepath_pdb_apo.is_file():
-                receptor = structure["receptor"] = comp.select(comp.composition.atoms["res_poly"])
-                filepath_pdb_apo.write_text(str(receptor.to_pdb()))
-            else:
-                structure["receptor"] = t2fpharm.receptor.from_pdb(filepath_pdb_apo)
-        return
-
     dirpath_data = Path(dirpath_data) if dirpath_data else pkgdata.get_package_path_from_caller(top_level=True) / "data"
     filepath_inputs = dirpath_data / filepath_inputs
     dirpath_pdb_raw = dirpath_data / dirpath_pdb_raw
     dirpath_pdb_fixed = dirpath_data / dirpath_pdb_fixed
     dirpath_pdb_apo = dirpath_data / dirpath_pdb_apo
     dirpath_pdbqt = dirpath_data / dirpath_pdbqt
+    dirpath_pocket = dirpath_data / dirpath_pocket
+    dirpath_autogrid = dirpath_data / dirpath_autogrid
 
-    for dirpath in [dirpath_pdb_raw, dirpath_pdb_fixed, dirpath_pdb_apo, dirpath_pdbqt]:
+    for dirpath in [
+        dirpath_pdb_raw,
+        dirpath_pdb_fixed,
+        dirpath_pdb_apo,
+        dirpath_pdbqt,
+        dirpath_pocket,
+        dirpath_autogrid
+    ]:
         dirpath.mkdir(parents=True, exist_ok=True)
 
     input_data = pyserials.read.from_file(
@@ -252,12 +179,139 @@ def load(
             "bg": group_data.get("color_bg"),
             "text": group_data.get("color_text"),
         }
-        group = make_group(group_data)
-        row = make_structure(group, group_data["ref_structure"], is_ref=True)
+        group = _make_group(group_data)
+        row = _make_structure(
+            group=group,
+            structure=group_data["ref_structure"],
+            dirpath_pdb_raw=dirpath_pdb_raw,
+            dirpath_pdb_fixed=dirpath_pdb_fixed,
+            dirpath_pdb_apo=dirpath_pdb_apo,
+            dirpath_pdbqt=dirpath_pdbqt,
+            dirpath_pocket=dirpath_pocket,
+            dirpath_autogrid=dirpath_autogrid,
+            is_ref=True
+        )
         rows.append(row)
         for structure_data in group_data.get("structures", []):
-            row = make_structure(group, structure_data)
+            row = _make_structure(
+                group=group,
+                structure=structure_data,
+                dirpath_pdb_raw=dirpath_pdb_raw,
+                dirpath_pdb_fixed=dirpath_pdb_fixed,
+                dirpath_pdb_apo=dirpath_pdb_apo,
+                dirpath_pdbqt=dirpath_pdbqt,
+                dirpath_pocket=dirpath_pocket,
+                dirpath_autogrid=dirpath_autogrid,
+                is_ref=False
+            )
             rows.append(row)
     df = pd.DataFrame(rows).convert_dtypes()
     df.set_index("pdb_id", inplace=True, drop=False)
     return Manager(data=df, group_color=group_color)
+
+
+def _make_group(group: dict) -> dict:
+    """Create a group dictionary with relevant fields."""
+    return {
+        "group_id": group["id"],
+        "group_name": group["name"],
+        "uniprot_id": group.get("uniprot_id"),
+    }
+
+
+def _make_structure(
+    group: dict,
+    structure: dict,
+    dirpath_pdb_raw: Path,
+    dirpath_pdb_fixed: Path,
+    dirpath_pdb_apo: Path,
+    dirpath_pdbqt: Path,
+    dirpath_pocket: Path,
+    dirpath_autogrid: Path,
+    is_ref: bool = False
+):
+    heterogens = []
+    for heterogen in structure.get("heterogens", []):
+        heterogens.append(
+            {
+                "res_name": heterogen.get("res_name"),
+                "chain_id": heterogen.get("chain_id"),
+                "res_seq": heterogen.get("res_seq"),
+            }
+        )
+    heterogens = pd.DataFrame(heterogens, columns=["res_name", "chain_id", "res_seq"])
+    pdb_id = structure["pdb_id"].upper()
+    structure_full = group | {
+        "pdb_id": pdb_id,
+        "is_ref": is_ref,
+        "chain_id": structure.get("chain_id"),
+        "ligand_res_name": structure.get("ref_ligand", {}).get("res_name"),
+        "ligand_chain_id": structure.get("ref_ligand", {}).get("chain_id"),
+        "ligand_res_seq": structure.get("ref_ligand", {}).get("res_seq"),
+        "heterogens": heterogens,
+        "filepath_pdb_raw": dirpath_pdb_raw / f"{pdb_id}.pdb",
+        "filepath_pdb_fixed": dirpath_pdb_fixed / f"{pdb_id}.pdb",
+        "filepath_pdb_apo": dirpath_pdb_apo / f"{pdb_id}.pdb",
+        "filepath_pdbqt": dirpath_pdbqt / f"{pdb_id}.pdbqt",
+        "filepath_pocket": dirpath_pocket / f"{pdb_id}.yaml",
+    }
+    _prepare_structure(structure_full, is_ref=is_ref)
+    return structure_full
+
+
+def _prepare_structure(structure: dict, is_ref: bool = False):
+    # Raw structure
+    filepath_pdb_raw = structure["filepath_pdb_raw"]
+    if not filepath_pdb_raw.is_file():
+        pdb_raw_bytes = sciapi.pdb.file.entry(pdb_id=structure["pdb_id"], file_format="pdb")
+        filepath_pdb_raw.write_bytes(pdb_raw_bytes)
+    else:
+        pdb_raw_bytes = filepath_pdb_raw.read_bytes()
+    structure["pdb_raw"] = pdb = scifile.pdb.read(pdb_raw_bytes)
+
+    # Fixed structure
+    filepath_pdb_fixed = structure["filepath_pdb_fixed"]
+    if not filepath_pdb_fixed.is_file():
+        (
+            pdb_fixed_str,
+            missing_residues,
+            nonstandard_residues,
+            missing_atoms,
+            missing_terminals
+        ) = caddpy.chemsys.fix_pdb(
+            file=pdb_raw_bytes,
+            add_missing_residues=True,
+            replace_nonstandard_residues=False,
+            add_missing_heavy_atoms=True,
+            add_missing_atoms_seed=42,
+            add_missing_hydrogens=7.0,
+            keep_ids=True,
+        )
+        filepath_pdb_fixed.write_text(pdb_fixed_str)
+    else:
+        pdb_fixed_str = filepath_pdb_fixed.read_text()
+    structure["complex"] = comp = t2fpharm.receptor.from_pdb(pdb_fixed_str)
+
+    # Apo structure
+    filepath_pdb_apo = structure["filepath_pdb_apo"]
+    if not filepath_pdb_apo.is_file():
+        structure["receptor"] = receptor = comp.select(comp.composition.atoms["res_poly"])
+        filepath_pdb_apo.write_text(str(receptor.to_pdb()))
+    else:
+        structure["receptor"] = receptor = t2fpharm.receptor.from_pdb(filepath_pdb_apo)
+
+    filepath_pdbqt = structure["filepath_pdbqt"]
+    if not filepath_pdbqt.is_file():
+        pdbqt_str = receptor.to_pdbqt(
+            autobond=False,
+            rigid=True,
+            combine=False,
+            flexible=False,
+            preserve_serials=True,
+            preserve_hydrogens=False,
+            preserve_names=True,
+            charge_model="gasteiger",
+            add_hydrogens=False,
+        )
+        filepath_pdbqt.write_text(pdbqt_str)
+    return
