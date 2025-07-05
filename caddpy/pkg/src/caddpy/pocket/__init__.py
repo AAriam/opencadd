@@ -3,7 +3,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
+import jax.numpy as jnp
 import pandas as pd
+import scipy as sp
+
 import sciapi
 import scifile
 import scids
@@ -101,6 +104,39 @@ def from_data(
     )
 
 
+def from_ligand(
+    system: ChemicalSystem,
+    ligand_mask: ArrayLike,
+    ligand_radii: ArrayLike | None = None,
+    ligand_radii_offset: float | Sequence[float] = 2.5,
+    grid: float | Sequence[float] | Grid = 0.3,
+) -> Pocket:
+    """Create a pocket from a ligand."""
+    ligand = system.select(selection=ligand_mask)
+    ligand_radii = ligand.composition.vdw_radius if ligand_radii is None else jnp.asarray(ligand_radii)
+    ligand_volume = ligand.toxelate(
+        grid=grid,
+        radii=ligand_radii + jnp.asarray(ligand_radii_offset),
+    )
+    receptor = system.select(selection=system.composition.atoms["res_poly"])
+    receptor_volume = receptor.toxelate(grid=ligand_volume.grid)
+    empty_voxels = jnp.logical_not(receptor_volume.tensor)
+    ligand_voxels = ligand_volume.tensor
+    pocket_voxels = jnp.logical_and(ligand_voxels, empty_voxels)
+    labels, _ = sp.ndimage.label(pocket_voxels)
+    label_set = jnp.unique(labels)
+    num_points_per_label = jnp.bincount(labels.ravel())
+    if label_set[0] == 0:
+        label_set = label_set[1:]
+        num_points_per_label = num_points_per_label[1:]
+    main_label = label_set[num_points_per_label.argmax()]
+    return Pocket(
+        tensor=labels == main_label,
+        grid=ligand_volume.grid,
+        receptor=system,
+    )
+
+
 def from_dogsite(
     system: ChemicalSystem,
     chain_id: str | None = None,
@@ -160,6 +196,7 @@ def from_dogsite(
     name_to_index = {}
     for idx, pocket in enumerate(main_pockets, start=1):
         name_to_index[pocket["name"]] = pocket["label"] = idx
+        pocket["parent_label"] = pocket["label"]
         start = pocket["mrc"].nstart_xyz - min_start
         end = start + pocket["mrc"].n_xyz
         slices = tuple(slice(start[i], end[i]) for i in range(3))
@@ -190,5 +227,7 @@ def from_dogsite(
         subpocket_labels=labels_sub if len(sub_pockets) > 0 else None,
         subpocket_parent_labels=subpocket_parent_labels,
         receptor=system,
-        external_data=pd.DataFrame(main_pockets + sub_pockets)
+        external_data=pd.DataFrame(main_pockets + sub_pockets).convert_dtypes().set_index("label", drop=False)
     )
+
+
