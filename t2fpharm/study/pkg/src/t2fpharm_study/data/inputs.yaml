@@ -68,6 +68,7 @@ schema:
             type: string
           description: List of ligands in the structure (optional).
 data:
+  grid_spacing: 0.3
   receptor_groups:
     - id: CDK2
       name: Cyclin-dependent kinase 2
@@ -174,23 +175,23 @@ data:
       color_text: '#000000'
       ref_structure:
         pdb_id: 1C4V
-        chain_id: 2
+        chain_id: '2'
         ref_ligand:
           res_name: IH2
-          chain_id: 2
+          chain_id: '2'
           res_seq: 370
         heterogens:
           - res_name: HOH
-            chain_id: 2
+            chain_id: '2'
             res_seq: 404
           - res_name: HOH
-            chain_id: 2
+            chain_id: '2'
             res_seq: 408
           - res_name: HOH
-            chain_id: 2
+            chain_id: '2'
             res_seq: 410
           - res_name: HOH
-            chain_id: 2
+            chain_id: '2'
             res_seq: 477
       structures:
         - pdb_id: 1D4P
@@ -220,7 +221,7 @@ data:
         - pdb_id: 1FPC
           chain_id: H
           ref_ligand:
-            res_name: OZI
+            res_name: 0ZI
             chain_id: H
             res_seq: 371
         - pdb_id: 1TOM
@@ -262,21 +263,33 @@ data:
         - pdb_id: 1FK9
           ref_ligand:
             res_name: EFZ
+            chain_id: A
+            res_seq: 999
         - pdb_id: 1RT1
           ref_ligand:
             res_name: MKC
+            chain_id: A
+            res_seq: 999
         - pdb_id: 1RT3
           ref_ligand:
             res_name: U05
+            chain_id: A
+            res_seq: 999
         - pdb_id: 1RT5
           ref_ligand:
-            res_name: P04
+            res_name: UC2
+            chain_id: A
+            res_seq: 999
         - pdb_id: 1KLM
           ref_ligand:
             res_name: SPP
+            chain_id: A
+            res_seq: 999
         - pdb_id: 1VRU
           ref_ligand:
             res_name: AAP
+            chain_id: A
+            res_seq: 999
     - id: A2AR
       name: Adenosine A2A receptor
       uniprot_id: P29274
@@ -303,8 +316,7 @@ data:
             chain_id: A
             res_seq: 401
 
-  grid_spacing: 0.6
-  grid_length: 16
+
 
   energy_cutoff:
     HD: -0.35
@@ -312,12 +324,6 @@ data:
     C: -0.4
     anion: -1
     cation: -1
-
-  pocket:
-    feature_id: OA
-    max_energy: 0.6
-    psp_directions: 7
-    min_psp: 4
 
   clustering:
     max_distance: 1.21
