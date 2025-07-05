@@ -68,7 +68,13 @@ schema:
             type: string
           description: List of ligands in the structure (optional).
 data:
-  grid_spacing: 0.3
+  pocket:
+    grid_spacing: 0.3
+    ligand_radii_offset: 2.5
+  field:
+    ligand_types: [HD, C, OA, e-, e+]
+    smooth: 0.5
+    dielectric: -0.1465
   receptor_groups:
     - id: CDK2
       name: Cyclin-dependent kinase 2
