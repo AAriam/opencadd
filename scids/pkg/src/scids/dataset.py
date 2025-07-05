@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 import numpy as np
+import copy
 
 from scids import exception
 
@@ -42,6 +43,7 @@ class DataSet:
         batch: int | jnp.integer | Sequence[str | tuple[str, Sequence[str]]],
     ):
         self._data = jnp.asarray(data)
+        self._batch_input = batch
         batch_is_int = isinstance(batch, int | jnp.integer)
         self._batch_ndim = batch if batch_is_int else len(batch)
         if self._data.ndim <= self._batch_ndim:
@@ -71,6 +73,11 @@ class DataSet:
             self._batch_instance_labels[batch_dim_label] = np.array(batch_instance_labels)
         self._batch_dim_labels = np.array(self._batch_dim_labels)
         return
+
+    @property
+    def batch_input(self) -> int | jnp.integer | Sequence[str | tuple[str, Sequence[str]]]:
+        """Input data for the batch dimensions."""
+        return copy.deepcopy(self._batch_input)
 
     @property
     def batch_ndim(self) -> int:
