@@ -51,7 +51,7 @@ class Pockets:
                     shape=pocket_tensor.shape,
                     spacing=grid.spacings,
                     anchor_type="lower",
-                    anchor_coord=pocket_lower_bound,
+                    anchor=pocket_lower_bound,
                 )
                 pocket = caddpy.pocket.Pocket(
                     tensor=pocket_tensor,
