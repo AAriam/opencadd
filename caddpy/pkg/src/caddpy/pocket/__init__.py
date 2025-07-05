@@ -219,7 +219,7 @@ def from_dogsite(
         shape=full_shape,
         spacing=spacings,
         anchor_type="lower",
-        anchor_coord=origin,
+        anchor=origin,
     )
     return Pockets(
         grid=grid,
