@@ -45,7 +45,7 @@ class Pocket(Field):
             pad_value=False,
         )
         origin_shift = jnp.array([delta[0] for delta in deltas]) * grid.spacings
-        new_origin = grid.lower_bounds + origin_shift
+        new_origin = grid.lower_bounds - origin_shift
         grid = scids.grid.from_anchor_shape_spacing(
             shape=tensor.shape[batch_ndim:],
             spacing=grid.spacings,
