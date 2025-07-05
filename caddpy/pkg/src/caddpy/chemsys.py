@@ -445,7 +445,7 @@ def from_pdb(files: scifile.pdb.PDBFile | Path | bytes | str | ArrayLike):
 
 
 def fix_pdb(
-    file: scifile.pdb.PDBFile | Path | bytes | str,
+    file: Path | bytes | str,
     remove_chain_ids: Sequence[str] | None = None,
     add_missing_residues: bool = True,
     replace_nonstandard_residues: bool = False,
@@ -455,6 +455,7 @@ def fix_pdb(
     add_missing_hydrogens_forcefield: Any = None,
     keep_ids: bool = True,
 ) -> tuple[str, dict[tuple[int, int], list[str]] | None, list[tuple] | None, dict | None, dict | None]:
+    """Fix a PDB file"""
     def remove_nonpolymeric_ter_records(pdb_str: str) -> str:
         """Temporary fix for https://github.com/openmm/pdbfixer/issues/336"""
         lines = pdb_str.splitlines(keepends=True)
@@ -474,8 +475,6 @@ def fix_pdb(
             lines.pop(idx)
         return ''.join(lines)
 
-    if isinstance(file, scifile.pdb.PDBFile):
-        file = str(file)
     open_file = fileex.file.open_file(file)
     fixer = PDBFixer(pdbfile=open_file)
     if remove_chain_ids is not None:
