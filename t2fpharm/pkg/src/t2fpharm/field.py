@@ -23,10 +23,14 @@ __all__ = [
 
 
 def from_data(
-    grid: Grid,
+    grid_shape: Sequence[int],
+    grid_size: Sequence[float],
+    grid_spacing: Sequence[float],
+    grid_lower: Sequence[float],
+    grid_upper: Sequence[float],
+    dtype: DTypeLike,
+    batch: Sequence[tuple[str, Sequence[str]]],
     tensor: ArrayLike,
-    feature_ids: Sequence[str],
-    dtype: DTypeLike | None = None,
 ) -> Field:
     """Create a field from pre-computed data.
 
@@ -58,6 +62,17 @@ def from_data(
         If `None`, the data type will be inferred
         from the tensor and your default JAX dtype (usually `float32`).
     """
+    grid = scids.grid.from_data(
+        shape=grid_shape,
+        size=grid_size,
+        spacing=grid_spacing,
+        lower=grid_lower,
+        upper=grid_upper,
+    )
+    batch = list(batch)
+    batch[0][0] = "feature"  # Ensure the first batch element is labeled 'feature'
+    feature_ids = batch[0][1]
+
     # Check grid
     if not isinstance(grid, scids.grid.Grid):
         raise TypeError(
@@ -91,16 +106,20 @@ def from_data(
         raise ValueError(
             f"Grid shape {grid.shape} does not match tensor shape along last axes {tensor.shape[-3:]}"
         )
-    batch = [("feature", feature_ids)] + [f"receptor_{i}" for i in range(1, tensor.ndim - 3)]
     return scids.field.from_tensor(
         tensor=tensor,
         grid=grid,
         batch=batch,
+        dtype=dtype,
     )
 
 
 def from_autogrid(
-    grid: Grid,
+    grid_shape: Sequence[int],
+    grid_size: Sequence[float],
+    grid_spacing: Sequence[float],
+    grid_lower: Sequence[float],
+    grid_upper: Sequence[float],
     receptor_files: str | bytes | Path | ArrayLike,
     ligand_types: Sequence[str] = ("HD", "C", "OA", "e-", "e+"),
     receptor_types: Sequence[str] | None = None,
@@ -114,6 +133,13 @@ def from_autogrid(
     output_dir: str | Path = None,
     allow_copy: bool = True,
 ) -> Field:
+    grid = scids.grid.from_data(
+        shape=grid_shape,
+        size=grid_size,
+        spacing=grid_spacing,
+        lower=grid_lower,
+        upper=grid_upper,
+    )
     return caddpy.mif.autogrid.from_pdbqt(
         receptor_files=receptor_files,
         grid=grid,
