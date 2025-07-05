@@ -582,8 +582,8 @@ def from_bounds_spacing(
     upper: Sequence[float],
     spacing: Sequence[float] | float,
     *,
+    wiggle: Literal["bounds", "lower", "upper", "spacing"] = "bounds",
     shrink_to_fit: bool = False,
-    wiggle: Literal["bounds", "lower", "upper", "spacing"] = "bounds"
 ) -> Grid:
     """Create a `Grid` from its bounds and nominal spacings.
 
@@ -603,17 +603,17 @@ def from_bounds_spacing(
         If a scalar is provided, it is expanded to a 1D array
         of the same size as the grid dimension.
         Otherwise, it must be a 1D array of the same size as `lower` and `upper`.
-    shrink_to_fit
-        - `True`: ensure the grid fits inside the bounds
-           by flooring the number of intervals.
-        - `False`: ensure the grid covers the full range
-           by ceiling the number of intervals.
     wiggle
         Which quantities to adjust to satisfy the grid shape:
         - "bounds": fix `spacing`, stretch/contract both bounds equally.
         - "lower": fix `spacing` and `upper`, adjust `lower`.
         - "upper": fix `spacing` and `lower`, adjust `upper`.
         - "spacing": fix both bounds, adjust `spacing`.
+    shrink_to_fit
+        - `True`: ensure the grid fits inside the bounds
+           by flooring the number of intervals.
+        - `False`: ensure the grid covers the full range
+           by ceiling the number of intervals.
     """
     lower = np.asarray(lower, dtype=np.float128)
     upper = np.asarray(upper, dtype=np.float128)
@@ -682,7 +682,7 @@ def _expand_arg(
             f"Parameter `{arg_type}` must be an array of real numbers, "
             f"but input argument had elements of type {arg_val.dtype}. Input was: {arg_val}"
         )
-    if arg_type == "shape" and not jnp.issubdtype(type(arg_val), jnp.integer):
+    if arg_type == "shape" and not jnp.issubdtype(arg_val.dtype, jnp.integer):
         raise ValueError(
             f"Parameter `shape` must be an integer or a 1D array of integers, "
             f"but input argument was a scalar of type {type(arg_val)}. Input was: {arg_val}"
