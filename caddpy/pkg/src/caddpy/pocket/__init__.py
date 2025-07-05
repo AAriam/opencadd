@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from scids.field import Field
     from scids.grid import Grid
     from caddpy.typing import ArrayLike
+    from jax.typing import DTypeLike
 
 
 __all__ = [
@@ -75,9 +76,16 @@ def detector(
 
 
 def from_data(
-    voxels: ArrayLike,
-    grid: Grid,
-    batch: Sequence[str | tuple[str, Sequence[str]]] | None = None,
+    *,
+    shape: Sequence[int],
+    size: Sequence[float],
+    spacing: Sequence[float],
+    lower: Sequence[float],
+    upper: Sequence[float],
+    batch: int | Sequence[str | tuple[str, Sequence[str]]],
+    tensor: ArrayLike,
+    receptor: ChemicalSystem | None = None,
+    pocket_atom_serials: ArrayLike | None = None,
 ) -> Pocket:
     """Create a pocket from voxel field data.
 
@@ -97,10 +105,19 @@ def from_data(
     grid
         The grid on which the pocket voxels are defined.
     """
+    grid = scids.grid.from_data(
+        shape=shape,
+        size=size,
+        spacing=spacing,
+        lower=lower,
+        upper=upper,
+    )
     return Pocket(
-        tensor=voxels,
+        tensor=tensor,
         grid=grid,
         batch=batch,
+        receptor=receptor,
+        pocket_atom_serials=pocket_atom_serials
     )
 
 
