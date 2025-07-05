@@ -261,60 +261,65 @@ def _make_structure(
 
 
 def _prepare_structure(structure: dict, is_ref: bool = False):
-    # Raw structure
-    filepath_pdb_raw = structure["filepath_pdb_raw"]
-    if not filepath_pdb_raw.is_file():
-        pdb_raw_bytes = sciapi.pdb.file.entry(pdb_id=structure["pdb_id"], file_format="pdb")
-        filepath_pdb_raw.write_bytes(pdb_raw_bytes)
-    else:
-        pdb_raw_bytes = filepath_pdb_raw.read_bytes()
-    structure["pdb_raw"] = pdb = scifile.pdb.read(pdb_raw_bytes)
+    try:
+        # Raw structure
+        filepath_pdb_raw = structure["filepath_pdb_raw"]
+        if not filepath_pdb_raw.is_file():
+            pdb_raw_bytes = sciapi.pdb.file.entry(pdb_id=structure["pdb_id"], file_format="pdb")
+            filepath_pdb_raw.write_bytes(pdb_raw_bytes)
+        else:
+            pdb_raw_bytes = filepath_pdb_raw.read_bytes()
+        structure["pdb_raw"] = pdb = scifile.pdb.read(pdb_raw_bytes)
 
-    # Fixed structure
-    filepath_pdb_fixed = structure["filepath_pdb_fixed"]
-    if not filepath_pdb_fixed.is_file():
-        (
-            pdb_fixed_str,
-            missing_residues,
-            nonstandard_residues,
-            missing_atoms,
-            missing_terminals
-        ) = caddpy.chemsys.fix_pdb(
-            file=pdb_raw_bytes,
-            add_missing_residues=True,
-            replace_nonstandard_residues=False,
-            add_missing_heavy_atoms=True,
-            add_missing_atoms_seed=42,
-            add_missing_hydrogens=7.0,
-            keep_ids=True,
-        )
-        filepath_pdb_fixed.write_text(pdb_fixed_str)
-    else:
-        pdb_fixed_str = filepath_pdb_fixed.read_text()
-    structure["complex"] = comp = t2fpharm.receptor.from_pdb(pdb_fixed_str)
+        # Fixed structure
+        filepath_pdb_fixed = structure["filepath_pdb_fixed"]
+        if not filepath_pdb_fixed.is_file():
+            (
+                pdb_fixed_str,
+                missing_residues,
+                nonstandard_residues,
+                missing_atoms,
+                missing_terminals
+            ) = caddpy.chemsys.fix_pdb(
+                file=pdb_raw_bytes,
+                add_missing_residues=True,
+                replace_nonstandard_residues=False,
+                add_missing_heavy_atoms=True,
+                add_missing_atoms_seed=42,
+                add_missing_hydrogens=7.0,
+                keep_ids=True,
+            )
+            filepath_pdb_fixed.write_text(pdb_fixed_str)
+        else:
+            pdb_fixed_str = filepath_pdb_fixed.read_text()
+        structure["complex"] = comp = t2fpharm.receptor.from_pdb(pdb_fixed_str)
 
-    # Apo structure
-    filepath_pdb_apo = structure["filepath_pdb_apo"]
-    if not filepath_pdb_apo.is_file():
-        structure["receptor"] = receptor = comp.select(comp.composition.atoms["res_poly"])
-        filepath_pdb_apo.write_text(str(receptor.to_pdb()))
-    else:
-        structure["receptor"] = receptor = t2fpharm.receptor.from_pdb(filepath_pdb_apo)
+        # Apo structure
+        filepath_pdb_apo = structure["filepath_pdb_apo"]
+        if not filepath_pdb_apo.is_file():
+            structure["receptor"] = receptor = comp.select(comp.composition.atoms["res_poly"])
+            filepath_pdb_apo.write_text(str(receptor.to_pdb()))
+        else:
+            structure["receptor"] = receptor = t2fpharm.receptor.from_pdb(filepath_pdb_apo)
 
-    filepath_pdbqt = structure["filepath_pdbqt"]
-    if not filepath_pdbqt.is_file():
-        pdbqt_str = receptor.to_pdbqt(
-            autobond=False,
-            rigid=True,
-            combine=False,
-            flexible=False,
-            preserve_serials=True,
-            preserve_hydrogens=False,
-            preserve_names=True,
-            charge_model="gasteiger",
-            add_hydrogens=False,
-        )
-        filepath_pdbqt.write_text(pdbqt_str)
+        filepath_pdbqt = structure["filepath_pdbqt"]
+        if not filepath_pdbqt.is_file():
+            pdbqt_str = receptor.to_pdbqt(
+                autobond=False,
+                rigid=True,
+                combine=False,
+                flexible=False,
+                preserve_serials=True,
+                preserve_hydrogens=False,
+                preserve_names=True,
+                charge_model="gasteiger",
+                add_hydrogens=False,
+            )
+            filepath_pdbqt.write_text(pdbqt_str)
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to prepare structure {structure['pdb_id']}: {e}"
+        ) from e
     return
 
 
