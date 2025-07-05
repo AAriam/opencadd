@@ -1,9 +1,7 @@
 from pathlib import Path
-import io
+import shutil
 
 import pandas as pd
-from pdbfixer import PDBFixer
-from openmm.app import PDBFile
 
 import pyserials
 import pkgdata
@@ -134,6 +132,7 @@ def load(
     dirpath_pdbqt: Path | str = "structure/4-pdbqt",
     dirpath_pocket: Path | str = "pocket",
     dirpath_autogrid: Path | str = "autogrid",
+    dirpath_field: Path | str = "field",
 ) -> Manager:
     """Load the manager.
 
@@ -154,6 +153,7 @@ def load(
     dirpath_pdbqt = dirpath_data / dirpath_pdbqt
     dirpath_pocket = dirpath_data / dirpath_pocket
     dirpath_autogrid = dirpath_data / dirpath_autogrid
+    dirpath_field = dirpath_data / dirpath_field
 
     for dirpath in [
         dirpath_pdb_raw,
@@ -161,7 +161,8 @@ def load(
         dirpath_pdb_apo,
         dirpath_pdbqt,
         dirpath_pocket,
-        dirpath_autogrid
+        dirpath_autogrid,
+        dirpath_field,
     ]:
         dirpath.mkdir(parents=True, exist_ok=True)
 
@@ -189,6 +190,9 @@ def load(
             dirpath_pdbqt=dirpath_pdbqt,
             dirpath_pocket=dirpath_pocket,
             dirpath_autogrid=dirpath_autogrid,
+            dirpath_field=dirpath_field,
+            pocket_data=inputs["pocket"],
+            field_data=inputs["field"],
             is_ref=True
         )
         rows.append(row)
@@ -202,6 +206,9 @@ def load(
                 dirpath_pdbqt=dirpath_pdbqt,
                 dirpath_pocket=dirpath_pocket,
                 dirpath_autogrid=dirpath_autogrid,
+                dirpath_field=dirpath_field,
+                pocket_data=inputs["pocket"],
+                field_data=inputs["field"],
                 is_ref=False
             )
             rows.append(row)
@@ -228,6 +235,9 @@ def _make_structure(
     dirpath_pdbqt: Path,
     dirpath_pocket: Path,
     dirpath_autogrid: Path,
+    dirpath_field: Path,
+    pocket_data: dict,
+    field_data: dict,
     is_ref: bool = False
 ):
     heterogens = []
@@ -256,7 +266,20 @@ def _make_structure(
         "filepath_pocket": dirpath_pocket / f"{pdb_id}.yaml",
     }
     _prepare_structure(structure_full, is_ref=is_ref)
-    _prepare_pocket(structure_full, dirpath_pocket)
+    _prepare_pocket(
+        structure=structure_full,
+        dirpath_pocket=dirpath_pocket,
+        grid_spacing=pocket_data["grid_spacing"],
+        ligand_radii_offset=pocket_data["ligand_radii_offset"],
+    )
+    _prepare_field(
+        structure=structure_full,
+        dirpath_autogrid=dirpath_autogrid,
+        dirpath_field=dirpath_field,
+        ligand_types=field_data["ligand_types"],
+        smooth=field_data["smooth"],
+        dielectric=field_data["dielectric"],
+    )
     return structure_full
 
 
@@ -326,6 +349,8 @@ def _prepare_structure(structure: dict, is_ref: bool = False):
 def _prepare_pocket(
     structure: dict,
     dirpath_pocket: Path,
+    grid_spacing: float,
+    ligand_radii_offset: float,
 ):
     """Prepare the pocket for the structure."""
     filepath_pocket = dirpath_pocket / f"{structure['pdb_id']}.yaml"
@@ -345,6 +370,8 @@ def _prepare_pocket(
             system=structure["complex"],
             ligand_mask=ligand_mask,
             ligand_radii=None,
+            grid=grid_spacing,
+            ligand_radii_offset=ligand_radii_offset,
         )
         pocket_data = pocket.to_dict()
         pyserials.write.to_yaml_file(
@@ -354,4 +381,38 @@ def _prepare_pocket(
     else:
         pocket_data = pyserials.read.yaml_from_file(filepath_pocket)
         structure["pocket"] = t2fpharm.pocket.from_data(**pocket_data)
+    return
+
+
+def _prepare_field(
+    structure: dict,
+    dirpath_autogrid: Path,
+    dirpath_field: Path,
+    ligand_types: list[str],
+    smooth: float,
+    dielectric: float,
+):
+    filepath_field = dirpath_field / f"{structure['pdb_id']}.json"
+    if not filepath_field.is_file():
+        dirpath_autogrid = dirpath_autogrid / structure["pdb_id"]
+        if dirpath_autogrid.exists():
+            shutil.rmtree(dirpath_autogrid)
+        dirpath_autogrid.mkdir(parents=True, exist_ok=True)
+        pocket_data = structure["pocket"].to_dict()
+        grid_data = {k: v for k, v in pocket_data.items() if k.startswith("grid_")}
+        structure["field"] = field = t2fpharm.field.from_autogrid(
+            receptor_files=structure["filepath_pdbqt"],
+            ligand_types=ligand_types,
+            smooth=smooth,
+            dielectric=dielectric,
+            output_dir=dirpath_autogrid,
+        )
+        field_data = field.to_dict()
+        pyserials.write.to_json_file(
+            data=field_data,
+            path=filepath_field,
+        )
+    else:
+        field_data = pyserials.read.json_from_file(filepath_field)
+        structure["field"] = t2fpharm.field.from_data(**field_data)
     return
