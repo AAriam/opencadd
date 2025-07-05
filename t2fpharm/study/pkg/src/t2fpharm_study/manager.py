@@ -256,6 +256,7 @@ def _make_structure(
         "filepath_pocket": dirpath_pocket / f"{pdb_id}.yaml",
     }
     _prepare_structure(structure_full, is_ref=is_ref)
+    _prepare_pocket(structure_full, dirpath_pocket)
     return structure_full
 
 
@@ -314,4 +315,38 @@ def _prepare_structure(structure: dict, is_ref: bool = False):
             add_hydrogens=False,
         )
         filepath_pdbqt.write_text(pdbqt_str)
+    return
+
+
+def _prepare_pocket(
+    structure: dict,
+    dirpath_pocket: Path,
+):
+    """Prepare the pocket for the structure."""
+    filepath_pocket = dirpath_pocket / f"{structure['pdb_id']}.yaml"
+    if not filepath_pocket.is_file():
+        atoms = structure["complex"].composition.atoms
+        ligand_mask = (
+            (atoms["res_name"] == structure["ligand_res_name"]) &
+            (atoms["chain_id"] == structure["ligand_chain_id"]) &
+            (atoms["res_seq"] == structure["ligand_res_seq"])
+        )
+        if ligand_mask.sum() == 0:
+            raise ValueError(
+                f"Ligand {structure['ligand_res_name']} "
+                f"not found in structure {structure['pdb_id']}"
+            )
+        structure["pocket"] = pocket = t2fpharm.pocket.from_ligand(
+            system=structure["complex"],
+            ligand_mask=ligand_mask,
+            ligand_radii=None,
+        )
+        pocket_data = pocket.to_dict()
+        pyserials.write.to_yaml_file(
+            data=pocket_data,
+            path=filepath_pocket,
+        )
+    else:
+        pocket_data = pyserials.read.yaml_from_file(filepath_pocket)
+        structure["pocket"] = t2fpharm.pocket.from_data(**pocket_data)
     return
