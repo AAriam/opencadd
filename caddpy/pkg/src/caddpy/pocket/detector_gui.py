@@ -17,7 +17,11 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Literal, Callable, Any
     from scishow.nglview import NGLWidget
+    from scids.field import Field
     from caddpy.typing import JAXArray
+    from caddpy.chemsys import ChemicalSystem
+    from caddpy.pocket.ligsite import LigSite
+    from caddpy.pocket.pockets import Pockets
 
 
 class DetectorGUI(scishow.widgets.GUI):
@@ -614,6 +618,11 @@ class DetectorGUI(scishow.widgets.GUI):
     def unset_mask(self, *args: Literal["morphology", "ligsite", "custom"]) -> None:
         self._detector.unset_mask(*args)
         return
+
+    @property
+    def pockets(self) -> Pockets:
+        """The extracted pockets from the receptor."""
+        return self._pockets
 
     @property
     def mask(self) -> JAXArray:
