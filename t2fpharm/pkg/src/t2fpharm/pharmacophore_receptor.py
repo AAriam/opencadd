@@ -8,6 +8,7 @@ import scishow
 
 from t2fpharm.field import Field
 from t2fpharm.pocket import Pocket
+from t2fpharm.receptor import Receptor
 from t2fpharm.ligand import LigandPharmacophore
 from t2fpharm.pharmacophore import Pharmacophore
 
@@ -17,15 +18,17 @@ class ReceptorPharmacophore(Pharmacophore):
     def __init__(
         self,
         features: pd.DataFrame,
-        pocket: Pocket,
-        field: Field,
         args,
+        field: Field,
+        pocket: Pocket | None = None,
+        receptor: Receptor | None = None,
         extra: dict[str, Any] | None = None
     ):
         self.features = features
-        self.pocket = pocket
-        self.field = field
         self.args = args
+        self.field = field
+        self.pocket = pocket
+        self.receptor = receptor
         self.extra = extra or {}
         super().__init__()
         return
@@ -106,11 +109,15 @@ class ReceptorPharmacophore(Pharmacophore):
         nv = nglwidget or scishow.nglview.NGLWidget()
         if receptor:
             nv.add_trajectory(receptor)
-        self.pocket.display(
-            nglwidget=nv,
-            show_box=show_box,
-            visible=show_pocket,
-        )
+        elif self.receptor is not None:
+            nv.add_trajectory(self.receptor)
+        if self.pocket is not None:
+            self.pocket.display(
+                nglwidget=nv,
+                show_box=show_box,
+                visible=show_pocket,
+                receptor=False,
+            )
         feature_colors = feature_colors or {}
         for feature_id in self.field.batch_instance_labels["feature"]:
             nv.add_volume(
@@ -129,15 +136,6 @@ class ReceptorPharmacophore(Pharmacophore):
             )
         for _, feature in self.features.iterrows():
             nv.add_spheres(
-                coords=feature["points"],
-                radii=self.field.grid.spacings[0] / 2,
-                name=f"{feature['type'].upper()}_{feature['label']} Points",
-                colors=feature_color(feature["type"]),
-                representation_params=scishow.nglview.RepresentationParameters(
-                    visible=show_feature_points,
-                )
-            )
-            nv.add_spheres(
                 coords=[feature["center"]],
                 radii=feature["radius"],
                 name=f"{feature['type'].upper()}_{feature['label']} Center",
@@ -148,4 +146,14 @@ class ReceptorPharmacophore(Pharmacophore):
                     lazy=True,
                 )
             )
+            if "points" in feature:
+                nv.add_spheres(
+                    coords=feature["points"],
+                    radii=self.field.grid.spacings[0] / 2,
+                    name=f"{feature['type'].upper()}_{feature['label']} Points",
+                    colors=feature_color(feature["type"]),
+                    representation_params=scishow.nglview.RepresentationParameters(
+                        visible=show_feature_points,
+                    )
+                )
         return nv.display(gui=True)
