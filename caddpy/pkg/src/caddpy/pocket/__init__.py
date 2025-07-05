@@ -77,11 +77,11 @@ def detector(
 
 def from_data(
     *,
-    shape: Sequence[int],
-    size: Sequence[float],
-    spacing: Sequence[float],
-    lower: Sequence[float],
-    upper: Sequence[float],
+    grid_shape: Sequence[int],
+    grid_size: Sequence[float],
+    grid_spacing: Sequence[float],
+    grid_lower: Sequence[float],
+    grid_upper: Sequence[float],
     batch: int | Sequence[str | tuple[str, Sequence[str]]],
     tensor: ArrayLike,
     receptor: ChemicalSystem | None = None,
@@ -106,11 +106,11 @@ def from_data(
         The grid on which the pocket voxels are defined.
     """
     grid = scids.grid.from_data(
-        shape=shape,
-        size=size,
-        spacing=spacing,
-        lower=lower,
-        upper=upper,
+        shape=grid_shape,
+        size=grid_size,
+        spacing=grid_spacing,
+        lower=grid_lower,
+        upper=grid_upper,
     )
     return Pocket(
         tensor=tensor,
