@@ -50,7 +50,7 @@ class Pocket(Field):
             shape=tensor.shape[batch_ndim:],
             spacing=grid.spacings,
             anchor_type="lower",
-            anchor_coord=new_origin,
+            anchor=new_origin,
         )
         super().__init__(tensor=tensor, grid=grid, batch=batch)
         tensor_dialated, deltas = arrayer.tensor.ensure_padding(
@@ -64,7 +64,7 @@ class Pocket(Field):
             shape=self._tensor_dialated.shape[batch_ndim:],
             spacing=grid.spacings,
             anchor_type="lower",
-            anchor_coord=grid.lower_bounds - 3 * grid.spacings,
+            anchor=grid.lower_bounds - 3 * grid.spacings,
         )
         self._receptor = receptor
         return
