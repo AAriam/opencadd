@@ -214,9 +214,9 @@ class PointCloud(dataset.DataSet):
             total_bounding_box = self.aabb(per_instance=False)
             # Create a grid the size of the total bounding box, with given resolution
             grid = scids.grid.from_bounds_spacing(
-                lower_bounds=total_bounding_box.lower_bounds - padding,
-                upper_bounds=total_bounding_box.upper_bounds + padding,
-                spacings=grid,
+                lower=total_bounding_box.lower_bounds - padding,
+                upper=total_bounding_box.upper_bounds + padding,
+                spacing=grid,
             )
         # If `point_radii` is a scalar (i.e. int or float), it means all points have the same
         # radius, and thus we only need to query for the first nearest neighbor of each point:
