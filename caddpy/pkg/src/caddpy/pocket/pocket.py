@@ -33,7 +33,7 @@ class Pocket(Field):
         if batch is None:
             batch = batch_ndim = tensor.ndim - 3
         else:
-            batch_ndim = len(batch)
+            batch_ndim = batch if isinstance(batch, int | jnp.integer) else len(batch)
             if batch_ndim + 3 != tensor.ndim:
                 raise ValueError(
                     "The number of batch dimensions must be exactly 3 less "
@@ -165,3 +165,27 @@ class Pocket(Field):
             )
         )
         return nv
+
+    def to_dict(self) -> dict[str, list]:
+        """Convert the pocket to a serializable dictionary representation.
+
+        The dictionary can be used to recreate the `Field` object
+        using the `from_data()` function.
+
+        Returns
+        -------
+        Dictionary contains the following keys:
+        - "shape": shape of the grid as a list of integers.
+        - "size": size of the grid as a list of floats.
+        - "spacing": spacing between grid points as a list of floats.
+        - "lower": lower bounds of the grid as a list of floats.
+        - "upper": upper bounds of the grid as a list of floats.
+        - "dtype": data type of the field values as a string.
+        - "batch": information about the batch dimensions.
+        - "tensor": Field values as a list of lists.
+        """
+        dictionary = super().to_dict(dtype=jnp.uint8) | {
+            "pocket_atom_serials": self._pocket_atom_serials.tolist() if self._pocket_atom_serials is not None else None,
+        }
+        dictionary.pop("dtype")
+        return dictionary
