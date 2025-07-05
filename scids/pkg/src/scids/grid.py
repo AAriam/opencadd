@@ -42,23 +42,23 @@ class Grid:
         self,
         shape: np.ndarray,
         size: np.ndarray,
-        spacings: np.ndarray,
-        lower_bounds: np.ndarray,
+        spacing: np.ndarray,
+        lower: np.ndarray,
         center: np.ndarray,
-        upper_bounds: np.ndarray,
+        upper: np.ndarray,
         mgrid: np.ndarray,
     ):
         self._shape = shape
-        self._size = size
-        self._lower_bounds = lower_bounds
-        self._center = center
-        self._upper_bounds = upper_bounds
-        self._spacings = spacings
-        self._mgrid = jnp.asarray(mgrid)
+        self._size = size.astype(np.float64)
+        self._lower = lower.astype(np.float64)
+        self._center = center.astype(np.float64)
+        self._upper = upper.astype(np.float64)
+        self._spacing = spacing.astype(np.float64)
+        self._mgrid = jnp.asarray(mgrid.astype(np.float64))
 
-        self._coordinates: jnp.ndarray = jnp.stack(mgrid, axis=-1)
+        self._coordinates: jnp.ndarray = jnp.stack(self._mgrid, axis=-1)
         self._point_count = np.prod(self._shape)
-        self._point_volume = np.prod(self._spacings)
+        self._point_volume = np.prod(self._spacing)
         self._indices: np.ndarray = np.array(list(np.ndindex(*self._shape))).reshape(
             *self._shape, -1
         )
@@ -128,7 +128,7 @@ class Grid:
 
         This is the point where all indices are zero.
         """
-        return np.array(self._lower_bounds)
+        return np.array(self._lower)
 
     @property
     def point_count(self) -> int:
@@ -162,7 +162,7 @@ class Grid:
     @property
     def spacings(self) -> np.ndarray:
         """Distance between two adjacent points along each dimension."""
-        return np.array(self._spacings)
+        return np.array(self._spacing)
 
     @property
     def unit_vectors(self) -> np.ndarray:
@@ -177,7 +177,7 @@ class Grid:
     @property
     def upper_bounds(self) -> np.ndarray:
         """Coordinates of the point with maximum index values in all dimensions."""
-        return np.array(self._upper_bounds)
+        return np.array(self._upper)
 
     def nearest_point(self, points: ArrayLike) -> tuple[np.ndarray, np.ndarray]:
         """Find the nearest grid point for each point in the input.
@@ -331,103 +331,191 @@ class Grid:
 
     def __repr__(self):
         rep = (
-            f"Grid(\n  shape={self._shape},\n  size={self._size},\n  spacings={self._spacings},\n  "
-            f"lower_bounds={self._lower_bounds},\n  center={self._center},\n  upper_bounds={self._upper_bounds}\n)"
+            f"Grid(\n  shape={self._shape},\n  size={self._size},\n  spacings={self._spacing},\n  "
+            f"lower_bounds={self._lower},\n  center={self._center},\n  upper_bounds={self._upper}\n)"
         )
         return rep
 
 
 def from_anchor_shape_size(
-    shape: Sequence[float],
-    size: Sequence[float],
-    anchor_coord: Sequence[float] = None,
-    anchor: Literal["lower", "center", "upper"] | Sequence[int] = "center",
+    anchor: Sequence[float],
+    shape: Sequence[int] | int,
+    size: Sequence[float] | float,
+    *,
+    anchor_type: Literal["lower", "center", "upper"] | Sequence[int] = "lower",
 ):
-    shape = np.asarray(shape)
-    size = np.asarray(size)
+    """Create a `Grid` from an anchor point, shape, and size.
+
+    Parameters
+    ----------
+    anchor
+        Coordinates of the anchor point of the grid.
+        The type of anchor point is determined by `anchor_type`.
+    shape
+        Shape of the grid, i.e. number of points in each dimension.
+        If a scalar is provided, it is expanded to a 1D array
+        of the same size as the grid dimension.
+        Otherwise, it must be a 1D array of the same size as `anchor`.
+    size
+        Physical length of the grid in each dimension.
+        If a scalar is provided, it is expanded to a 1D array
+        of the same size as the grid dimension.
+        Otherwise, it must be a 1D array of the same size as `anchor`.
+    anchor_type
+        Type of anchor point; either the index of a grid point (e.g. [0, 1, 2])
+        or one of the following keywords:
+        - "lower": the anchor point is the lower bound of the grid.
+        - "center": the anchor point is the center of the grid.
+        - "upper": the anchor point is the upper bound of the grid.
+    """
+    anchor = np.asarray(anchor, dtype=np.float128)
+    shape = _expand_arg("shape", shape, size=anchor.size)
+    size = _expand_arg("size", size, size=anchor.size)
     num_spacings = shape - 1
-    spacings = size / num_spacings
+    spacing = size / num_spacings
     return from_anchor_shape_spacing(
-        shape=shape, spacing=spacings, anchor_coord=anchor_coord, anchor_type=anchor
+        anchor=anchor, shape=shape, spacing=spacing, anchor_type=anchor_type
     )
 
 
 def from_anchor_shape_spacing(
-    shape: Sequence[float],
+    anchor: Sequence[float],
+    shape: Sequence[int] | int,
     spacing: Sequence[float] | float,
-    anchor_type: Literal["lower", "center", "upper"] | Sequence[int] = "center",
-    anchor_coord: Sequence[float] = None,
+    *,
+    anchor_type: Literal["lower", "center", "upper"] | Sequence[int] = "lower",
 ):
-    shape = np.asarray(shape)
-    spacing = np.array([spacing] * shape.size) if np.isscalar(spacing) else np.asarray(spacing)
+    """Create a `Grid` from an anchor point, shape, and nominal spacings.
+
+    Parameters
+    ----------
+    anchor
+        Coordinates of the anchor point of the grid.
+        The type of anchor point is determined by `anchor_type`.
+    shape
+        Shape of the grid, i.e. number of points in each dimension.
+        If a scalar is provided, it is expanded to a 1D array
+        of the same size as the grid dimension.
+        Otherwise, it must be a 1D array of the same size as `anchor`.
+    spacing
+        Spacing between grid points in each dimension.
+        If a scalar is provided, it is expanded to a 1D array
+        of the same size as the grid dimension.
+        Otherwise, it must be a 1D array of the same size as `anchor`.
+    anchor_type
+        Type of anchor point; either the index of a grid point (e.g. [0, 1, 2])
+        or one of the following keywords:
+        - "lower": the anchor point is the lower bound of the grid.
+        - "center": the anchor point is the center of the grid.
+        - "upper": the anchor point is the upper bound of the grid.
+    """
+    anchor = np.asarray(anchor, dtype=np.float128)
+    shape = _expand_arg("shape", shape, size=anchor.size)
+    spacing = _expand_arg("spacing", spacing, size=anchor.size)
     num_spacings = shape - 1
     size = num_spacings * spacing
-    anchor_coord = np.zeros(shape=shape.size) if anchor_coord is None else np.asarray(anchor_coord)
-    if anchor_coord.size != shape.size:
+    if anchor.size != shape.size:
         raise ValueError(
-            f"Parameter `anchor_coord` must have the same size as `shape`, "
-            f"but input argument had size {anchor_coord.size} and shape {shape.size}. "
-            f"Input was: {anchor_coord}"
+            f"Parameter `anchor` must have the same size as `shape`, "
+            f"but input argument had size {anchor.size} and shape {shape.size}. "
+            f"Input was: {anchor}"
         )
     if anchor_type == "center":
-        lower_bounds = anchor_coord - size / 2
-        upper_bounds = anchor_coord + size / 2
+        lower = anchor - size / 2
+        upper = anchor + size / 2
     elif anchor_type == "lower":
-        lower_bounds = anchor_coord
-        upper_bounds = anchor_coord + size
+        lower = anchor
+        upper = anchor + size
     elif anchor_type == "upper":
-        lower_bounds = anchor_coord - size
-        upper_bounds = anchor_coord
+        lower = anchor - size
+        upper = anchor
     else:
-        anchor_type = np.asarray(anchor_type)
-        lower_bounds = anchor_coord - anchor_type * spacing
-        upper_bounds = lower_bounds + size
-    return from_bounds_shape(lower_bounds=lower_bounds, upper_bounds=upper_bounds, shape=shape)
+        anchor_type = np.asarray(anchor_type, dtype=int)
+        lower = anchor - anchor_type * spacing
+        upper = lower + size
+    return from_bounds_shape(lower=lower, upper=upper, shape=shape)
 
 
 def from_anchor_size_spacing(
-    size: Sequence[float],
-    spacings: Sequence[float],
-    anchor_coord: Sequence[float] = None,
-    anchor: Literal["lower", "center", "upper"] | Sequence[int] = "center",
+    anchor: Sequence[float],
+    size: Sequence[float] | float,
+    spacing: Sequence[float] | float,
+    *,
+    anchor_type: Literal["lower", "center", "upper"] | Sequence[int] = "lower",
     shrink_to_fit: bool = False,
 ):
-    size = np.asarray(size)
-    spacings = np.asarray(spacings)
-    num_spacings = size / spacings
+    """Create a `Grid` from an anchor point, size, and nominal spacings.
+
+    Parameters
+    ----------
+    anchor
+        Coordinates of the anchor point of the grid.
+        The type of anchor point is determined by `anchor_type`.
+    size
+        Physical length of the grid in each dimension.
+        If a scalar is provided, it is expanded to a 1D array
+        of the same size as the grid dimension.
+        Otherwise, it must be a 1D array of the same size as `anchor`.
+    spacing
+        Spacing between grid points in each dimension.
+        If a scalar is provided, it is expanded to a 1D array
+        of the same size as the grid dimension.
+        Otherwise, it must be a 1D array of the same size as `anchor`.
+    anchor_type
+        Type of anchor point; either the index of a grid point (e.g. [0, 1, 2])
+        or one of the following keywords:
+        - "lower": the anchor point is the lower bound of the grid.
+        - "center": the anchor point is the center of the grid.
+        - "upper": the anchor point is the upper bound of the grid.
+    shrink_to_fit
+        - `True`: ensure the grid fits inside the bounds
+           by flooring the number of intervals.
+        - `False`: ensure the grid covers the full range
+           by ceiling the number of intervals.
+    """
+    anchor = np.asarray(anchor, dtype=np.float128)
+    size = _expand_arg("size", size, size=anchor.size)
+    spacing = _expand_arg("spacing", spacing, size=anchor.size)
+    num_spacings = size / spacing
     fit_func = np.floor if shrink_to_fit else np.ceil
     return from_anchor_shape_spacing(
-        shape=fit_func(num_spacings + 1).astype(int),
-        spacing=spacings,
-        anchor_coord=anchor_coord,
-        anchor_type=anchor,
+        shape=fit_func(num_spacings).astype(int) + 1,
+        spacing=spacing,
+        anchor=anchor,
+        anchor_type=anchor_type,
     )
 
 
 def from_bounds_shape(
-    lower_bounds: Sequence[float],
-    upper_bounds: Sequence[float],
-    shape: Sequence[int],
+    lower: Sequence[float],
+    upper: Sequence[float],
+    shape: Sequence[int] | int,
 ) -> Grid:
-    """Create a Grid from its bounds and shape.
+    """Create a `Grid` from its bounds and shape.
 
-    All arguments must be 1D arrays/sequences of the same size.
+    Note that `lower` and `upper` must be 1D arrays of the same size,
+    where the size is the number of dimensions of the grid.
+    For example for 3D grids, arguments must be 1D arrays of length 3,
+    corresponding to the x, y, and z axes, respectively.
 
     Parameters
     ----------
-    lower_bounds
+    lower
         Coordinates of the point with minimum index values in all dimensions.
-    upper_bounds
+    upper
         Coordinates of the point with maximum index values in all dimensions.
     shape
         Shape of the grid, i.e. number of points in each dimension.
+        If a scalar is provided, it is expanded to a 1D array
+        of the same size as the grid dimension.
+        Otherwise, it must be a 1D array of the same size as `lower` and `upper`.
     """
-    lower_bounds = np.asarray(lower_bounds)
-    upper_bounds = np.asarray(upper_bounds)
-    shape = np.asarray(shape)
+    lower = np.asarray(lower, dtype=np.float128)
+    upper = np.asarray(upper, dtype=np.float128)
+    shape = _expand_arg("shape", shape, size=lower.size)
     for bound, arg_name in zip(
-        (lower_bounds, upper_bounds, shape),
-        ("lower_bounds", "upper_bounds", "shape"),
+        (lower, upper, shape),
+        ("lower", "upper", "shape"),
         strict=True,
     ):
         if bound.ndim != 1:
@@ -436,8 +524,8 @@ def from_bounds_shape(
                 f"but input argument had {bound.ndim} dimensions. Input was: {bound}"
             )
     for bound, arg_name in zip(
-        (lower_bounds, upper_bounds),
-        ("lower_bounds", "upper_bounds"),
+        (lower, upper),
+        ("lower", "upper"),
         strict=True,
     ):
         if not (np.issubdtype(bound.dtype, np.floating) or np.issubdtype(bound.dtype, np.integer)):
@@ -450,22 +538,22 @@ def from_bounds_shape(
             f"Parameter `shape` expects an array of integers, "
             f"but input argument had elements of type {shape.dtype}. Input was: {shape}"
         )
-    for arg, arg_name in zip((upper_bounds, shape), ("upper_bounds", "shape"), strict=True):
-        if lower_bounds.size != arg.size:
+    for arg, arg_name in zip((upper, shape), ("upper", "shape"), strict=True):
+        if lower.size != arg.size:
             raise ValueError(
-                f"Parameters `lower_bound` and `{arg_name}` expect 1D arrays of same size, "
-                f"but input argument `lower_bounds` had size {lower_bounds.size}, "
+                f"Parameters `lower` and `{arg_name}` expect 1D arrays of same size, "
+                f"but input argument `lower` had size {lower.size}, "
                 f"while `{arg_name}` had size {arg.size}. "
-                f"Inputs were: `lower_bounds` = {lower_bounds}\n`{arg_name}` = {arg}."
+                f"Inputs were: `lower` = {lower}\n`{arg_name}` = {arg}."
             )
-    size = upper_bounds - lower_bounds
+    size = upper - lower
     size_is_invalid = size <= 0
     if np.any(size_is_invalid):
         raise ValueError(
-            "All values in `lower_bounds` must be strictly smaller "
-            f"than corresponding values in `upper_bounds`, but at indices {np.where(size_is_invalid)[0]} "
-            f"`lower_bounds` had values {lower_bounds[size_is_invalid]} and `upper_bounds` had "
-            f"values {upper_bounds[size_is_invalid]}."
+            "All values in `lower` must be strictly smaller "
+            f"than corresponding values in `upper`, but at indices {np.where(size_is_invalid)[0]} "
+            f"`lower` had values {lower[size_is_invalid]} and `upper` had "
+            f"values {upper[size_is_invalid]}."
         )
     shape_is_invalid = shape <= 0
     if np.any(shape_is_invalid):
@@ -476,51 +564,127 @@ def from_bounds_shape(
         )
     slices = tuple(
         slice(start, end, complex(num_points))
-        for start, end, num_points in zip(lower_bounds, upper_bounds, shape, strict=True)
+        for start, end, num_points in zip(lower, upper, shape, strict=True)
     )
     return Grid(
         shape=shape,
         size=size,
-        lower_bounds=lower_bounds,
-        center=(lower_bounds + upper_bounds) / 2,
-        upper_bounds=upper_bounds,
-        spacings=size / (shape - 1),
+        lower=lower,
+        center=(lower + upper) / 2,
+        upper=upper,
+        spacing=size / (shape - 1),
         mgrid=np.mgrid[slices],
     )
 
 
 def from_bounds_spacing(
-    lower_bounds: Sequence[float],
-    upper_bounds: Sequence[float],
-    spacings: Sequence[float],
+    lower: Sequence[float],
+    upper: Sequence[float],
+    spacing: Sequence[float] | float,
+    *,
     shrink_to_fit: bool = False,
+    wiggle: Literal["bounds", "lower", "upper", "spacing"] = "bounds"
 ) -> Grid:
-    """
-    Create a `Grid` from its lower- and upper bounds, and spacings.
+    """Create a `Grid` from its bounds and nominal spacings.
+
+    Note that `lower` and `upper` must be 1D arrays of the same size,
+    where the size is the number of dimensions of the grid.
+    For example for 3D grids, arguments must be 1D arrays of length 3,
+    corresponding to the x, y, and z axes, respectively.
 
     Parameters
     ----------
-    lower_bounds : sequence of float
+    lower
         Coordinates of the point with minimum values in all dimensions.
-    upper_bounds : sequence of float
+    upper
         Coordinates of the point with maximum values in all dimensions.
-        This must have the same length as `lower_bounds`.
-    spacings : sequence of int
+    spacing
         Spacing between grid points in each dimension.
-        This must have the same length as `lower_bounds` and `upper_bounds`.
-
-    Returns
-    -------
-    Grid
+        If a scalar is provided, it is expanded to a 1D array
+        of the same size as the grid dimension.
+        Otherwise, it must be a 1D array of the same size as `lower` and `upper`.
+    shrink_to_fit
+        - `True`: ensure the grid fits inside the bounds
+           by flooring the number of intervals.
+        - `False`: ensure the grid covers the full range
+           by ceiling the number of intervals.
+    wiggle
+        Which quantities to adjust to satisfy the grid shape:
+        - "bounds": fix `spacing`, stretch/contract both bounds equally.
+        - "lower": fix `spacing` and `upper`, adjust `lower`.
+        - "upper": fix `spacing` and `lower`, adjust `upper`.
+        - "spacing": fix both bounds, adjust `spacing`.
     """
-    lower_bounds = np.asarray(lower_bounds)
-    upper_bounds = np.asarray(upper_bounds)
-    spacings = np.asarray(spacings)
-    size = upper_bounds - lower_bounds
-    num_spacings = size / spacings
+    lower = np.asarray(lower, dtype=np.float128)
+    upper = np.asarray(upper, dtype=np.float128)
+    spacing = _expand_arg("spacing", spacing, size=lower.size)
+    size = upper - lower
+    num_spacings = size / spacing
     fit_func = np.floor if shrink_to_fit else np.ceil
+    shape = fit_func(num_spacings).astype(int) + 1
+    if wiggle == "spacings":
+        pass
+    elif wiggle == "lower_bounds":
+        lower = upper - spacing * (shape - 1)
+    elif wiggle == "upper_bounds":
+        upper = lower + spacing * (shape - 1)
+    elif wiggle == "bounds":
+        target_size = spacing * (shape - 1)
+        delta = (target_size - size) / 2
+        lower -= delta
+        upper += delta
+    else:
+        raise ValueError(
+            f"Invalid wiggle option '{wiggle}'. Must be one of: "
+            f"'bounds', 'lower_bounds', 'upper_bounds', 'spacings'."
+        )
     return from_bounds_shape(
-        lower_bounds=lower_bounds,
-        upper_bounds=upper_bounds,
-        shape=fit_func(num_spacings + 1).astype(int),
+        lower=lower,
+        upper=upper,
+        shape=shape,
     )
+
+
+def _expand_arg(
+    arg_type: Literal["shape", "size", "spacing"],
+    arg_val: Sequence[float | int] | float | int,
+    size: int
+) -> np.ndarray:
+    """Expand a scalar or 1D array to a 1D array of the same size as the grid dimension.
+
+    Parameters
+    ----------
+    arg_type
+        Type of the argument, which determines how to interpret the input.
+    arg_val
+        A scalar or a sequence representing the value of the argument.
+    size
+        Number of dimensions of the grid, which determines the size of the output array.
+    """
+    dtype = np.int64 if arg_type == "shape" else np.float128
+    arg_val = (
+        np.array([arg_val] * size, dtype=dtype)
+        if np.isscalar(arg_val) else
+        np.asarray(arg_val, dtype=dtype)
+    )
+    if arg_val.ndim != 1:
+        raise ValueError(
+            f"Parameter `{arg_type}` must be a scalar or a 1D array, "
+            f"but input argument had {arg_val.ndim} dimensions. Input was: {arg_val}"
+        )
+    if arg_val.size != size:
+        raise ValueError(
+            f"Parameter `{arg_type}` must have the same size as the grid dimension ({size}), "
+            f"but input argument had size {arg_val.size}. Input was: {arg_val}"
+        )
+    if not np.issubdtype(arg_val.dtype, np.floating) and not np.issubdtype(arg_val.dtype, np.integer):
+        raise ValueError(
+            f"Parameter `{arg_type}` must be an array of real numbers, "
+            f"but input argument had elements of type {arg_val.dtype}. Input was: {arg_val}"
+        )
+    if arg_type == "shape" and not jnp.issubdtype(type(arg_val), jnp.integer):
+        raise ValueError(
+            f"Parameter `shape` must be an integer or a 1D array of integers, "
+            f"but input argument was a scalar of type {type(arg_val)}. Input was: {arg_val}"
+        )
+    return arg_val
