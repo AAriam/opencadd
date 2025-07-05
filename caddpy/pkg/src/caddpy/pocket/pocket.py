@@ -69,13 +69,27 @@ class Pocket(Field):
             anchor=grid.lower_bounds - 3 * grid.spacings,
         )
         self._receptor = receptor
-        self._pocket_atom_serials = jnp.asarray(pocket_atom_serials)
+        self._pocket_atom_serials = jnp.asarray(pocket_atom_serials) if pocket_atom_serials is not None else None
+        if self._pocket_atom_serials is not None and self._receptor is not None:
+            serials = set(self._pocket_atom_serials.tolist())
+            atoms = self._receptor.composition.atoms
+            mask = atoms["serial"].isin(serials)
+            self._pocket_atom_indices = jnp.asarray(mask.to_numpy().nonzero()[0])
+            self._pocket_atoms = atoms[mask]
+        else:
+            self._pocket_atom_indices = None
+            self._pocket_atoms = None
         return
 
     @property
     def receptor(self) -> ChemicalSystem | None:
         """Receptor associated with the pocket."""
         return self._receptor
+
+    @property
+    def atom_indices(self) -> jnp.ndarray | None:
+        """Indices of atoms that make up the pocket."""
+        return self._pocket_atom_indices
 
     @property
     def atom_serials(self) -> jnp.ndarray | None:
@@ -85,10 +99,9 @@ class Pocket(Field):
     @property
     def atoms(self) -> pd.DataFrame | None:
         """Atoms that make up the pocket."""
-        if self._pocket_atom_serials is None or self._receptor is None:
-            return None
-        mask = self._receptor.composition.atoms["serial"].isin(self._pocket_atom_serials)
-        return self._receptor.composition.atoms[mask]
+        if self._pocket_atoms is not None:
+            return self._pocket_atoms.copy()
+        return None
 
     def point_coverage(self, points: ArrayLike):
         points = jnp.asarray(points)
@@ -105,6 +118,7 @@ class Pocket(Field):
         self,
         nglwidget: scishow.nglview.NGLWidget | None = None,
         show_box: bool = False,
+        show_pocket_atoms: bool = False,
         name: str = "Pocket",
         box_name: str = "BBox",
         contour: bool = False,
@@ -121,7 +135,13 @@ class Pocket(Field):
                 nv.add_trajectory(receptor)
             elif self._receptor is not None:
                 nv.add_trajectory(self._receptor)
-
+            atom_indices = self._pocket_atom_indices
+            if atom_indices is not None:
+                nv.add_representation(
+                    repr_type="spacefill",
+                    selection=atom_indices,
+                    visible=show_pocket_atoms,
+                )
         if show_box:
             nv.add_box(
                 lower_bounds=self.grid.lower_bounds,
