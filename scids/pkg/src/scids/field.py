@@ -256,16 +256,18 @@ class Field(dataset.DataSet):
         Returns
         -------
         Dictionary contains the following keys:
-        - "shape": shape of the grid as a list of integers.
-        - "size": size of the grid as a list of floats.
-        - "spacing": spacing between grid points as a list of floats.
-        - "lower": lower bounds of the grid as a list of floats.
-        - "upper": upper bounds of the grid as a list of floats.
+        - "grid_shape": shape of the grid as a list of integers.
+        - "grid_size": size of the grid as a list of floats.
+        - "grid_spacing": spacing between grid points as a list of floats.
+        - "grid_lower": lower bounds of the grid as a list of floats.
+        - "grid_upper": upper bounds of the grid as a list of floats.
         - "dtype": data type of the field values as a string.
         - "batch": information about the batch dimensions.
         - "tensor": Field values as a list of lists.
         """
-        return self.grid.to_dict() | super().to_dict(data_key="tensor", dtype=dtype)
+        return {
+            f"grid_{key}": value for key, value in self.grid.to_dict().items()
+        } | super().to_dict(data_key="tensor", dtype=dtype)
 
     def __repr__(self):
         grid_repr = "\n".join([f"  {line}" for line in repr(self._grid).splitlines()]).lstrip()
@@ -348,21 +350,21 @@ def from_tensor(
 
 def from_data(
     *,
-    shape: Sequence[int],
-    size: Sequence[float],
-    spacing: Sequence[float],
-    lower: Sequence[float],
-    upper: Sequence[float],
+    grid_shape: Sequence[int],
+    grid_size: Sequence[float],
+    grid_spacing: Sequence[float],
+    grid_lower: Sequence[float],
+    grid_upper: Sequence[float],
     dtype: DTypeLike,
     batch: int | Sequence[str | tuple[str, Sequence[str]]],
     tensor: ArrayLike,
 ) -> Field:
     field_grid = grid.from_data(
-        shape=shape,
-        size=size,
-        spacing=spacing,
-        lower=lower,
-        upper=upper,
+        shape=grid_shape,
+        size=grid_size,
+        spacing=grid_spacing,
+        lower=grid_lower,
+        upper=grid_upper,
     )
     return from_tensor(
         tensor=tensor,
