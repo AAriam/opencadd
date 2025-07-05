@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 import numpy as np
+import scipy as sp
 
 from scids import dataset, exception
 
@@ -98,6 +99,25 @@ class Field(dataset.DataSet):
         This represents the total number of values for each grid point.
         """
         return self._field_size
+
+    def holes(self) -> jnp.ndarray:
+        """Get the holes in the field.
+
+        This treats the field as a binary mask,
+        where `True` values represent filled points
+        and `False` values represent holes.
+        A hole is then defined as a region of `False` values
+        that is fully surrounded by `True` values.
+
+        Returns
+        -------
+        A boolean array of the same shape as the field,
+        where `True` values represent holes in the field.
+        """
+        volume = self.tensor.astype(bool)
+        volume_filled = sp.ndimage.binary_fill_holes(volume)
+        volume_empty = jnp.logical_not(volume)
+        return jnp.logical_and(volume_empty, volume_filled)
 
     def nearest_target_distances(
         self,
