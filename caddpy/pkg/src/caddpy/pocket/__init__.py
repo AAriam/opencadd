@@ -112,6 +112,11 @@ def from_ligand(
     grid: float | Sequence[float] | Grid = 0.3,
 ) -> Pocket:
     """Create a pocket from a ligand."""
+    def get_pocket_atoms(ligand_voxels, receptor_voxels):
+        overlap = jnp.logical_and(ligand_voxels, receptor_voxels)
+        atom_serials = receptor_voxels[overlap]
+        return jnp.unique(atom_serials)
+
     ligand = system.select(selection=ligand_mask)
     ligand_radii = ligand.composition.vdw_radius if ligand_radii is None else jnp.asarray(ligand_radii)
     ligand_volume = ligand.toxelate(
@@ -134,6 +139,7 @@ def from_ligand(
         tensor=labels == main_label,
         grid=ligand_volume.grid,
         receptor=system,
+        pocket_atom_serials=get_pocket_atoms(ligand_voxels, receptor_volume.tensor)
     )
 
 
