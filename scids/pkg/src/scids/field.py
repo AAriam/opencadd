@@ -247,6 +247,24 @@ class Field(dataset.DataSet):
             constant_values=0,
         )
 
+    def __repr__(self):
+        grid_repr = "\n".join([f"  {line}" for line in repr(self._grid).splitlines()]).lstrip()
+        array_repr = np.array2string(
+            self.tensor,
+            precision=3,
+            threshold=10,
+            edgeitems=3,
+            max_line_width=80,
+            separator=' ',
+            prefix="    "
+        )
+        tensor_repr = (
+            f"array(\n    {array_repr},\n"
+            f"    dtype={self.tensor.dtype},\n    shape={self.tensor.shape},\n  )"
+        )
+        batch_repr = "\n".join([f"  {line}" for line in repr(self.batch_input).splitlines()]).lstrip()
+        return f"Field(\n  grid={grid_repr},\n  tensor={tensor_repr},\n  batch={batch_repr},\n)"
+
 
 def from_tensor(
     tensor: ArrayLike,
