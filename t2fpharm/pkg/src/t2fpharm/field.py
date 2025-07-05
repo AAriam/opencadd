@@ -1,3 +1,5 @@
+"""Fields representing metrics for pharmacophore features."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -26,6 +28,36 @@ def from_data(
     feature_ids: Sequence[str],
     dtype: DTypeLike | None = None,
 ) -> Field:
+    """Create a field from pre-computed data.
+
+    Parameters
+    ----------
+    grid
+        Grid defining the spatial structure of the field.
+    tensor
+        N-dimensional `(N >= 4)` array-like object
+        (e.g., list, NumPy array, JAX array)
+        containing the field data.
+        The first dimension of the array
+        must correspond to different features
+        whose IDs are provided in `feature_ids`.
+        The last three dimensions of the array
+        must match the shape of the grid.
+        All other dimensions are considered batch dimensions
+        corresponding to different instances of the field
+        (e.g., for different receptor conformations).
+    feature_ids
+        Labels for the pharmacophore features
+        the tensor values correspond to.
+        This should be a sequence of strings,
+        where the i-th string is a unique identifier
+        for the i-th feature in the tensor
+        (i.e., the i-th element along the first axis of `tensor`).
+    dtype
+        JAX-NumPy data type of the tensor (e.g., `numpy.float32`, `numpy.float64`).
+        If `None`, the data type will be inferred
+        from the tensor and your default JAX dtype (usually `float32`).
+    """
     # Check grid
     if not isinstance(grid, scids.grid.Grid):
         raise TypeError(
