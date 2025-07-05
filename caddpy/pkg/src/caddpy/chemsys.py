@@ -21,7 +21,7 @@ from scids.typing import NonNegativeFloat
 from caddpy import exception
 
 if TYPE_CHECKING:
-    from typing import Any
+    from typing import Any, Self
     from pathlib import Path
     from scids.pointcloud import PointCloud
     from scids.grid import Grid
@@ -75,7 +75,7 @@ class ChemicalSystem:
         radii: ArrayLike | None = None,
         padding: float | None = None,
         instance_selection: Any = None,
-    ):
+    ) -> scids.field.Field:
         return self.trajectory.toxelate(
             grid=grid,
             point_radii=radii if radii is not None else self.composition.vdw_radius,
@@ -97,7 +97,7 @@ class ChemicalSystem:
             )
         )
 
-    def select(self, selection: ArrayLike | pd.Series):
+    def select(self, selection: ArrayLike | pd.Series) -> Self:
         selection = np.asarray(selection, dtype=bool)
         atoms = self.composition.atoms[selection].copy()
         positions = self.trajectory.points[..., selection, :]
@@ -277,7 +277,7 @@ class ChemicalSystem:
         self,
         composition: pd.DataFrame | ChemicalComposition | None = None,
         trajectory: ArrayLike | PointCloud | None = None
-    ) -> ChemicalSystem:
+    ) -> Self:
         """Create a new ChemicalSystem from this one.
 
         Parameters
