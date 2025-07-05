@@ -13,6 +13,7 @@ from scids.functional.dist import points_with_min_dist
 
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
+from t2fpharm.receptor import Receptor
 from t2fpharm.pharmacophore_receptor import ReceptorPharmacophore
 from t2fpharm.typing import PositiveInt, PositiveFloat, PositiveIntTuple, PositiveFloatTuple, is_real_number, is_integer
 
@@ -22,6 +23,7 @@ class Modeler:
         self,
         field: Field,
         pocket: Pocket | None = None,
+        receptor: Receptor | None = None,
     ):
         if not isinstance(field, Field):
             raise TypeError(f"Expected Field object, got {type(field).__name__}.")
@@ -39,17 +41,25 @@ class Modeler:
                     f"but got pocket tensor shape {pocket.tensor.shape} "
                     f"and field tensor shape {field.tensor.shape}."
                 )
-        self._pocket = pocket
         self._field = field
+        self._pocket = pocket
+        if receptor:
+            self._receptor = receptor
+        elif pocket is not None:
+            self._receptor = pocket.receptor
         return
+
+    @property
+    def field(self) -> Field:
+        return self._field
 
     @property
     def pocket(self) -> Pocket | None:
         return self._pocket
 
     @property
-    def field(self) -> Field:
-        return self._field
+    def receptor(self) -> Receptor | None:
+        return self._receptor
 
     def cnn(
         self,
@@ -187,8 +197,9 @@ class Modeler:
                 )
         return ReceptorPharmacophore(
             features=pd.DataFrame(features),
-            pocket=self.pocket,
             field=self.field,
+            pocket=self.pocket,
+            receptor=self.receptor,
             args=args,
         )
 
@@ -259,8 +270,9 @@ class Modeler:
                 )
         return ReceptorPharmacophore(
             features=pd.DataFrame(features),
-            pocket=self.pocket,
             field=self.field,
+            pocket=self.pocket,
+            receptor=self.receptor,
             args=args,
         )
 
