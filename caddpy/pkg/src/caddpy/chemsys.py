@@ -4,10 +4,14 @@ from typing import TYPE_CHECKING
 import itertools
 
 from collections.abc import Sequence
+import io
 from typing import Literal
 from pathlib import Path
 import uuid
 
+import fileex
+from pdbfixer import PDBFixer
+from openmm.app import PDBFile
 import jax
 import numpy as np
 import pandas as pd
@@ -438,6 +442,78 @@ def from_pdb(files: scifile.pdb.PDBFile | Path | bytes | str | ArrayLike):
         composition=ChemicalComposition(first_atom),
         trajectory=scids.pointcloud.from_array(trajectory)
     )
+
+
+def fix_pdb(
+    file: scifile.pdb.PDBFile | Path | bytes | str,
+    remove_chain_ids: Sequence[str] | None = None,
+    add_missing_residues: bool = True,
+    replace_nonstandard_residues: bool = False,
+    add_missing_heavy_atoms: bool = True,
+    add_missing_atoms_seed: int = 42,
+    add_missing_hydrogens: NonNegativeFloat | None = 7.0,
+    add_missing_hydrogens_forcefield: Any = None,
+    keep_ids: bool = True,
+) -> tuple[str, dict[tuple[int, int], list[str]] | None, list[tuple] | None, dict | None, dict | None]:
+    def remove_nonpolymeric_ter_records(pdb_str: str) -> str:
+        """Temporary fix for https://github.com/openmm/pdbfixer/issues/336"""
+        lines = pdb_str.splitlines(keepends=True)
+        # Gather indices of all 'TER ' lines
+        ter_indices = [i for i, line in enumerate(lines) if line.startswith("TER ")]
+        if not ter_indices:
+            return pdb_str
+        # Determine which TER lines to remove
+        remove_indices: list[int] = []
+        for prev, curr in zip(ter_indices, ter_indices[1:]):
+            segment = lines[prev + 1 : curr]
+            # Only remove if all lines start with 'HETATM'
+            if not segment or all(line.startswith("HETATM") for line in segment):
+                remove_indices.append(curr)
+        # Remove in reverse order to keep indices valid
+        for idx in sorted(remove_indices, reverse=True):
+            lines.pop(idx)
+        return ''.join(lines)
+
+    if isinstance(file, scifile.pdb.PDBFile):
+        file = str(file)
+    open_file = fileex.file.open_file(file)
+    fixer = PDBFixer(pdbfile=open_file)
+    if remove_chain_ids is not None:
+        fixer.removeChains(chainIds=remove_chain_ids)
+    if add_missing_residues:
+        fixer.findMissingResidues()
+        missing_residues = fixer.missingResidues
+    else:
+        missing_residues = None
+    if replace_nonstandard_residues:
+        fixer.findNonstandardResidues()
+        nonstandard_residues = fixer.nonstandardResidues
+        fixer.replaceNonstandardResidues()
+    else:
+        nonstandard_residues = None
+    if add_missing_heavy_atoms:
+        fixer.findMissingAtoms()
+        missing_atoms = fixer.missingAtoms
+        missing_terminals = fixer.missingTerminals
+    else:
+        missing_atoms = None
+        missing_terminals = None
+    if add_missing_residues or replace_nonstandard_residues or add_missing_heavy_atoms:
+        fixer.addMissingAtoms(seed=add_missing_atoms_seed)
+    if add_missing_hydrogens is not None:
+        fixer.addMissingHydrogens(pH=add_missing_hydrogens, forcefield=add_missing_hydrogens_forcefield)
+
+    pdb_fixed_buffer = io.StringIO()
+    PDBFile.writeFile(
+        topology=fixer.topology,
+        positions=fixer.positions,
+        file=pdb_fixed_buffer,
+        keepIds=keep_ids,
+    )
+    pdb_fixed_buffer.seek(0)
+    pdb_fixed_str = pdb_fixed_buffer.getvalue()
+    pdb_fixed_valid_str = remove_nonpolymeric_ter_records(pdb_fixed_str)
+    return pdb_fixed_valid_str, missing_residues, nonstandard_residues, missing_atoms, missing_terminals
 
 
 def _read_single_pdb(file: scifile.pdb.PDBFile | Path | bytes | str) -> tuple[pd.DataFrame, np.ndarray]:
