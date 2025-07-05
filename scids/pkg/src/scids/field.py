@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 import scipy as sp
 
-from scids import dataset, exception
+from scids import dataset, exception, grid
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -247,6 +247,26 @@ class Field(dataset.DataSet):
             constant_values=0,
         )
 
+    def to_dict(self, dtype: DTypeLike | None = None) -> dict[str, list]:
+        """Convert the field to a serializable dictionary representation.
+
+        The dictionary can be used to recreate the `Field` object
+        using the `from_data()` function.
+
+        Returns
+        -------
+        Dictionary contains the following keys:
+        - "shape": shape of the grid as a list of integers.
+        - "size": size of the grid as a list of floats.
+        - "spacing": spacing between grid points as a list of floats.
+        - "lower": lower bounds of the grid as a list of floats.
+        - "upper": upper bounds of the grid as a list of floats.
+        - "dtype": data type of the field values as a string.
+        - "batch": information about the batch dimensions.
+        - "tensor": Field values as a list of lists.
+        """
+        return self.grid.to_dict() | super().to_dict(data_key="tensor", dtype=dtype)
+
     def __repr__(self):
         grid_repr = "\n".join([f"  {line}" for line in repr(self._grid).splitlines()]).lstrip()
         array_repr = np.array2string(
@@ -324,3 +344,29 @@ def from_tensor(
         destination = tuple(range(len(axis_order)))
         tensor = jnp.moveaxis(tensor, source=tuple(axis_order), destination=destination)
     return Field(tensor=tensor, grid=grid, batch=batch)
+
+
+def from_data(
+    *,
+    shape: Sequence[int],
+    size: Sequence[float],
+    spacing: Sequence[float],
+    lower: Sequence[float],
+    upper: Sequence[float],
+    dtype: DTypeLike,
+    batch: int | Sequence[str | tuple[str, Sequence[str]]],
+    tensor: ArrayLike,
+) -> Field:
+    field_grid = grid.from_data(
+        shape=shape,
+        size=size,
+        spacing=spacing,
+        lower=lower,
+        upper=upper,
+    )
+    return from_tensor(
+        tensor=tensor,
+        grid=field_grid,
+        batch=batch,
+        dtype=dtype
+    )
