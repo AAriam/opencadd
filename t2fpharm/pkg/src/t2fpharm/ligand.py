@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 import scishow
 import caddpy
 from t2fpharm.pharmacophore import Pharmacophore
+from t2fpharm.pocket import Pocket
 
 
 class LigandPharmacophore(Pharmacophore):
@@ -127,12 +128,13 @@ def from_plip(
     type_anion: str = "e-",
     type_cation: str = "e+",
     type_hydrophobic: str = "C",
+    pocket: Pocket | None = None
 ):
     plip = caddpy.interaction.from_pdb(pdb_files, ligands=ligands)
     out = []
     for _, row in plip.all.iterrows():
         position_col = "l_position"
-        match row["interaction_type"]:
+        match row["type"]:
             case "hbond":
                 if row["r_is_d"]:
                     feature_type = type_hbond_acceptor
@@ -157,4 +159,8 @@ def from_plip(
                 break
         else:
             out.append({"type": feature_type, "position": position})
+    if pocket is not None:
+        positions = np.stack([feature["position"] for feature in out])
+        coverages = pocket.point_coverage(positions)
+        out = [feature for feature, coverage in zip(out, coverages) if coverage]
     return LigandPharmacophore(features=out, extra={"plip": plip})
