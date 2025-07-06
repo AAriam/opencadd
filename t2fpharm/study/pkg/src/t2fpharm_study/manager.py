@@ -2,6 +2,7 @@ from pathlib import Path
 import shutil
 
 import pandas as pd
+import numpy as np
 
 import pyserials
 import pkgdata
@@ -133,6 +134,8 @@ def load(
     dirpath_pocket: Path | str = "pocket",
     dirpath_autogrid: Path | str = "autogrid",
     dirpath_field: Path | str = "field",
+    dirpath_ligand_plip: Path | str = "ligand/plip",
+    dirpath_ligand_features: Path | str = "ligand/features",
 ) -> Manager:
     """Load the manager.
 
@@ -154,6 +157,8 @@ def load(
     dirpath_pocket = dirpath_data / dirpath_pocket
     dirpath_autogrid = dirpath_data / dirpath_autogrid
     dirpath_field = dirpath_data / dirpath_field
+    dirpath_ligand_plip = dirpath_data / dirpath_ligand_plip
+    dirpath_ligand_features = dirpath_data / dirpath_ligand_features
 
     for dirpath in [
         dirpath_pdb_raw,
@@ -163,6 +168,8 @@ def load(
         dirpath_pocket,
         dirpath_autogrid,
         dirpath_field,
+        dirpath_ligand_plip,
+        dirpath_ligand_features,
     ]:
         dirpath.mkdir(parents=True, exist_ok=True)
 
@@ -191,6 +198,8 @@ def load(
             dirpath_pocket=dirpath_pocket,
             dirpath_autogrid=dirpath_autogrid,
             dirpath_field=dirpath_field,
+            dirpath_ligand_plip=dirpath_ligand_plip,
+            dirpath_ligand_features=dirpath_ligand_features,
             pocket_data=inputs["pocket"],
             field_data=inputs["field"],
             is_ref=True
@@ -207,6 +216,8 @@ def load(
                 dirpath_pocket=dirpath_pocket,
                 dirpath_autogrid=dirpath_autogrid,
                 dirpath_field=dirpath_field,
+                dirpath_ligand_plip=dirpath_ligand_plip,
+                dirpath_ligand_features=dirpath_ligand_features,
                 pocket_data=inputs["pocket"],
                 field_data=inputs["field"],
                 is_ref=False
@@ -236,6 +247,8 @@ def _make_structure(
     dirpath_pocket: Path,
     dirpath_autogrid: Path,
     dirpath_field: Path,
+    dirpath_ligand_plip: Path,
+    dirpath_ligand_features: Path,
     pocket_data: dict,
     field_data: dict,
     is_ref: bool = False
@@ -279,6 +292,11 @@ def _make_structure(
         ligand_types=field_data["ligand_types"],
         smooth=field_data["smooth"],
         dielectric=field_data["dielectric"],
+    )
+    _prepare_ligand_pharmacophore(
+        structure=structure_full,
+        dirpath_ligand_plip=dirpath_ligand_plip,
+        dirpath_ligand_features=dirpath_ligand_features,
     )
     return structure_full
 
@@ -402,10 +420,12 @@ def _prepare_field(
         grid_data = {k: v for k, v in pocket_data.items() if k.startswith("grid_")}
         structure["field"] = field = t2fpharm.field.from_autogrid(
             receptor_files=structure["filepath_pdbqt"],
+            receptor_file_ids=structure["pdb_id"],
             ligand_types=ligand_types,
             smooth=smooth,
             dielectric=dielectric,
             output_dir=dirpath_autogrid,
+            **grid_data,
         )
         field_data = field.to_dict()
         pyserials.write.to_json_file(
@@ -415,4 +435,33 @@ def _prepare_field(
     else:
         field_data = pyserials.read.json_from_file(filepath_field)
         structure["field"] = t2fpharm.field.from_data(**field_data)
+    return
+
+
+def _prepare_ligand_pharmacophore(
+    structure: dict,
+    dirpath_ligand_plip: Path,
+    dirpath_ligand_features: Path
+):
+    filepath_ligand_plip = dirpath_ligand_plip / f"{structure['pdb_id']}.json"
+    filepath_ligand_features = dirpath_ligand_features / f"{structure['pdb_id']}.json"
+    if not filepath_ligand_plip.is_file() or not filepath_ligand_features.is_file():
+        structure["ligand_pharm"] = pharm = t2fpharm.ligand.from_plip(
+            pdb_files=structure["filepath_pdb_fixed"],
+            pocket=structure["pocket"],
+        )
+        filepath_ligand_plip.write_text(
+            pharm.extra["plip"].all.to_json(orient="records", indent=4)
+        )
+        filepath_ligand_features.write_text(
+            pharm.features.to_json(orient="records", indent=4)
+        )
+    else:
+        plip_data = pyserials.read.json_from_file(filepath_ligand_plip)
+        features_data = pyserials.read.json_from_file(filepath_ligand_features)
+        plip_df = pd.DataFrame(plip_data)
+        structure["ligand_pharm"] = t2fpharm.ligand.LigandPharmacophore(
+            features=features_data,
+            extra={"plip": caddpy.interaction.ProteinLigandInteractions(plip_df)}
+        )
     return
