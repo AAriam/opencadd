@@ -32,6 +32,16 @@ VISUALIZATION_PARTS = ("ligand", "receptor", "water", "line")
 InteractionTypes = Sequence[Literal[*INTERACTION_TYPES]]
 VisualizationParts = Sequence[Literal[*VISUALIZATION_PARTS]]
 
+_ARRAY_COLUMNS = [
+    "l_position",
+    "r_position",
+    "h_position",
+    "w_position",
+    "m_position",
+    "t_position",
+    "l_serials",
+    "r_serials"
+]
 
 class ProteinLigandInteractions:
     """Protein-ligand interactions.
@@ -41,41 +51,31 @@ class ProteinLigandInteractions:
     and a method to visualize them using NGLView.
     """
 
-    def __init__(
-        self,
-        hydrophobic: pd.DataFrame,
-        hbond: pd.DataFrame,
-        water_bridge: pd.DataFrame,
-        salt_bridge: pd.DataFrame,
-        pi_stacking: pd.DataFrame,
-        pi_cation: pd.DataFrame,
-        halogen: pd.DataFrame,
-        metal: pd.DataFrame,
-    ):
-        self._hydrophobic = hydrophobic
-        self._hbond = hbond
-        self._water_bridge = water_bridge
-        self._salt_bridge = salt_bridge
-        self._pi_stacking = pi_stacking
-        self._pi_cation = pi_cation
-        self._halogen = halogen
-        self._metal = metal
-        self._all = None
+    def __init__(self, data: pd.DataFrame):
+        def to_ndarray(x):
+            if isinstance(x, np.ndarray):
+                return x
+            if pd.api.types.is_scalar(x) and pd.isna(x):
+                return x
+            return np.asarray(x)
+
+        for col in _ARRAY_COLUMNS:
+            if col in data.columns:
+                data[col] = data[col].apply(to_ndarray)
+
+        self._all = data.convert_dtypes()
+        for attr_name in INTERACTION_TYPES:
+            subdf = (
+                data[data["type"] == attr_name]
+                .reset_index(drop=True)
+                .dropna(axis=1, how="all")
+            )
+            setattr(self, f"_{attr_name}", subdf)
         return
 
     @property
     def all(self) -> pd.DataFrame:
         """All interactions combined."""
-        if self._all is not None:
-            return self._all
-        dfs = []
-        for interaction_type in INTERACTION_TYPES:
-            df = getattr(self, interaction_type)
-            if not df.empty:
-                df_copy = df.copy()
-                df_copy.insert(0, "interaction_type", interaction_type)
-                dfs.append(df_copy)
-        self._all = pd.concat(dfs, ignore_index=True)
         return self._all
 
     @property
@@ -335,14 +335,17 @@ def from_pdb(
                     interaction_sets.append(interaction_set)
                     break
 
-        interaction_data = {}
+        all_rows = []
         for attr_name in INTERACTION_TYPES:
             func = globs[f"_{attr_name}"]
-            df = pd.DataFrame(func(interaction_sets)).convert_dtypes()
+            rows = func(interaction_sets)
             if is_multifile:
-                df.insert(0, "idx", file_idx[0] if len(file_idx) == 1 else file_idx)
-            interaction_data[attr_name] = df
-    return ProteinLigandInteractions(**interaction_data)
+                idx = file_idx[0] if len(file_idx) == 1 else file_idx
+                rows = [{"idx": idx, **row} for row in rows]
+            all_rows.extend(rows)
+
+    df = pd.DataFrame(all_rows).convert_dtypes()
+    return ProteinLigandInteractions(df)
 
 
 def _hbond(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
@@ -352,6 +355,7 @@ def _hbond(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
         for entry in [*interaction.hbonds_pdon, *interaction.hbonds_ldon]:
             rows.append(
                 {
+                    "type": "hbond",
                     "l_res_name": entry.restype_l,
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
@@ -384,6 +388,7 @@ def _water_bridge(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]
         for entry in interaction.water_bridges:
             rows.append(
                 {
+                    "type": "water_bridge",
                     "l_res_name": entry.restype_l,
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
@@ -422,17 +427,18 @@ def _salt_bridge(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
             lig, prot = (sb.negative, sb.positive) if sb.protispos else (sb.positive, sb.negative)
             rows.append(
                 {
+                    "type": "salt_bridge",
                     "l_res_name": sb.restype_l,
                     "l_res_seq": sb.resnr_l,
                     "l_chain_id": sb.reschain_l,
                     "l_group": lig.fgroup,
-                    "l_serials": lig.atoms_orig_idx,
+                    "l_serials": np.array(lig.atoms_orig_idx),
                     "l_position": np.array(lig.center),
 
                     "r_res_name": sb.restype,
                     "r_res_seq": sb.resnr,
                     "r_chain_id": sb.reschain,
-                    "r_serials": prot.atoms_orig_idx,
+                    "r_serials": np.array(prot.atoms_orig_idx),
                     "r_position": np.array(prot.center),
 
                     "r_is_cation": sb.protispos,
@@ -449,6 +455,7 @@ def _hydrophobic(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
         for entry in interaction.hydrophobic_contacts:
             rows.append(
                 {
+                    "type": "hydrophobic",
                     "l_res_name": entry.restype_l,
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
@@ -474,6 +481,7 @@ def _pi_stacking(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
         for entry in interaction.pistacking:
             rows.append(
                 {
+                    "type": "pi_stacking",
                     "l_res_name": entry.restype_l,
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
@@ -489,7 +497,7 @@ def _pi_stacking(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
                     "dist": entry.distance,
                     "angle": entry.angle,
                     "offset": entry.offset,
-                    "type": entry.type,
+                    "stack_type": entry.type,
                 }
             )
     return rows
@@ -503,6 +511,7 @@ def _pi_cation(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
             lig, prot = (entry.ring, entry.charge) if entry.protcharged else (entry.charge, entry.ring)
             rows.append(
                 {
+                    "type": "pi_cation",
                     "l_res_name": entry.restype_l,
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
@@ -531,6 +540,7 @@ def _halogen(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
         for entry in interaction.halogen_bonds:
             rows.append(
                 {
+                    "type": "halogen",
                     "l_res_name": entry.restype_l,
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
@@ -561,6 +571,7 @@ def _metal(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
         for entry in interaction.metal_complexes:
             rows.append(
                 {
+                    "type": "metal",
                     "l_res_name": entry.restype_l,
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
