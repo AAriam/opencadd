@@ -565,7 +565,7 @@ def _process_file_ids(
                 name=arg_name,
                 message="File IDs must be alphanumeric."
             )
-        ids = [(prefix, [ids])]
+        ids = [("", [ids])]
     elif isinstance(ids, Sequence):
         ids = list(ids)
         if single_file:
@@ -654,7 +654,8 @@ def _process_file_ids(
         file_id = []
         for axis_idx, element_idx in enumerate(file_idx):
             input_data = ids[axis_idx]
-            file_id.append(f"{input_data[0]}_{input_data[1][element_idx]}")
+            prefix = f"{input_data[0]}_" if input_data[0] else ""
+            file_id.append(f"{prefix}{input_data[1][element_idx]}")
         ids_array[file_idx] = "-".join(file_id)
     return ids, ids_array
 
