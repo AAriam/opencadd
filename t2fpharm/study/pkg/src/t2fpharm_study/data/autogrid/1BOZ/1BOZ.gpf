@@ -1,0 +1,14 @@
+npts 60 56 56
+gridfld /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1BOZ/1BOZ.maps.fld
+spacing 0.3
+receptor_types N HD C OA S A NA
+ligand_types HD C OA
+receptor /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/structure/4-pdbqt/1BOZ.pdbqt
+gridcenter 31.121000099182126 16.48750057220459 -1.8894998788833623
+smooth 0.5
+map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1BOZ/1BOZ.HD.map
+map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1BOZ/1BOZ.C.map
+map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1BOZ/1BOZ.OA.map
+elecmap /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1BOZ/1BOZ.e.map
+dsolvmap /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1BOZ/1BOZ.d.map
+dielectric -0.1465

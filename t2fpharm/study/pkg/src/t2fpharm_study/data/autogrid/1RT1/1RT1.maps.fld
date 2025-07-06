@@ -1,0 +1,36 @@
+# AVS field file
+#
+# AutoDock Atomic Affinity and Electrostatic Grids
+#
+# Created by autogrid4.
+#
+#SPACING 0.300
+#NELEMENTS 56 48 50
+#CENTER -2.831 -34.723 25.329
+#MACROMOLECULE /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/structure/4-pdbqt/1RT1.pdbqt
+#GRID_PARAMETER_FILE /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1RT1/1RT1.gpf
+#
+ndim=3			# number of dimensions in the field
+dim1=57			# number of x-elements
+dim2=49			# number of y-elements
+dim3=51			# number of z-elements
+nspace=3		# number of physical coordinates per point
+veclen=5		# number of affinity values at each point
+data=float		# data type (byte, integer, float, double)
+field=uniform		# field type (uniform, rectilinear, irregular)
+coord 1 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1RT1/1RT1.maps.xyz filetype=ascii offset=0
+coord 2 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1RT1/1RT1.maps.xyz filetype=ascii offset=2
+coord 3 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1RT1/1RT1.maps.xyz filetype=ascii offset=4
+label=HD-affinity	# component label for variable 1
+label=C-affinity	# component label for variable 2
+label=OA-affinity	# component label for variable 3
+label=Electrostatics	# component label for variable 3
+label=Desolvation	# component label for variable 4
+#
+# location of affinity grid files and how to read them
+#
+variable 1 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1RT1/1RT1.HD.map filetype=ascii skip=6
+variable 2 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1RT1/1RT1.C.map filetype=ascii skip=6
+variable 3 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1RT1/1RT1.OA.map filetype=ascii skip=6
+variable 4 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1RT1/1RT1.e.map filetype=ascii skip=6
+variable 5 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1RT1/1RT1.d.map filetype=ascii skip=6
