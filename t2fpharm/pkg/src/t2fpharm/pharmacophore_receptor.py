@@ -33,7 +33,7 @@ class ReceptorPharmacophore(Pharmacophore):
         super().__init__()
         return
 
-    def match_spherical(self, ligand: LigandPharmacophore) -> pd.DataFrame:
+    def match_spherical(self, ligand: LigandPharmacophore, max_distance: float | None = None) -> pd.DataFrame:
         if not isinstance(ligand, LigandPharmacophore):
             raise TypeError(
                 f"Expected LigandPharmacophore, got {type(ligand)}"
@@ -61,6 +61,7 @@ class ReceptorPharmacophore(Pharmacophore):
             on=['instance', 'type'],
             how='left'
         ).rename(columns={'radius': 'radius_lig'})
+        merged['match'] = False
         # Compute distances where feature exists
         mask = merged['center'].notna()
         if mask.any():
@@ -69,12 +70,11 @@ class ReceptorPharmacophore(Pharmacophore):
             merged.loc[mask, 'distance'] = np.linalg.norm(pos_arr - cen_arr, axis=1)
             merged.loc[mask, 'max_distance'] = (
                 merged.loc[mask, 'radius_lig'] + merged.loc[mask, 'radius_feat']
-            )
+            ) if max_distance is None else max_distance
             merged.loc[mask, 'match'] = merged.loc[mask, 'distance'] < merged.loc[mask, 'max_distance']
         # Defaults for missing-feature cases
         merged['distance'] = merged['distance'].astype(float)
         merged['max_distance'] = merged['max_distance'].astype(float)
-        merged['match'] = merged['match'].fillna(False)
         # Pick minimum-distance feature per ligand_idx×instance
         # Treat NaN distances as +inf so real distances sort first
         merged['dist_sort'] = merged['distance'].fillna(np.inf)
