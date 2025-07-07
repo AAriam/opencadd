@@ -411,7 +411,8 @@ class Manager:
             plip_df = pd.DataFrame(plip_data)
             ligand_pharm = t2fpharm.ligand.LigandPharmacophore(
                 features=features_data,
-                extra={"plip": caddpy.interaction.ProteinLigandInteractions(plip_df)}
+                extra={"plip": caddpy.interaction.ProteinLigandInteractions(plip_df)},
+                receptor=self.complex(pdb_id),
             )
         else:
             ligand_pharm = t2fpharm.ligand.from_plip(
