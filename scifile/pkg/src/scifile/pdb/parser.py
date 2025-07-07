@@ -52,7 +52,8 @@ class PDBParser:
             )
         self._variant = variant
         self.strictness: Literal[0, 1, 2, 3] = strictness
-        self._lines: np.ndarray = np.array(content.splitlines())
+        lines = np.array(content.splitlines())
+        self._lines: np.ndarray = np.char.ljust(lines, 80)
         """Lines of the PDB file, as a 1D array of strings"""
         self._lines_chars: np.ndarray = self._lines.view(dtype=(str, 1)).reshape(
             self._lines.size, -1
