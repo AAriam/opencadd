@@ -183,6 +183,42 @@ class Grid:
         """Coordinates of the point with maximum index values in all dimensions."""
         return np.array(self._upper)
 
+    @property
+    def unique_distances(self) -> jnp.ndarray:
+        """Unique distances between all pairs of grid points, sorted from lowest to highest."""
+        shape = self.shape
+        spacings = self.spacings
+        dimension = self.dimension
+
+        # Build weighted squared-distance grid
+        weighted_sq = np.zeros(tuple(shape), dtype=float)
+        for axis in range(dimension):
+            idx = np.arange(shape[axis], dtype=float)
+            contrib = (idx**2) * (spacings[axis]**2)
+            bshape = [1]*dimension
+            bshape[axis] = shape[axis]
+            weighted_sq += contrib.reshape(bshape)
+
+        # Flatten and drop zero
+        flat = weighted_sq.ravel()
+        flat = flat[flat > 0.0]
+
+        # Sort values
+        flat_sorted = np.sort(flat)
+
+        # Determine tolerance for grouping duplicates
+        eps = np.finfo(float).eps
+        tol = 10 * dimension * eps * flat_sorted.max()
+
+        # Group values within tol
+        unique_vals = [flat_sorted[0]]
+        for val in flat_sorted[1:]:
+            if val - unique_vals[-1] > tol:
+                unique_vals.append(val)
+
+        uniq_sq = np.array(unique_vals)
+        return np.sqrt(uniq_sq)
+
     def nearest_point(self, points: ArrayLike) -> tuple[np.ndarray, np.ndarray]:
         """Find the nearest grid point for each point in the input.
 
