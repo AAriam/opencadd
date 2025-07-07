@@ -454,7 +454,8 @@ def from_pdb(files: scifile.pdb.PDBFile | Path | bytes | str | ArrayLike):
 
 def fix_pdb(
     file: Path | bytes | str,
-    remove_chain_ids: Sequence[str] | None = None,
+    remove_chain_ids: str | Sequence[str] | None = None,
+    keep_chain_ids: str | Sequence[str] | None = None,
     add_missing_residues: bool = True,
     replace_nonstandard_residues: bool = False,
     add_missing_heavy_atoms: bool = True,
@@ -483,10 +484,25 @@ def fix_pdb(
             lines.pop(idx)
         return ''.join(lines)
 
+    if remove_chain_ids is not None and keep_chain_ids is not None:
+        raise exception.InputError(
+            name="keep_chain_ids",
+            message="Cannot specify both remove_chain_ids and keep_chain_ids. "
+                    "Please choose one of them."
+        )
+
     open_file = fileex.file.open_file(file)
     fixer = PDBFixer(pdbfile=open_file)
     if remove_chain_ids is not None:
+        remove_chain_ids = [remove_chain_ids] if isinstance(remove_chain_ids, str) else list(remove_chain_ids)
         fixer.removeChains(chainIds=remove_chain_ids)
+    if keep_chain_ids is not None:
+        # Remove all chains not in keep_chain_ids
+        all_chain_ids = set([chain.id for chain in fixer.topology.chains()])
+        keep_chain_ids = [keep_chain_ids] if isinstance(keep_chain_ids, str) else list(keep_chain_ids)
+        keep_chain_ids_set = set(keep_chain_ids)
+        remove_chain_ids = all_chain_ids - keep_chain_ids_set
+        fixer.removeChains(chainIds=list(remove_chain_ids))
     if add_missing_residues:
         fixer.findMissingResidues()
         missing_residues = fixer.missingResidues
