@@ -169,6 +169,26 @@ class Manager:
         self._pdb = scifile.pdb.PDBDataset(**styled_params)
         return self._pdb
 
+    def load(self):
+        self.caching(enabled=True)
+        for _, entry in tqdm(
+            self.dataset.iterrows(),
+            total=len(self.dataset),
+            desc="Loading data",
+            unit="job",
+        ):
+            pdb_id = entry["pdb_id"]
+            self.pdb_raw(pdb_id)
+            self.complex(pdb_id)
+            self.receptor(pdb_id)
+            self.pdbqt(pdb_id)
+            self.pocket(pdb_id)
+            self.field(pdb_id)
+            self.modeler(pdb_id)
+            self.ligand_pharmacophore(pdb_id)
+            self.affinity(pdb_id)
+        return
+
     def caching(self, enabled: bool = True):
         """Enable or disable caching."""
         self._cache_enabled = enabled
@@ -266,6 +286,7 @@ class Manager:
                 missing_terminals
             ) = caddpy.chemsys.fix_pdb(
                 file=self.filepath(pdb_id, "pdb_raw"),
+                keep_chain_ids=self.dataset.loc[pdb_id, "chain_id"],
                 add_missing_residues=True,
                 replace_nonstandard_residues=False,
                 add_missing_heavy_atoms=True,
