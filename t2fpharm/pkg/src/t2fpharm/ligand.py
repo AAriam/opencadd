@@ -8,26 +8,32 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 import scishow
 import caddpy
 from t2fpharm.pharmacophore import Pharmacophore
+from t2fpharm.receptor import Receptor
 from t2fpharm.pocket import Pocket
 
 
 class LigandPharmacophore(Pharmacophore):
-    def __init__(self, features: Any, extra: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        features: Any,
+        extra: dict[str, Any] | None = None,
+        receptor: Receptor | None = None,
+    ):
         self.features = _LigandInput(features=features).features
         self.extra = extra or {}
+        self.receptor = receptor
         super().__init__()
         return
 
     def display(
         self,
         nglwidget: scishow.nglview.NGLWidget | None = None,
-        receptor: Any | None = None,
-        default_radius: float = 1.0,
+        default_radius: float = 1.5,
         feature_colors: dict[str, tuple[float, float, float] | tuple[int, int, int]] | None = None,
     ):
         nv = nglwidget or scishow.nglview.NGLWidget()
-        if receptor:
-            nv.add_trajectory(receptor)
+        if self.receptor:
+            nv.add_trajectory(self.receptor)
         feature_colors = feature_colors or {}
         for feature_idx, feature in self.features.iterrows():
             nv.add_spheres(
@@ -128,7 +134,8 @@ def from_plip(
     type_anion: str = "e-",
     type_cation: str = "e+",
     type_hydrophobic: str = "C",
-    pocket: Pocket | None = None
+    pocket: Pocket | None = None,
+    receptor: Receptor | None = None,
 ):
     plip = caddpy.interaction.from_pdb(pdb_files, ligands=ligands)
     out = []
