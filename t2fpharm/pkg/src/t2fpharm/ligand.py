@@ -170,4 +170,4 @@ def from_plip(
         positions = np.stack([feature["position"] for feature in out])
         coverages = pocket.point_coverage(positions)
         out = [feature for feature, coverage in zip(out, coverages) if coverage]
-    return LigandPharmacophore(features=out, extra={"plip": plip})
+    return LigandPharmacophore(features=out, extra={"plip": plip}, receptor=receptor)
