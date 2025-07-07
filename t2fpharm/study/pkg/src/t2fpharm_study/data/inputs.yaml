@@ -144,6 +144,8 @@ data:
             res_seq: 400
           ligands:
             - res_name: NDP
+              chain_id: A
+              res_seq: 187
         - pdb_id: 1DLR
           chain_id: A
           ref_ligand:
@@ -152,6 +154,8 @@ data:
             res_seq: 188
           ligands:
             - res_name: NDP
+              chain_id: A
+              res_seq: 187
         - pdb_id: 1HFP
           chain_id: A
           ref_ligand:
@@ -160,6 +164,8 @@ data:
             res_seq: 188
           ligands:
             - res_name: NDP
+              chain_id: A
+              res_seq: 187
         - pdb_id: 1OHK
           chain_id: A
           ref_ligand:
@@ -168,6 +174,8 @@ data:
             res_seq: 188
           ligands:
             - res_name: NDP
+              chain_id: A
+              res_seq: 187
         - pdb_id: 2DHF
           chain_id: A
           ref_ligand:
@@ -227,7 +235,7 @@ data:
         - pdb_id: 1FPC
           chain_id: H
           ref_ligand:
-            res_name: 0ZI
+            res_name: 0ZI  # Don't know why ligand is not shown by NGLView in the fixed structure
             chain_id: H
             res_seq: 371
         - pdb_id: 1TOM
@@ -262,36 +270,43 @@ data:
             chain_id: A
             res_seq: 999
         - pdb_id: 1EP4
+          chain_id: A
           ref_ligand:
             res_name: S11
             chain_id: A
             res_seq: 999
         - pdb_id: 1FK9
+          chain_id: A
           ref_ligand:
             res_name: EFZ
             chain_id: A
             res_seq: 999
         - pdb_id: 1RT1
+          chain_id: A
           ref_ligand:
             res_name: MKC
             chain_id: A
             res_seq: 999
         - pdb_id: 1RT3
+          chain_id: A
           ref_ligand:
             res_name: U05
             chain_id: A
             res_seq: 999
         - pdb_id: 1RT5
+          chain_id: A
           ref_ligand:
             res_name: UC2
             chain_id: A
             res_seq: 999
         - pdb_id: 1KLM
+          chain_id: A
           ref_ligand:
             res_name: SPP
             chain_id: A
             res_seq: 999
         - pdb_id: 1VRU
+          chain_id: A
           ref_ligand:
             res_name: AAP
             chain_id: A
