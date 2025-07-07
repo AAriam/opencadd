@@ -62,6 +62,8 @@ class ReceptorPharmacophore(Pharmacophore):
             how='left'
         ).rename(columns={'radius': 'radius_lig'})
         merged['match'] = False
+        merged['distance'] = np.nan
+        merged['max_distance'] = np.nan
         # Compute distances where feature exists
         mask = merged['center'].notna()
         if mask.any():
