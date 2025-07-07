@@ -1,11 +1,9 @@
-
 from typing import Sequence, Literal
 
 import pandas as pd
 import numpy as np
 import jax.numpy as jnp
 from pydantic import BaseModel, Field, model_validator
-import skimage
 import arrayer
 
 import scids
@@ -196,7 +194,19 @@ class Modeler:
                     }
                 )
         return ReceptorPharmacophore(
-            features=pd.DataFrame(features),
+            features=pd.DataFrame(
+                features,
+                columns=[
+                    "instance",
+                    "type",
+                    "label",
+                    "n_points",
+                    "volume",
+                    "radius",
+                    "center",
+                    "points"
+                ]
+            ),
             field=self.field,
             pocket=self.pocket,
             receptor=self.receptor,
@@ -206,10 +216,10 @@ class Modeler:
     def largest_peaks(
         self,
         peak_type: Literal["min", "max"] |  Sequence[Literal["min", "max"]] = "min",
+        min_distance: float | Sequence[float | None] | None = None,
         max_features: int | Sequence[int | None] | None = None,
         value_threshold: float | Sequence[float | None] | None = None,
         include_equal_threshold: bool | Sequence[bool] = True,
-        min_distance: float | Sequence[float | None] | None = None,
     ):
         """Perceive pharmacophore features as largest minima/maxima in the field tensor.
 
