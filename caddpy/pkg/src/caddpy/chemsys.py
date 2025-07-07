@@ -21,6 +21,7 @@ import scicoda
 import scifile
 import scids
 from scids.typing import NonNegativeFloat
+import scishow
 
 from caddpy import exception
 
@@ -106,6 +107,13 @@ class ChemicalSystem:
         atoms = self.composition.atoms[selection].copy()
         positions = self.trajectory.points[..., selection, :]
         return self.new(composition=atoms, trajectory=positions)
+
+    def display(self, nglwidget: ngl.NGLWidget | None = None) -> ngl.NGLWidget:
+        if nglwidget is None:
+            nglwidget = scishow.nglview.NGLWidget()
+        nglwidget.add_trajectory(self, name="ChemicalSystem")
+        nglwidget.display(gui=True)
+        return nglwidget
 
     def to_pdb(
         self,
