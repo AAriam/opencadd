@@ -129,10 +129,15 @@ def from_ligand(
     grid: float | Sequence[float] | Grid = 0.3,
 ) -> Pocket:
     """Create a pocket from a ligand."""
-    def get_pocket_atoms(ligand_voxels, receptor_voxels):
+    def get_pocket_atom_serials(
+        ligand_voxels: jnp.ndarray,
+        receptor_voxels: jnp.ndarray,
+        receptor: ChemicalSystem,
+    ):
         overlap = jnp.logical_and(ligand_voxels, receptor_voxels)
-        atom_serials = receptor_voxels[overlap]
-        return jnp.unique(atom_serials)
+        receptor_atom_indices = jnp.unique(receptor_voxels[overlap]) - 1  # Convert to 0-based indices
+        receptor_atoms = receptor.composition.atoms.iloc[receptor_atom_indices]
+        return receptor_atoms["serial"].to_numpy(dtype=jnp.int32)
 
     ligand = system.select(selection=ligand_mask)
     ligand_radii = ligand.composition.vdw_radius if ligand_radii is None else jnp.asarray(ligand_radii)
@@ -156,7 +161,11 @@ def from_ligand(
         tensor=labels == main_label,
         grid=ligand_volume.grid,
         receptor=system,
-        pocket_atom_serials=get_pocket_atoms(ligand_voxels, receptor_volume.tensor)
+        pocket_atom_serials=get_pocket_atom_serials(
+            ligand_voxels=ligand_voxels,
+            receptor_voxels=receptor_volume.tensor,
+            receptor=receptor,
+        )
     )
 
 
@@ -169,6 +178,17 @@ def from_dogsite(
     algorithm: Literal["scorer", "3"] = "3",
     ligand_bias: bool = False,
 ) -> Pockets:
+    """Detect pockets using the DoGSite algorithms using the ProteinsPlus web API.
+
+    References
+    ----------
+    1.  Volkamer, A.; Griewel, A.; Grombacher, T.; Rarey, M.,
+        Analyzing the topology of active sites: on the prediction of pockets and subpockets.
+        J. Chem. Inf. Model. 2010, 50 (11), 2041-52. DOI: https://doi.org/10.1021/ci100241y.
+    2.  Volkamer, A.; Kuhn, D.; Grombacher, T.; Rippmann, F.; Rarey, M.,
+        Combining global and local measures for structure-based druggability predictions.
+        J. Chem. Inf. Model. 2012, 52 (2), 360-72. DOI: https://doi.org/10.1021/ci200454v.
+    """
     api = sciapi.proteinsplus()
     pdb_content = str(system.to_pdb(frames=system.trajectory.instance_index(0)))
     dummy_pdb_id = api.upload_pdb(pdb_content).dummy_pdb_id
