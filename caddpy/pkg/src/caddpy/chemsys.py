@@ -333,11 +333,63 @@ class ChemicalComposition:
         self._atoms = atoms
         self._data_autodock_atom_types: pd.DataFrame = None
         self._autodock_atom_type_indices: np.ndarray = None
+        self._atoms_poly: pd.DataFrame = None
+        self._atoms_mono: pd.DataFrame = None
+        self._residues: pd.DataFrame | None = None
         return
 
     @property
     def atoms(self) -> pd.DataFrame:
+        """Atomic composition of the system."""
         return self._atoms
+
+    @property
+    def atoms_poly(self) -> pd.DataFrame:
+        """Polymeric atoms, i.e. those that are part of a polymeric chain."""
+        if self._atoms_poly is None:
+            self._atoms_poly = self._atoms[self._atoms["res_poly"]]
+        return self._atoms_poly
+
+    @property
+    def atoms_mono(self) -> pd.DataFrame:
+        """Monomeric atoms, i.e. those that are not part of a polymeric chain."""
+        if self._atoms_mono is None:
+            self._atoms_mono = self._atoms[~self._atoms["res_poly"]]
+        return self._atoms_mono
+
+    @property
+    def residues(self) -> pd.DataFrame:
+        """Residues in the system."""
+        if self._residues is None:
+            atoms = self.atoms
+            group_cols = ["chain_id", "res_name", "res_seq", "res_poly", "res_std"]
+            # identify block boundaries: start a new block when any group_col differs from the previous row
+            boundaries = (atoms[group_cols] != atoms[group_cols].shift()).any(axis=1)
+            block_ids = boundaries.cumsum()
+            # Determine which columns to aggregate into arrays
+            payload_cols = [col for col in atoms.columns if col not in group_cols]
+            # # aggregate payload columns into numpy arrays per block
+            # collapsed = []
+            # for _, group in atoms.groupby(block_ids, sort=False):
+            #     row = {col: group.iloc[0][col] for col in group_cols}
+            #     for col in payload_cols:
+            #         row[col] = group[col].to_numpy()
+            #     collapsed.append(row)
+            # # assemble result
+            # Identify run boundaries
+
+            # Build aggregation mapping: first() for group_cols, list for payloads
+            agg_map = {c: "first" for c in group_cols}
+            agg_map.update({c: list for c in payload_cols})
+            # Single groupby + aggregation
+            grouped = atoms.groupby(block_ids, sort=False).agg(agg_map)
+            # Convert payload lists to numpy arrays
+            for c in payload_cols:
+                grouped[c] = grouped[c].apply(np.array)
+            self._residues = grouped.reset_index(drop=True)
+            # self._residues = pd.DataFrame(collapsed)
+        return self._residues
+
 
     @property
     def element_index(self) -> np.ndarray:
@@ -356,6 +408,84 @@ class ChemicalComposition:
     @property
     def atom_count(self) -> int:
         return len(self.atoms)
+
+    def sequence(self, chain_id: str | None = None) -> np.ndarray:
+        """Get the sequence of residue names in a polymeric chain.
+
+        Parameters
+        ----------
+        chain_id
+            Chain ID of the polymeric chain to get the sequence for.
+            If `None`, the sequence of the first polymeric chain is returned.
+
+        Returns
+        -------
+        1D array of residue names in the specified chain.
+        """
+        if chain_id is None:
+            poly_chain_ids = self.chain_ids(poly=True)
+            if poly_chain_ids.size == 0:
+                raise exception.InputError(
+                    name="chain_id",
+                    message="No polymeric chains found in the system."
+                )
+            chain_id = poly_chain_ids[0]
+        atoms = self.atoms_chain(chain_id=chain_id, poly=True)
+        return atoms.drop_duplicates(subset=['res_seq', 'res_name'], keep='first')['res_name'].to_numpy(dtype=str)
+
+    def atoms_chain(self, chain_id: str | None = None, poly: bool | None = None) -> pd.DataFrame:
+        """Get atoms of a specific chain.
+
+        Parameters
+        ----------
+        chain_id
+            Chain ID of the chain to get atoms for.
+            If `None`, the first chain is used.
+        poly
+            - `True`: return only atoms of polymeric chains.
+            - `False`: return only atoms of non-polymeric chains.
+            - `None`: return atoms from all chains.
+
+        Returns
+        -------
+        DataFrame with atoms of the specified chain.
+        """
+        if poly is None:
+            atoms = self.atoms
+        elif poly:
+            atoms = self.atoms_poly
+        else:
+            atoms = self.atoms_mono
+
+        if chain_id is None:
+            chain_ids = self.chain_ids(poly=poly)
+            if not chain_ids.size:
+                raise exception.InputError(
+                    name="chain_id",
+                    message=f"No {('polymeric' if poly else 'monomeric')} chains found in the system."
+                )
+            chain_id = chain_ids[0]
+        return atoms[atoms["chain_id"] == chain_id]
+
+    def chain_ids(self, poly: bool | None = None) -> np.ndarray:
+        """Get the unique chain IDs in the system.
+
+        Parameters
+        ----------
+        poly
+            - `True`: return only chain IDs of polymeric chains.
+            - `False`: return only chain IDs of non-polymeric chains.
+            - `None`: return all chain IDs.
+
+        Returns
+        -------
+        1D array of strings containing unique chain IDs in the system.
+        """
+        if poly is None:
+            return self.atoms["chain_id"].unique().to_numpy(dtype=str)
+        if poly:
+            return self.atoms_poly["chain_id"].unique().to_numpy(dtype=str)
+        return self.atoms_mono["chain_id"].unique().to_numpy(dtype=str)
 
     def autodock_atom_type(self) -> pd.DataFrame:
         """Autodock types of the atoms."""
