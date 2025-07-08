@@ -345,11 +345,11 @@ class Manager:
         if cached:
             return cached
         filepath_pocket = self.filepath(pdb_id, "pocket")
+        rcomplex = self.complex(pdb_id)
         if filepath_pocket.is_file():
             pocket_data = pyserials.read.yaml_from_file(filepath_pocket)
-            pocket = t2fpharm.pocket.from_data(**pocket_data)
+            pocket = t2fpharm.pocket.from_data(**pocket_data, receptor=rcomplex)
         else:
-            rcomplex = self.complex(pdb_id)
             atoms = rcomplex.composition.atoms
             ligand_res_name = self.dataset.loc[pdb_id, "ligand_res_name"]
             ligand_chain_id = self.dataset.loc[pdb_id, "ligand_chain_id"]
