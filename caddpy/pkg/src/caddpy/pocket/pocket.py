@@ -74,11 +74,11 @@ class Pocket(Field):
             serials = set(self._pocket_atom_serials.tolist())
             atoms = self._receptor.composition.atoms
             mask = atoms["serial"].isin(serials)
-            self._pocket_atom_indices = jnp.asarray(mask.to_numpy().nonzero()[0])
             self._pocket_atoms = atoms[mask]
+            self._pocket_atom_indices = jnp.asarray(mask.to_numpy().nonzero()[0])
         else:
-            self._pocket_atom_indices = None
             self._pocket_atoms = None
+            self._pocket_atom_indices = None
         return
 
     @property
