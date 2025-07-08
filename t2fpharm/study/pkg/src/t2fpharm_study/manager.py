@@ -3,6 +3,7 @@ from pathlib import Path
 import shutil
 from typing import Any, Sequence, Literal
 
+import arrayer
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -30,8 +31,9 @@ class Manager:
         dirpath_data: Path,
         dirpath_pdb_raw: Path | str = "structure/1-pdb-raw",
         dirpath_pdb_fixed: Path | str = "structure/2-pdb-fixed",
-        dirpath_pdb_apo: Path | str = "structure/3-pdb-apo",
-        dirpath_pdbqt: Path | str = "structure/4-pdbqt",
+        dirpath_pdb_aligned: Path | str = "structure/3-pdb-aligned",
+        dirpath_pdb_apo: Path | str = "structure/4-pdb-apo",
+        dirpath_pdbqt: Path | str = "structure/5-pdbqt",
         dirpath_affinity: Path | str = "affinity",
         dirpath_pocket: Path | str = "pocket",
         dirpath_autogrid: Path | str = "autogrid",
@@ -47,6 +49,7 @@ class Manager:
         self._dirpath = {
             "pdb_raw": dirpath_pdb_raw,
             "pdb_fixed": dirpath_pdb_fixed,
+            "pdb_aligned": dirpath_pdb_aligned,
             "pdb_apo": dirpath_pdb_apo,
             "pdbqt": dirpath_pdbqt,
             "affinity": dirpath_affinity,
@@ -59,6 +62,7 @@ class Manager:
         self._file_ext = {
             "pdb_raw": "pdb",
             "pdb_fixed": "pdb",
+            "pdb_aligned": "pdb",
             "pdb_apo": "pdb",
             "pdbqt": "pdbqt",
             "affinity": "json",
@@ -274,9 +278,9 @@ class Manager:
         cached = self._cache.get(pdb_id, {}).get("complex")
         if cached:
             return cached
-        filepath_pdb_fixed = self.filepath(pdb_id, "pdb_fixed")
-        if filepath_pdb_fixed.is_file():
-            pdb_fixed_str = filepath_pdb_fixed.read_text()
+        filepath_pdb_aligned = self.filepath(pdb_id, "pdb_aligned")
+        if filepath_pdb_aligned.is_file():
+            pdb_aligned_str = filepath_pdb_aligned.read_text()
         else:
             (
                 pdb_fixed_str,
@@ -294,8 +298,23 @@ class Manager:
                 add_missing_hydrogens=7.0,
                 keep_ids=True,
             )
-            filepath_pdb_fixed.write_text(pdb_fixed_str)
-        rcomplex = t2fpharm.receptor.from_pdb(pdb_fixed_str)
+            self.filepath(pdb_id, "pdb_fixed").write_text(pdb_fixed_str)
+            if self.dataset.loc[pdb_id, "is_ref"]:
+                pdb_aligned_str = pdb_fixed_str
+            else:
+                group_id = self.dataset.loc[pdb_id, "group_id"]
+                is_group_ref = (self.dataset["group_id"] == group_id) & self.dataset["is_ref"]
+                ref_pdb_id = self.dataset.loc[is_group_ref, "pdb_id"].iloc[0]
+                complex_aligned = _align_to_ref_structure(
+                    ref_complex=self.complex(ref_pdb_id),
+                    query_complex=t2fpharm.receptor.from_pdb(pdb_fixed_str),
+                    ref_chain_id=self.dataset.loc[ref_pdb_id, "chain_id"],
+                    query_chain_id=self.dataset.loc[pdb_id, "chain_id"],
+                    ref_pocket=self.pocket(ref_pdb_id),
+                )
+                pdb_aligned_str = str(complex_aligned.to_pdb())
+                filepath_pdb_aligned.write_text(pdb_aligned_str)
+        rcomplex = t2fpharm.receptor.from_pdb(pdb_aligned_str)
         if self._cache_enabled:
             self._cache.setdefault(pdb_id, {})["complex"] = rcomplex
         return rcomplex
@@ -590,8 +609,9 @@ def load(
     filepath_inputs: Path | str  = "inputs.yaml",
     dirpath_pdb_raw: Path | str = "structure/1-pdb-raw",
     dirpath_pdb_fixed: Path | str = "structure/2-pdb-fixed",
-    dirpath_pdb_apo: Path | str = "structure/3-pdb-apo",
-    dirpath_pdbqt: Path | str = "structure/4-pdbqt",
+    dirpath_pdb_aligned: Path | str = "structure/3-pdb-aligned",
+    dirpath_pdb_apo: Path | str = "structure/4-pdb-apo",
+    dirpath_pdbqt: Path | str = "structure/5-pdbqt",
     dirpath_affinity: Path | str = "affinity",
     dirpath_pocket: Path | str = "pocket",
     dirpath_autogrid: Path | str = "autogrid",
@@ -681,6 +701,30 @@ def _make_structure(
         "ligand_res_seq": structure.get("ref_ligand", {}).get("res_seq"),
     }
     return structure_full
+
+
+def _align_to_ref_structure(
+    ref_complex: t2fpharm.receptor.Receptor,
+    query_complex: t2fpharm.receptor.Receptor,
+    ref_chain_id: str,
+    query_chain_id: str,
+    ref_pocket: t2fpharm.pocket.Pocket,
+) -> t2fpharm.receptor.Receptor:
+    """Align the query receptor to the reference receptor."""
+    ref_chain = ref_complex.composition.atoms_chain(ref_chain_id, poly=True)
+    query_chain = query_complex.composition.atoms_chain(query_chain_id, poly=True)
+    ref_aligned_atoms, query_aligned_atoms = caddpy.alignment.align_sequences(ref_chain, query_chain)
+    ref_pocket_c_alpha_atoms = ref_pocket.atoms[ref_pocket.atoms["name"]=="CA"]
+    c_alpha_mask = ref_aligned_atoms["serial"].isin(ref_pocket_c_alpha_atoms["serial"])
+    ref_pocket_c_alpha_serials = ref_aligned_atoms["serial"][c_alpha_mask]
+    query_pocket_c_alpha_serials = query_aligned_atoms["serial"][c_alpha_mask]
+    ref_selection_mask = ref_complex.composition.atoms["serial"].isin(ref_pocket_c_alpha_serials)
+    query_selection_mask = query_complex.composition.atoms["serial"].isin(query_pocket_c_alpha_serials)
+    ref_selection_coordinates = ref_complex.trajectory.points[ref_selection_mask.to_numpy()]
+    query_selection_coordinates = query_complex.trajectory.points[query_selection_mask.to_numpy()]
+    rotation, translation, rmsd = arrayer.kabsch.kabsch_unweighted(ref_selection_coordinates, query_selection_coordinates)
+    query_complex_aligned = query_complex.new(trajectory=query_complex.trajectory.points @ rotation + translation)
+    return query_complex_aligned
 
 
 def _run_job(
