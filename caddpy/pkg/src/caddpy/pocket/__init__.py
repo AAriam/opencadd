@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from caddpy.chemsys import ChemicalSystem
     from scids.field import Field
     from scids.grid import Grid
-    from caddpy.typing import ArrayLike
+    from caddpy.typing import ArrayLike, PathLike
     from jax.typing import DTypeLike
 
 
@@ -274,3 +274,23 @@ def from_dogsite(
     )
 
 
+def from_npz(
+    filepath: str | PathLike,
+    receptor: ChemicalSystem | None = None,
+) -> Pocket:
+    """Create a Pocket from a .npz file."""
+    data = scids.dataset.from_npz(filepath=filepath, data_key="tensor", return_dict=True)
+    grid = scids.grid.from_data(
+        shape=data["grid_shape"],
+        size=data["grid_size"],
+        spacing=data["grid_spacing"],
+        lower=data["grid_lower"],
+        upper=data["grid_upper"],
+    )
+    return Pocket(
+        tensor=data["tensor"],
+        grid=grid,
+        batch=data["batch"],
+        receptor=receptor,
+        pocket_atom_serials=data.get("pocket_atom_serials", None),
+    )
