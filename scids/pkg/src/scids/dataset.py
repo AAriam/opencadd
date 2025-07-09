@@ -9,8 +9,9 @@ import copy
 from scids import exception
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Sequence, Any
     from jax.typing import ArrayLike, DTypeLike
+    from scids.typing import PathLike
 
 
 class DataSet:
@@ -53,12 +54,13 @@ class DataSet:
             )
         self._batch_shape = self._data.shape[:self._batch_ndim]
         self._batch_size = np.prod(self._batch_shape)
-        self._batch_dim_labels = []
         self._batch_instance_labels = {}
         if batch_is_int:
+            self._batch_dim_labels = np.arange(1, self._batch_ndim + 1).astype(str)
             self._batch_input = int(batch)
             return
         self._batch_input = []
+        self._batch_dim_labels = []
         for batch_idx, batch_data in enumerate(batch):
             if isinstance(batch_data, str):
                 self._batch_input.append(batch_data)
@@ -126,14 +128,42 @@ class DataSet:
         """Get the indices of batch instances from a flat index."""
         return np.unravel_index(flat_index, self.batch_shape)
 
-    def to_dict(self, data_key: str = "data", dtype: DTypeLike | None = None) -> dict[str, list]:
+    def to_dict(
+        self,
+        data_key: str = "data",
+        dtype: DTypeLike | None = None,
+        array_to_list: bool = True
+    ) -> dict[str, list]:
         """Convert the dataset to a dictionary representation."""
         data = self._data.astype(dtype) if dtype is not None else self._data
         return {
             "dtype": str(self._data.dtype),
             "batch": self.batch_input,
-            data_key: data.tolist(),
+            data_key: data.tolist() if array_to_list else data,
         }
+
+    def to_npz(
+        self,
+        filepath: PathLike | None = None,
+        kwds: dict[str, Any] | None = None,
+        data_key: str = "data",
+        compress: bool = False,
+    ) -> dict[str, Any]:
+        """Save the dataset to a .npz file."""
+        kwds = kwds or {}
+        kwds |= {
+            "dtype": str(self._data.dtype),
+            "batch_dim_labels": self.batch_labels,
+            data_key: self._data,
+        }
+        for batch_dim_label, batch_instance_labels in self.batch_instance_labels.items():
+            kwds[f"batch_instance_labels_{batch_dim_label}"] = batch_instance_labels
+        if filepath is not None:
+            if compress:
+                np.savez_compressed(filepath, **kwds, allow_pickle=False)
+            else:
+                np.savez(filepath, **kwds, allow_pickle=False)
+        return kwds
 
     def __call__(self, **kwargs) -> jnp.ndarray:
         if not self._batch_instance_labels:
@@ -164,3 +194,38 @@ class DataSet:
 
     def __getitem__(self, item):
         return self._data.__getitem__(item)
+
+
+def from_npz(
+    filepath: PathLike,
+    data_key: str = "data",
+    scalar_keys: Sequence[str] | None = None,
+    return_dict: bool = False,
+) -> DataSet | dict[str, jnp.ndarray]:
+    """Convert a .npz file to a dictionary."""
+    scalar_keys = scalar_keys or []
+    npz = np.load(filepath, allow_pickle=False)
+    out = {}
+    batch = []
+    for key, value in npz.items():
+        if key == "dtype":
+            out["dtype"] = value.item()
+        elif key == data_key:
+            out[data_key] = jnp.asarray(value, dtype=npz["dtype"].item())
+        elif key == "batch_dim_labels":
+            for batch_dim_label in value:
+                batch_instance_labels_key = f"batch_instance_labels_{batch_dim_label}"
+                batch_instance_labels = npz.get(batch_instance_labels_key)
+                if batch_instance_labels is not None:
+                    batch.append((batch_dim_label, batch_instance_labels))
+                else:
+                    batch.append(batch_dim_label)
+        elif key.startswith("batch_instance_labels_"):
+            continue
+        elif key in scalar_keys:
+            out[key] = value.item()
+        else:
+            out[key] = jnp.asarray(value)
+    if return_dict:
+        return out
+    return DataSet(data=out[data_key], batch=batch)
