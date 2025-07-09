@@ -1,7 +1,7 @@
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 import shutil
-from typing import Any, Sequence, Literal
+from typing import Any, Sequence, Literal, TypeAlias
 
 import arrayer
 import pandas as pd
@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import t2fpharm.pharmacophore_receptor
 from tqdm.auto import tqdm
+import ray
 
 import pyserials
 import pkgdata
@@ -19,6 +20,10 @@ import scifile
 import caddpy
 
 import t2fpharm
+
+
+
+PDBID: TypeAlias = str
 
 
 class Manager:
@@ -313,7 +318,7 @@ class Manager:
                     ref_pocket=self.pocket(ref_pdb_id),
                 )
                 pdb_aligned_str = str(complex_aligned.to_pdb())
-                filepath_pdb_aligned.write_text(pdb_aligned_str)
+            filepath_pdb_aligned.write_text(pdb_aligned_str)
         rcomplex = t2fpharm.receptor.from_pdb(pdb_aligned_str)
         if self._cache_enabled:
             self._cache.setdefault(pdb_id, {})["complex"] = rcomplex
@@ -408,7 +413,7 @@ class Manager:
             field_data = pyserials.read.json_from_file(filepath_field)
             field = t2fpharm.field.from_data(**field_data)
         else:
-            dirpath_autogrid = self._dirpath["autogrid"] / pdb_id
+            dirpath_autogrid = self.dirpath_data / self._dirpath["autogrid"] / pdb_id
             if dirpath_autogrid.exists():
                 shutil.rmtree(dirpath_autogrid)
             dirpath_autogrid.mkdir(parents=True, exist_ok=True)
@@ -456,7 +461,7 @@ class Manager:
             )
         else:
             ligand_pharm = t2fpharm.ligand.from_plip(
-                pdb_files=self.filepath(pdb_id, "pdb_fixed"),
+                pdb_files=self.filepath(pdb_id, "pdb_aligned"),
                 pocket=self.pocket(pdb_id),
                 receptor=self.complex(pdb_id),
             )
@@ -514,6 +519,21 @@ class Manager:
         dirpath.mkdir(parents=True, exist_ok=True)
         file_ext = self._file_ext[filetype]
         return Path(dirpath) / f"{pdb_id}.{file_ext}"
+
+    def group_id(self, pdb_id: str) -> str:
+        """Get the group ID for a given PDB ID."""
+        return self.dataset.loc[pdb_id, "group_id"]
+
+    def group_pdb_ids(self, group_id: str, include_ref: bool = True) -> list[str]:
+        """Get all PDB IDs for a given group ID."""
+        mask = self.dataset["group_id"] == group_id
+        if not include_ref:
+            mask &= ~self.dataset["is_ref"]
+        return self.dataset[mask]["pdb_id"].tolist()
+
+    def is_ref(self, pdb_id: str) -> bool:
+        """Check if the structure is a reference structure."""
+        return self.dataset.loc[pdb_id, "is_ref"]
 
     @staticmethod
     def plot_match_ratio_heatmap(
@@ -676,6 +696,7 @@ def load(
         dirpath_data=dirpath_data,
         dirpath_pdb_raw=dirpath_pdb_raw,
         dirpath_pdb_fixed=dirpath_pdb_fixed,
+        dirpath_pdb_aligned=dirpath_pdb_aligned,
         dirpath_pdb_apo=dirpath_pdb_apo,
         dirpath_pdbqt=dirpath_pdbqt,
         dirpath_affinity=dirpath_affinity,
@@ -730,29 +751,69 @@ def _align_to_ref_structure(
 def _run_job(
     modeler: t2fpharm.Modeler,
     ligand_pharm: t2fpharm.ligand.LigandPharmacophore,
+    group_id: str,
     pdb_id: str,
+    is_ref: bool,
     job_idx: int,
     method: str,
     kwargs: dict[str, Any],
     match_max_dist: float | None,
-) -> dict[str, int | float | t2fpharm.pharmacophore.Pharmacophore | pd.DataFrame]:
+) -> dict[str, int | float | t2fpharm.pharmacophore_receptor.ReceptorPharmacophore | pd.DataFrame]:
     try:
         func = getattr(modeler, method)
-        pharm = func(**kwargs)
-        matches = pharm.match_spherical(ligand_pharm, max_distance=match_max_dist)
+        receptor_pharm = func(**kwargs)
     except Exception as e:
         raise RuntimeError(
             f"Error running job {job_idx} for PDB ID {pdb_id} with method {method}: {e}"
         ) from e
-    n_matches = matches["match"].sum()
-    n_lig_feats = len(ligand_pharm.features)
-    stats = {
+    matches, stats = _calculate_match(
+        receptor_pharm=receptor_pharm,
+        ligand_pharm=ligand_pharm,
+        match_max_dist=match_max_dist
+    )
+    summary = {
+        "group_id": group_id,
         "pdb_id": pdb_id,
+        "is_ref": is_ref,
         "method": method,
         "job_idx": job_idx,
-        "feats_receptor": len(pharm.features),
-        "feats_ligand": n_lig_feats,
-        "matches": n_matches,
-        "match_percent": 100 * n_matches / n_lig_feats,
+        "match_max_dist": match_max_dist,
+    } | stats
+    return receptor_pharm, matches, summary
+
+
+def _calculate_match(
+    receptor_pharm: t2fpharm.pharmacophore_receptor.ReceptorPharmacophore,
+    ligand_pharm: t2fpharm.ligand.LigandPharmacophore,
+    match_max_dist: float | None = None,
+) -> tuple[pd.DataFrame, dict[str, int | float]]:
+    """Calculate matches between receptor and ligand pharmacophores."""
+    rfeats = receptor_pharm.features
+    lfeats = ligand_pharm.features
+    matches = receptor_pharm.match_spherical(ligand_pharm, max_distance=match_max_dist)
+    match_count = matches["match"].sum()
+    lfeat_count_total = len(lfeats)
+    stats = {
+        "feats_receptor": len(rfeats),
+        "feats_ligand": lfeat_count_total,
+        "matches": match_count,
+        "match_percent": 100 * match_count / lfeat_count_total,
     }
-    return pharm, matches, stats
+    rtypes = rfeats["type"]
+    ltypes = lfeats["type"]
+    for feat_id in receptor_pharm.field.batch_instance_labels["feature"]:
+        rfeat_count = rtypes.eq(feat_id).sum()
+        lfeat_count = ltypes.eq(feat_id).sum()
+        feat_match_count = matches[matches["type"] == feat_id]["match"].sum()
+        stats |= {
+            f"feats_receptor_{feat_id}": rfeat_count,
+            f"feats_ligand_{feat_id}": lfeat_count,
+            f"matches_{feat_id}": np.nan if lfeat_count == 0 else feat_match_count,
+            f"match_percent_{feat_id}": (
+                np.nan if lfeat_count == 0 else 100 * feat_match_count / lfeat_count
+            )
+        }
+    return matches, stats
+
+
+_run_job_remote = ray.remote(_run_job)
