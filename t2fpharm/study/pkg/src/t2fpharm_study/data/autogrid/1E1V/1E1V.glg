@@ -54,7 +54,7 @@ Compilation parameters:  NUM_RECEPTOR_TYPES=20 NEINT=2048
  energy_lookup table has   655360 entries of size 8
         e_vdW_Hb table has   401408 entries of size 8
 Maximum number of maps that can be computed = 16 (defined by MAX_MAPS in "autocomm.h").
-This file was created at:			1:31 39" a.m., 07/09/2025
+This file was created at:			10:41 25" a.m., 07/09/2025
                    using:			"Armins-iMac.fritz.box"
 
 
@@ -64,11 +64,11 @@ Number of grid points in x-direction:	45
 Number of grid points in y-direction:	63
 Number of grid points in z-direction:	47
 
-GPF> gridfld /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1E1V/1E1V.maps.fld
+GPF> gridfld /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1E1V/1E1V.maps.fld
 
-Creating (AVS-readable) grid maps file : /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1E1V/1E1V.maps.fld
+Creating (AVS-readable) grid maps file : /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1E1V/1E1V.maps.fld
 
-Creating (AVS-readable) grid-coordinates extrema file : /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1E1V/1E1V.maps.xyz
+Creating (AVS-readable) grid-coordinates extrema file : /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1E1V/1E1V.maps.xyz
 
 GPF> spacing 0.3
 Grid Spacing :			0.300 Angstrom
@@ -3068,25 +3068,25 @@ GPF> smooth 0.5
 
 Potentials will be smoothed by: 0.500 Angstrom
 
-GPF> map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1E1V/1E1V.HD.map
+GPF> map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1E1V/1E1V.HD.map
 
-Output Grid Map 1:   /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1E1V/1E1V.HD.map
+Output Grid Map 1:   /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1E1V/1E1V.HD.map
 
-GPF> map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1E1V/1E1V.C.map
+GPF> map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1E1V/1E1V.C.map
 
-Output Grid Map 2:   /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1E1V/1E1V.C.map
+Output Grid Map 2:   /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1E1V/1E1V.C.map
 
-GPF> map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1E1V/1E1V.OA.map
+GPF> map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1E1V/1E1V.OA.map
 
-Output Grid Map 3:   /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1E1V/1E1V.OA.map
+Output Grid Map 3:   /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1E1V/1E1V.OA.map
 
-GPF> elecmap /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1E1V/1E1V.e.map
+GPF> elecmap /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1E1V/1E1V.e.map
 
-Output Electrostatic Potential Energy Grid Map: /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1E1V/1E1V.e.map
+Output Electrostatic Potential Energy Grid Map: /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1E1V/1E1V.e.map
 
-GPF> dsolvmap /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1E1V/1E1V.d.map
+GPF> dsolvmap /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1E1V/1E1V.d.map
 
-Output Desolvation Free Energy Grid Map: /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1E1V/1E1V.d.map
+Output Desolvation Free Energy Grid Map: /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1E1V/1E1V.d.map
 
 GPF> dielectric -0.1465
 Using *distance-dependent* dielectric function of Mehler and Solmajer, Prot.Eng.4, 903-910.
@@ -3698,52 +3698,52 @@ XY-plane  Z-coord   Done      Remaining       Real, User, System
 ________  ________  ________  ______________  __________________________
 
     -23     -5.185     2.1%            3.68s  Real= 0.08,  CPU= 0.08,  System= 0.00
-    -22     -4.885     4.3%            4.05s  Real= 0.09,  CPU= 0.08,  System= 0.00
+    -22     -4.885     4.3%            3.15s  Real= 0.07,  CPU= 0.07,  System= 0.00
     -21     -4.585     6.4%            3.52s  Real= 0.08,  CPU= 0.08,  System= 0.00
-    -20     -4.285     8.5%            3.87s  Real= 0.09,  CPU= 0.08,  System= 0.00
-    -19     -3.985    10.6%            3.36s  Real= 0.08,  CPU= 0.08,  System= 0.00
-    -18     -3.685    12.8%            3.28s  Real= 0.08,  CPU= 0.08,  System= 0.00
-    -17     -3.385    14.9%            3.60s  Real= 0.09,  CPU= 0.08,  System= 0.01
-    -16     -3.085    17.0%            3.51s  Real= 0.09,  CPU= 0.08,  System= 0.00
-    -15     -2.785    19.1%            3.04s  Real= 0.08,  CPU= 0.08,  System= 0.00
-    -14     -2.485    21.3%            3.33s  Real= 0.09,  CPU= 0.08,  System= 0.00
-    -13     -2.185    23.4%            2.88s  Real= 0.08,  CPU= 0.08,  System= 0.00
-    -12     -1.885    25.5%            3.15s  Real= 0.09,  CPU= 0.08,  System= 0.00
-    -11     -1.585    27.7%            2.72s  Real= 0.08,  CPU= 0.08,  System= 0.00
-    -10     -1.285    29.8%            2.64s  Real= 0.08,  CPU= 0.08,  System= 0.00
-     -9     -0.985    31.9%            2.88s  Real= 0.09,  CPU= 0.08,  System= 0.01
-     -8     -0.685    34.0%            2.79s  Real= 0.09,  CPU= 0.08,  System= 0.00
+    -20     -4.285     8.5%            3.01s  Real= 0.07,  CPU= 0.07,  System= 0.00
+    -19     -3.985    10.6%            3.36s  Real= 0.08,  CPU= 0.08,  System= 0.01
+    -18     -3.685    12.8%            3.69s  Real= 0.09,  CPU= 0.08,  System= 0.00
+    -17     -3.385    14.9%            3.20s  Real= 0.08,  CPU= 0.08,  System= 0.00
+    -16     -3.085    17.0%            2.73s  Real= 0.07,  CPU= 0.07,  System= 0.00
+    -15     -2.785    19.1%            2.66s  Real= 0.07,  CPU= 0.07,  System= 0.00
+    -14     -2.485    21.3%            2.96s  Real= 0.08,  CPU= 0.08,  System= 0.00
+    -13     -2.185    23.4%            2.52s  Real= 0.07,  CPU= 0.07,  System= 0.00
+    -12     -1.885    25.5%            2.80s  Real= 0.08,  CPU= 0.08,  System= 0.00
+    -11     -1.585    27.7%            2.72s  Real= 0.08,  CPU= 0.07,  System= 0.00
+    -10     -1.285    29.8%            2.31s  Real= 0.07,  CPU= 0.08,  System= 0.00
+     -9     -0.985    31.9%            2.56s  Real= 0.08,  CPU= 0.07,  System= 0.00
+     -8     -0.685    34.0%            2.48s  Real= 0.08,  CPU= 0.08,  System= 0.00
      -7     -0.385    36.2%            2.40s  Real= 0.08,  CPU= 0.08,  System= 0.00
-     -6     -0.085    38.3%            2.61s  Real= 0.09,  CPU= 0.08,  System= 0.00
-     -5      0.215    40.4%            2.52s  Real= 0.09,  CPU= 0.08,  System= 0.00
-     -4      0.515    42.6%            2.16s  Real= 0.08,  CPU= 0.08,  System= 0.00
-     -3      0.815    44.7%            2.34s  Real= 0.09,  CPU= 0.09,  System= 0.00
-     -2      1.115    46.8%            2.25s  Real= 0.09,  CPU= 0.08,  System= 0.00
-     -1      1.415    48.9%            2.16s  Real= 0.09,  CPU= 0.09,  System= 0.01
-      0      1.715    51.1%            2.07s  Real= 0.09,  CPU= 0.08,  System= 0.00
-      1      2.015    53.2%            1.98s  Real= 0.09,  CPU= 0.08,  System= 0.00
-      2      2.315    55.3%            1.89s  Real= 0.09,  CPU= 0.09,  System= 0.00
-      3      2.615    57.4%            1.80s  Real= 0.09,  CPU= 0.08,  System= 0.00
-      4      2.915    59.6%            1.71s  Real= 0.09,  CPU= 0.08,  System= 0.00
+     -6     -0.085    38.3%            2.32s  Real= 0.08,  CPU= 0.08,  System= 0.00
+     -5      0.215    40.4%            2.24s  Real= 0.08,  CPU= 0.08,  System= 0.00
+     -4      0.515    42.6%            2.16s  Real= 0.08,  CPU= 0.07,  System= 0.01
+     -3      0.815    44.7%            2.08s  Real= 0.08,  CPU= 0.08,  System= 0.00
+     -2      1.115    46.8%            2.00s  Real= 0.08,  CPU= 0.08,  System= 0.00
+     -1      1.415    48.9%            1.92s  Real= 0.08,  CPU= 0.07,  System= 0.00
+      0      1.715    51.1%            1.61s  Real= 0.07,  CPU= 0.08,  System= 0.00
+      1      2.015    53.2%            1.76s  Real= 0.08,  CPU= 0.08,  System= 0.00
+      2      2.315    55.3%            1.89s  Real= 0.09,  CPU= 0.08,  System= 0.00
+      3      2.615    57.4%            1.60s  Real= 0.08,  CPU= 0.08,  System= 0.00
+      4      2.915    59.6%            1.52s  Real= 0.08,  CPU= 0.08,  System= 0.00
       5      3.215    61.7%            1.44s  Real= 0.08,  CPU= 0.08,  System= 0.00
-      6      3.515    63.8%            1.53s  Real= 0.09,  CPU= 0.08,  System= 0.00
-      7      3.815    66.0%            1.44s  Real= 0.09,  CPU= 0.09,  System= 0.01
-      8      4.115    68.1%            1.20s  Real= 0.08,  CPU= 0.08,  System= 0.00
-      9      4.415    70.2%            1.26s  Real= 0.09,  CPU= 0.08,  System= 0.00
-     10      4.715    72.3%            1.17s  Real= 0.09,  CPU= 0.09,  System= 0.00
+      6      3.515    63.8%            1.36s  Real= 0.08,  CPU= 0.08,  System= 0.00
+      7      3.815    66.0%            1.44s  Real= 0.09,  CPU= 0.08,  System= 0.00
+      8      4.115    68.1%            1.50s  Real= 0.10,  CPU= 0.09,  System= 0.00
+      9      4.415    70.2%            1.26s  Real= 0.09,  CPU= 0.08,  System= 0.01
+     10      4.715    72.3%            1.17s  Real= 0.09,  CPU= 0.08,  System= 0.00
      11      5.015    74.5%            1.08s  Real= 0.09,  CPU= 0.08,  System= 0.00
-     12      5.315    76.6%            0.99s  Real= 0.09,  CPU= 0.08,  System= 0.00
+     12      5.315    76.6%            0.99s  Real= 0.09,  CPU= 0.09,  System= 0.00
      13      5.615    78.7%            0.90s  Real= 0.09,  CPU= 0.08,  System= 0.00
      14      5.915    80.9%            0.81s  Real= 0.09,  CPU= 0.08,  System= 0.00
-     15      6.215    83.0%            0.64s  Real= 0.08,  CPU= 0.09,  System= 0.00
-     16      6.515    85.1%            0.63s  Real= 0.09,  CPU= 0.08,  System= 0.00
-     17      6.815    87.2%            0.54s  Real= 0.09,  CPU= 0.08,  System= 0.00
+     15      6.215    83.0%            0.72s  Real= 0.09,  CPU= 0.08,  System= 0.00
+     16      6.515    85.1%            0.49s  Real= 0.07,  CPU= 0.08,  System= 0.00
+     17      6.815    87.2%            0.48s  Real= 0.08,  CPU= 0.08,  System= 0.01
      18      7.115    89.4%            0.40s  Real= 0.08,  CPU= 0.08,  System= 0.00
      19      7.415    91.5%            0.36s  Real= 0.09,  CPU= 0.08,  System= 0.00
-     20      7.715    93.6%            0.24s  Real= 0.08,  CPU= 0.08,  System= 0.00
-     21      8.015    95.7%            0.18s  Real= 0.09,  CPU= 0.08,  System= 0.00
-     22      8.315    97.9%            0.08s  Real= 0.08,  CPU= 0.08,  System= 0.00
-     23      8.615   100.0%            0.00s  Real= 0.09,  CPU= 0.08,  System= 0.00
+     20      7.715    93.6%            0.27s  Real= 0.09,  CPU= 0.09,  System= 0.00
+     21      8.015    95.7%            0.16s  Real= 0.08,  CPU= 0.08,  System= 0.00
+     22      8.315    97.9%            0.08s  Real= 0.08,  CPU= 0.07,  System= 0.00
+     23      8.615   100.0%            0.00s  Real= 0.07,  CPU= 0.08,  System= 0.00
 
 Grid	Atom	Minimum   	Maximum
 Map 	Type	Energy    	Energy 
@@ -3760,4 +3760,4 @@ ____	____	_____________	_____________
 
 
 autogrid4: Successful Completion.
-Real= 4.12s,  CPU= 3.83s,  System= 0.08s
+Real= 3.86s,  CPU= 3.70s,  System= 0.06s

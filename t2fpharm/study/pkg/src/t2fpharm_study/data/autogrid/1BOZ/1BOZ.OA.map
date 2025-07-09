@@ -1,5 +1,5 @@
-GRID_PARAMETER_FILE /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1BOZ/1BOZ.gpf
-GRID_DATA_FILE /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1BOZ/1BOZ.maps.fld
+GRID_PARAMETER_FILE /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1BOZ/1BOZ.gpf
+GRID_DATA_FILE /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1BOZ/1BOZ.maps.fld
 MACROMOLECULE /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/structure/5-pdbqt/1BOZ.pdbqt
 SPACING 0.300
 NELEMENTS 62 56 54
