@@ -11,9 +11,10 @@ import scipy as sp
 from scids import dataset, exception, grid
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Sequence, Any
     from jax.typing import ArrayLike, DTypeLike
     from scids.grid import Grid
+    from scids.typing import PathLike
 
 
 class Field(dataset.DataSet):
@@ -247,6 +248,20 @@ class Field(dataset.DataSet):
             constant_values=0,
         )
 
+    def to_npz(
+        self,
+        filepath: PathLike | None = None,
+        compress: bool = False,
+        kwds: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Save the field to a .npz file."""
+        kwds = kwds or {}
+        kwds |= {
+            f"grid_{key}": value for key, value in self.grid.to_dict(array_to_list=False).items()
+        }
+        return super().to_npz(filepath=filepath, kwds=kwds, data_key="tensor", compress=compress)
+
+
     def to_dict(self, dtype: DTypeLike | None = None) -> dict[str, list]:
         """Convert the field to a serializable dictionary representation.
 
@@ -346,6 +361,27 @@ def from_tensor(
         destination = tuple(range(len(axis_order)))
         tensor = jnp.moveaxis(tensor, source=tuple(axis_order), destination=destination)
     return Field(tensor=tensor, grid=grid, batch=batch)
+
+
+def from_npz(filepath: PathLike) -> Field:
+    """Load a field from a .npz file created by `Field.to_npz()`.
+
+    Parameters
+    ----------
+    filepath
+        Path to the .npz file containing the field data.
+    """
+    data = dataset.from_npz(filepath=filepath, data_key="tensor", return_dict=True)
+    return from_data(
+        grid_shape=data["grid_shape"],
+        grid_size=data["grid_size"],
+        grid_spacing=data["grid_spacing"],
+        grid_lower=data["grid_lower"],
+        grid_upper=data["grid_upper"],
+        dtype=data["dtype"],
+        batch=data["batch"],
+        tensor=data["tensor"]
+    )
 
 
 def from_data(
