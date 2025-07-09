@@ -786,7 +786,7 @@ class PointCloud(dataset.DataSet):
 
 def from_array(
     points: ArrayLike,
-    dtype: DTypeLike,
+    dtype: DTypeLike | None = None,
     batch: Sequence[str | tuple[str, Sequence[str]]] | None = None,
 ) -> PointCloud:
     """Create a point cloud from an array of values.
