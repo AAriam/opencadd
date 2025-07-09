@@ -205,8 +205,8 @@ def from_npz(
     """Convert a .npz file to a dictionary."""
     scalar_keys = scalar_keys or []
     npz = np.load(filepath, allow_pickle=False)
-    out = {}
     batch = []
+    out = {"batch": batch}
     for key, value in npz.items():
         if key == "dtype":
             out["dtype"] = value.item()
