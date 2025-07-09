@@ -5,10 +5,11 @@ import jax
 # See: https://docs.jax.dev/en/latest/notebooks/Common_Gotchas_in_JAX.html#double-64bit-precision
 jax.config.update("jax_enable_x64", True)
 
-from scids import field, grid, pointcloud, volume
+from scids import dataset, field, grid, pointcloud, volume
 
 
 __all__ = [
+    "dataset",
     "field",
     "grid",
     "pointcloud",
