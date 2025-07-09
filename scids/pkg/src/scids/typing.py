@@ -1,5 +1,6 @@
 from functools import partial
 from typing import TypeAlias, Annotated, Sequence
+from pathlib import Path
 
 import jax
 import numpy as np
@@ -21,6 +22,8 @@ __all__ = [
 
 typecheck = beartype
 atypecheck = partial(jaxtyped, typechecker=beartype)
+
+PathLike: TypeAlias = str | Path
 
 Array: TypeAlias = jax.Array | np.ndarray
 JAXArray: TypeAlias = jax.Array
