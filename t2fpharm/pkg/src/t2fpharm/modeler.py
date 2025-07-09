@@ -210,7 +210,7 @@ class Modeler:
             field=self.field,
             pocket=self.pocket,
             receptor=self.receptor,
-            args=args,
+            args=args.model_dump(),
         )
 
     def largest_peaks(
@@ -283,7 +283,7 @@ class Modeler:
             field=self.field,
             pocket=self.pocket,
             receptor=self.receptor,
-            args=args,
+            args=args.model_dump(),
         )
 
 
