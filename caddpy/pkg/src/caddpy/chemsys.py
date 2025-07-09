@@ -18,6 +18,7 @@ import pandas as pd
 import nglview as ngl
 from openbabel import pybel
 import scicoda
+import scids.dataset
 import scifile
 import scids
 from scids.typing import NonNegativeFloat
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
     from scids.grid import Grid
     from scifile.pdb import PDBFileRecords, PDBFileSections
     from numpy.typing import ArrayLike
+    from scids.typing import PathLike
 
 
 class ChemicalSystem:
@@ -284,6 +286,23 @@ class ChemicalSystem:
         if single_file:
             return pdbqts[0]
         return pdbqts
+
+    def to_npz(self, filepath: PathLike | None = None, compress: bool = False) -> dict[str, Any]:
+        """Save the system to a .npz file.
+
+        Parameters
+        ----------
+        filepath
+            Path to the .npz file to save the system data.
+        """
+        kwds = self.trajectory.to_npz()
+        kwds["atoms"] = self.composition.atoms.to_records(index=False)
+        if filepath is not None:
+            if compress:
+                np.savez_compressed(filepath, **kwds, allow_pickle=False)
+            else:
+                np.savez(filepath, **kwds, allow_pickle=False)
+        return kwds
 
     def new(
         self,
@@ -579,6 +598,15 @@ def from_pdb(files: scifile.pdb.PDBFile | Path | bytes | str | ArrayLike):
     return ChemicalSystem(
         composition=ChemicalComposition(first_atom),
         trajectory=scids.pointcloud.from_array(trajectory)
+    )
+
+
+def from_npz(filepath: PathLike | str) -> ChemicalSystem:
+    """Create a ChemicalSystem from a .npz file."""
+    data = scids.dataset.from_npz(filepath=filepath, data_key="points", return_dict=True)
+    return ChemicalSystem(
+        composition=ChemicalComposition.from_records(data["atoms"]),
+        trajectory=scids.pointcloud.from_array(points=data["points"], batch=data["batch"])
     )
 
 
