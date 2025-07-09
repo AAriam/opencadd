@@ -16,7 +16,7 @@ from scids.grid import Grid
 from scids.field import Field
 from scids.typing import (
     atypecheck, Array, JAXArray, Num, Shaped, Is,
-    Annotated, PositiveInt, PositiveFloat, PositiveInts1D, NonNegativeFloat
+    Annotated, PositiveInt, PositiveFloat, PositiveInts1D, NonNegativeFloat, PathLike
 )
 from scids.protocol import CNNClusteringConfig
 
@@ -744,6 +744,10 @@ class PointCloud(dataset.DataSet):
             all_labels = all_labels.reshape(-1)
         return all_labels
 
+    def to_npz(self, filepath: PathLike | None = None, compress: bool = False) -> dict[str, Any]:
+        """Save the point cloud to a .npz file."""
+        return super()._to_npz(filepath=filepath, data_key="points", compress=compress)
+
     def _select_instances(self, instance_selection: Any, param_name: str = "instance_selection"):
         instances = self._data[instance_selection]
         if instances.ndim < 2:
@@ -760,7 +764,7 @@ class PointCloud(dataset.DataSet):
             )
         return instances
 
-    def rmsd(self, points, weights=None):
+    def _rmsd(self, points, weights=None):
         if weights is not None:
             weights_arr = jnp.asarray(weights)
             if weights_arr.ndim == 1:
@@ -782,6 +786,7 @@ class PointCloud(dataset.DataSet):
 
 def from_array(
     points: ArrayLike,
+    dtype: DTypeLike,
     batch: Sequence[str | tuple[str, Sequence[str]]] | None = None,
 ) -> PointCloud:
     """Create a point cloud from an array of values.
@@ -805,4 +810,16 @@ def from_array(
           and the second element is a sequence of strings
           representing the labels for each instance along that axis.
     """
-    return PointCloud(points=jnp.asarray(points), batch=batch)
+    return PointCloud(points=jnp.asarray(points, dtype=dtype), batch=batch)
+
+
+def from_npz(filepath: PathLike) -> PointCloud:
+    """Load a point cloud from a .npz file.
+
+    Parameters
+    ----------
+    filepath
+        Path to the .npz file containing the point cloud data.
+    """
+    data = dataset.from_npz(filepath=filepath, data_key="points", return_dict=True)
+    return PointCloud(points=data["points"], batch=data["batch"])
