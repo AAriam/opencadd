@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Sequence
 import scids
 import caddpy
 import jax.numpy as jnp
-from scids.field import Field
+from scids.field import Field, from_npz
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 __all__ = [
     "from_data",
     "from_autogrid",
+    "from_npz",
     "Field",
 ]
 
