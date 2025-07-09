@@ -162,12 +162,12 @@ class PointCloud(dataset.DataSet):
         instance_selection: Any = None,
         error_tolerance: NonNegativeFloat = 0,
     ) -> Field:
-        """Create a Toxel volume from the point cloud.
+        """Create a voxel representation of the point cloud.
 
         Parameters
         ----------
         grid
-            Grid to use for the Toxel volume.
+            Grid to use for the voxel volume.
             If a `Grid` object is provided, it is used directly.
             Otherwise, a float is interpreted as the spacing
             between grid points in all dimensions,
@@ -184,6 +184,23 @@ class PointCloud(dataset.DataSet):
             If `None`, the padding is set to the maximum radius
             of the points in the point cloud plus one spacing,
             guaranteeing that all outermost toxels are unoccupied.
+        instance_selection
+            Any array indexing object to select a subset of instances.
+            By default, all instances are considered.
+            This only has an effect when `self.batch_ndim > 0`.
+        error_tolerance
+            Error tolerance for the distance calculations.
+            This is only used when all points have the same radius,
+            otherwise it is ignored.
+
+        Returns
+        -------
+        An integer field representing the volume voxels,
+        where 0 indicates an unoccupied voxel.
+        Occupied voxels are represented by positive integers
+        that correspond to the 1-based index of the point
+        in the point cloud that occupies the voxel,
+        i.e., the first point in the point cloud is represented by 1.
         """
         single_radius = any(np.issubdtype(type(point_radii), scalar_type) for scalar_type in (np.integer, np.floating))
         if single_radius:
