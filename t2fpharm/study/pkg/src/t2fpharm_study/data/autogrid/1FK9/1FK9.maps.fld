@@ -5,22 +5,22 @@
 # Created by autogrid4.
 #
 #SPACING 0.300
-#NELEMENTS 50 44 52
-#CENTER 0.946 -36.768 20.880
-#MACROMOLECULE /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/structure/4-pdbqt/1FK9.pdbqt
-#GRID_PARAMETER_FILE /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1FK9/1FK9.gpf
+#NELEMENTS 40 52 52
+#CENTER 143.661 -24.810 73.084
+#MACROMOLECULE /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/structure/5-pdbqt/1FK9.pdbqt
+#GRID_PARAMETER_FILE /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1FK9/1FK9.gpf
 #
 ndim=3			# number of dimensions in the field
-dim1=51			# number of x-elements
-dim2=45			# number of y-elements
+dim1=41			# number of x-elements
+dim2=53			# number of y-elements
 dim3=53			# number of z-elements
 nspace=3		# number of physical coordinates per point
 veclen=5		# number of affinity values at each point
 data=float		# data type (byte, integer, float, double)
 field=uniform		# field type (uniform, rectilinear, irregular)
-coord 1 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1FK9/1FK9.maps.xyz filetype=ascii offset=0
-coord 2 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1FK9/1FK9.maps.xyz filetype=ascii offset=2
-coord 3 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1FK9/1FK9.maps.xyz filetype=ascii offset=4
+coord 1 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1FK9/1FK9.maps.xyz filetype=ascii offset=0
+coord 2 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1FK9/1FK9.maps.xyz filetype=ascii offset=2
+coord 3 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1FK9/1FK9.maps.xyz filetype=ascii offset=4
 label=HD-affinity	# component label for variable 1
 label=C-affinity	# component label for variable 2
 label=OA-affinity	# component label for variable 3
@@ -29,8 +29,8 @@ label=Desolvation	# component label for variable 4
 #
 # location of affinity grid files and how to read them
 #
-variable 1 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1FK9/1FK9.HD.map filetype=ascii skip=6
-variable 2 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1FK9/1FK9.C.map filetype=ascii skip=6
-variable 3 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1FK9/1FK9.OA.map filetype=ascii skip=6
-variable 4 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1FK9/1FK9.e.map filetype=ascii skip=6
-variable 5 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1FK9/1FK9.d.map filetype=ascii skip=6
+variable 1 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1FK9/1FK9.HD.map filetype=ascii skip=6
+variable 2 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1FK9/1FK9.C.map filetype=ascii skip=6
+variable 3 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1FK9/1FK9.OA.map filetype=ascii skip=6
+variable 4 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1FK9/1FK9.e.map filetype=ascii skip=6
+variable 5 file=/Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1FK9/1FK9.d.map filetype=ascii skip=6

@@ -1,14 +1,14 @@
-npts 74 50 56
-gridfld /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1FVV/1FVV.maps.fld
+npts 62 70 50
+gridfld /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1FVV/1FVV.maps.fld
 spacing 0.3
-receptor_types N HD C OA S A NA
+receptor_types NA HD C OA S N A
 ligand_types HD C OA
-receptor /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/structure/4-pdbqt/1FVV.pdbqt
-gridcenter -9.893999791145328 208.48949737548827 114.1254981994629
+receptor /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/structure/5-pdbqt/1FVV.pdbqt
+gridcenter 2.2785001516342174 26.055999183654784 7.655999779701234
 smooth 0.5
-map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1FVV/1FVV.HD.map
-map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1FVV/1FVV.C.map
-map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1FVV/1FVV.OA.map
-elecmap /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1FVV/1FVV.e.map
-dsolvmap /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1FVV/1FVV.d.map
+map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1FVV/1FVV.HD.map
+map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1FVV/1FVV.C.map
+map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1FVV/1FVV.OA.map
+elecmap /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1FVV/1FVV.e.map
+dsolvmap /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/notebooks/structure/autogrid/1FVV/1FVV.d.map
 dielectric -0.1465

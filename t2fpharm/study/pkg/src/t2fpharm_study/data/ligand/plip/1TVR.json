@@ -4,7 +4,7 @@
         "l_res_name":"TB9",
         "l_res_seq":600,
         "l_chain_id":"A",
-        "l_serial":16253,
+        "l_serial":9154,
         "l_type":"Nam",
         "l_position":[
             141.567,
@@ -24,13 +24,13 @@
         "r_is_d":false,
         "is_sidechain":false,
         "h_position":[
-            140.951,
-            -26.747,
-            70.6
+            140.787,
+            -26.654,
+            70.683
         ],
-        "dist_a_h":2.1195240032,
+        "dist_a_h":2.1107936896,
         "dist_a_d":2.9997231539,
-        "angle":128.5263424801,
+        "angle":129.1070829556,
         "dist":null
     },
     {
@@ -38,7 +38,7 @@
         "l_res_name":"TB9",
         "l_res_seq":600,
         "l_chain_id":"A",
-        "l_serial":16286,
+        "l_serial":9187,
         "l_type":null,
         "l_position":[
             142.644,
@@ -68,7 +68,7 @@
         "l_res_name":"TB9",
         "l_res_seq":600,
         "l_chain_id":"A",
-        "l_serial":16269,
+        "l_serial":9170,
         "l_type":null,
         "l_position":[
             144.239,
@@ -98,7 +98,7 @@
         "l_res_name":"TB9",
         "l_res_seq":600,
         "l_chain_id":"A",
-        "l_serial":16276,
+        "l_serial":9177,
         "l_type":null,
         "l_position":[
             146.652,
@@ -128,7 +128,7 @@
         "l_res_name":"TB9",
         "l_res_seq":600,
         "l_chain_id":"A",
-        "l_serial":16276,
+        "l_serial":9177,
         "l_type":null,
         "l_position":[
             146.652,
@@ -158,7 +158,7 @@
         "l_res_name":"TB9",
         "l_res_seq":600,
         "l_chain_id":"A",
-        "l_serial":16283,
+        "l_serial":9184,
         "l_type":null,
         "l_position":[
             144.5,
@@ -188,7 +188,7 @@
         "l_res_name":"TB9",
         "l_res_seq":600,
         "l_chain_id":"A",
-        "l_serial":16290,
+        "l_serial":9191,
         "l_type":null,
         "l_position":[
             145.354,
@@ -218,7 +218,7 @@
         "l_res_name":"TB9",
         "l_res_seq":600,
         "l_chain_id":"A",
-        "l_serial":16276,
+        "l_serial":9177,
         "l_type":null,
         "l_position":[
             146.652,
@@ -248,7 +248,7 @@
         "l_res_name":"TB9",
         "l_res_seq":600,
         "l_chain_id":"A",
-        "l_serial":16290,
+        "l_serial":9191,
         "l_type":null,
         "l_position":[
             145.354,
@@ -278,7 +278,7 @@
         "l_res_name":"TB9",
         "l_res_seq":600,
         "l_chain_id":"A",
-        "l_serial":16290,
+        "l_serial":9191,
         "l_type":null,
         "l_position":[
             145.354,
@@ -308,7 +308,7 @@
         "l_res_name":"TB9",
         "l_res_seq":600,
         "l_chain_id":"A",
-        "l_serial":16286,
+        "l_serial":9187,
         "l_type":null,
         "l_position":[
             142.644,
@@ -338,7 +338,7 @@
         "l_res_name":"TB9",
         "l_res_seq":600,
         "l_chain_id":"A",
-        "l_serial":16274,
+        "l_serial":9175,
         "l_type":null,
         "l_position":[
             141.83,

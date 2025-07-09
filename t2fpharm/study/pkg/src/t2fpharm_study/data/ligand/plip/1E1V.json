@@ -7,9 +7,9 @@
         "l_serial":4856,
         "l_type":"N2",
         "l_position":[
-            2.39,
-            31.17,
-            6.609
+            2.32,
+            30.045,
+            6.483
         ],
         "r_res_name":"LEU",
         "r_res_seq":83,
@@ -17,20 +17,20 @@
         "r_serial":1359,
         "r_type":"Nam",
         "r_position":[
-            4.044,
-            33.625,
-            5.65
+            4.053,
+            32.461,
+            5.565
         ],
         "r_is_d":true,
         "is_sidechain":false,
         "h_position":[
-            3.294,
-            32.956,
-            6.265
+            3.312,
+            31.672,
+            6.03
         ],
-        "dist_a_h":2.031095271,
-        "dist_a_d":3.111659043,
-        "angle":150.5731584029,
+        "dist_a_h":1.9586735307,
+        "dist_a_d":3.1117630051,
+        "angle":165.058412056,
         "dist":null
     },
     {
@@ -41,9 +41,9 @@
         "l_serial":4864,
         "l_type":"N2",
         "l_position":[
-            -0.292,
-            31.001,
-            8.618
+            -0.414,
+            29.939,
+            8.426
         ],
         "r_res_name":"LYS",
         "r_res_seq":33,
@@ -51,20 +51,20 @@
         "r_serial":534,
         "r_type":"N3+",
         "r_position":[
-            -2.801,
-            29.707,
-            10.784
+            -3.005,
+            28.704,
+            10.529
         ],
         "r_is_d":true,
         "is_sidechain":true,
         "h_position":[
-            -2.277,
-            30.767,
-            10.89
+            -2.534,
+            29.818,
+            10.51
         ],
-        "dist_a_h":3.0260477524,
-        "dist_a_d":3.5582401549,
-        "angle":106.9500996418,
+        "dist_a_h":2.9752473847,
+        "dist_a_d":3.5582460567,
+        "angle":109.0203692197,
         "dist":null
     },
     {
@@ -75,9 +75,9 @@
         "l_serial":3,
         "l_type":null,
         "l_position":[
-            -13.171,
-            34.012,
-            -3.539
+            -12.917,
+            33.235,
+            -4.045
         ],
         "r_res_name":"ASN",
         "r_res_seq":3,
@@ -85,9 +85,9 @@
         "r_serial":45,
         "r_type":null,
         "r_position":[
-            -10.852,
-            35.508,
-            -5.378
+            -10.52,
+            34.676,
+            -5.827
         ],
         "r_is_d":null,
         "is_sidechain":null,
@@ -95,7 +95,7 @@
         "dist_a_h":null,
         "dist_a_d":null,
         "angle":null,
-        "dist":3.3162777326
+        "dist":3.3162650678
     },
     {
         "type":"hydrophobic",
@@ -105,9 +105,9 @@
         "l_serial":4883,
         "l_type":null,
         "l_position":[
-            1.364,
-            23.999,
-            11.171
+            1.018,
+            22.902,
+            11.02
         ],
         "r_res_name":"GLN",
         "r_res_seq":131,
@@ -115,9 +115,9 @@
         "r_serial":2161,
         "r_type":null,
         "r_position":[
-            2.693,
-            24.499,
-            14.844
+            2.267,
+            23.375,
+            14.724
         ],
         "r_is_d":null,
         "is_sidechain":null,
@@ -125,7 +125,7 @@
         "dist_a_h":null,
         "dist_a_d":null,
         "angle":null,
-        "dist":3.9379144226
+        "dist":3.9374288565
     },
     {
         "type":"hydrophobic",
@@ -135,9 +135,9 @@
         "l_serial":4874,
         "l_type":null,
         "l_position":[
-            -0.223,
-            25.57,
-            9.57
+            -0.493,
+            24.508,
+            9.38
         ],
         "r_res_name":"VAL",
         "r_res_seq":18,
@@ -145,9 +145,9 @@
         "r_serial":283,
         "r_type":null,
         "r_position":[
-            -3.523,
-            26.06,
-            8.224
+            -3.747,
+            25.073,
+            7.953
         ],
         "r_is_d":null,
         "is_sidechain":null,
@@ -155,6 +155,6 @@
         "dist_a_h":null,
         "dist_a_d":null,
         "angle":null,
-        "dist":3.5974735579
+        "dist":3.5977868197
     }
 ]
