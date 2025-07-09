@@ -189,3 +189,16 @@ class Pocket(Field):
         }
         dictionary.pop("dtype")
         return dictionary
+
+    def to_npz(
+        self,
+        filepath: str | None = None,
+        compress: bool = False,
+    ) -> dict[str, Any]:
+        """Save the pocket to a .npz file."""
+        kwds = {"pocket_atom_serials": self._pocket_atom_serials} if self._pocket_atom_serials is not None else {}
+        return super().to_npz(
+            filepath=filepath,
+            kwds=kwds,
+            compress=compress,
+        )
