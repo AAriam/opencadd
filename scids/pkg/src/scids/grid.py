@@ -355,7 +355,7 @@ class Grid:
         # Threshold against (squared) physical radius
         return dist2 <= (radius ** 2)
 
-    def to_dict(self) -> dict[str, list[int] | list[float]]:
+    def to_dict(self, array_to_list: bool = True) -> dict[str, list[int] | list[float]]:
         """Convert the grid to a serializable dictionary representation.
 
         The dictionary can be used to recreate the `Grid` object
@@ -371,11 +371,14 @@ class Grid:
         - "upper": upper bounds of the grid as a list of floats.
         """
         return {
-            "shape": self.shape.tolist(),
-            "size": self.size.tolist(),
-            "spacing": self.spacings.tolist(),
-            "lower": self.lower_bounds.tolist(),
-            "upper": self.upper_bounds.tolist(),
+            k: v.tolist() if array_to_list else v
+            for k, v in (
+                ("shape", self.shape),
+                ("size", self.size),
+                ("spacing", self.spacings),
+                ("lower", self.lower_bounds),
+                ("upper", self.upper_bounds),
+            )
         }
 
     def __eq__(self, other: object) -> bool:
