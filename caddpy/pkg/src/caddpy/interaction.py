@@ -16,6 +16,8 @@ import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot
 
+from caddpy.typing import ArrayLike
+
 
 INTERACTION_TYPES = (
     "hbond",
@@ -46,7 +48,8 @@ _ARRAY_COLUMNS = [
 class ProteinLigandInteractions:
     """Protein-ligand interactions.
 
-    This class contains all interactions between a protein and a ligand, as detected by PLIP.
+    This class contains all interactions
+    between a protein and a ligand, as detected by PLIP.
     It provides properties to access different types of interactions
     and a method to visualize them using NGLView.
     """
@@ -272,7 +275,7 @@ class ProteinLigandInteractions:
 
 
 def from_pdb(
-    files: str | bytes | Path | Sequence,
+    files: str | bytes | Path | ArrayLike,
     ligands: Sequence[tuple[str, int | str, int]] | None = None,
 ) -> ProteinLigandInteractions:
     """Calculate protein-ligand interactions in PDB file(s).
