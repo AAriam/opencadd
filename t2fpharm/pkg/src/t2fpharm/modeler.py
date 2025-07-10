@@ -150,7 +150,6 @@ class Modeler:
             max_members = min_members * 5 if isinstance(min_members, int) else [
                 min_member * 5 for min_member in min_members
             ]
-
         args = _CNNArgs(
             field_count=self.field.tensor.shape[0],
             max_value=max_value,
@@ -196,12 +195,12 @@ class Modeler:
                 features.append(
                     {
                         "instance": idx[1:] or 0,
-                        "type": self.field.batch_instance_labels["feature"][field_idx],
                         "label": cluster_label,
-                        "n_points": n_points,
-                        "volume": volume,
-                        "radius": (volume / ((4/3) * np.pi)) ** (1/3),
+                        "type": self.field.batch_instance_labels["feature"][field_idx],
                         "center": point_coordinates.mean(axis=0),
+                        "radius": (volume / ((4/3) * np.pi)) ** (1/3),
+                        "volume": volume,
+                        "n_points": n_points,
                         "points": point_coordinates,
                     }
                 )
@@ -210,19 +209,20 @@ class Modeler:
                 features,
                 columns=[
                     "instance",
-                    "type",
                     "label",
-                    "n_points",
-                    "volume",
-                    "radius",
+                    "type",
                     "center",
+                    "radius",
+                    "volume",
+                    "n_points",
                     "points"
                 ]
             ),
+            feature_types=set(self.field.batch_instance_labels["feature"]),
+            inputs=args.model_dump(),
             field=self.field,
             pocket=self.pocket,
             receptor=self.receptor,
-            args=args.model_dump(),
         )
 
     def largest_peaks(
@@ -284,18 +284,19 @@ class Modeler:
                 features.append(
                     {
                         "instance": instance_idx or 0,
-                        "type": self.field.batch_instance_labels["feature"][field_idx],
                         "label": peak_idx,
-                        "radius": args.min_distance[field_idx] or self.field.grid.spacings[0] / 2,
+                        "type": self.field.batch_instance_labels["feature"][field_idx],
                         "center": peak_coordinates,
+                        "radius": args.min_distance[field_idx] or self.field.grid.spacings[0] / 2,
                     }
                 )
         return ReceptorPharmacophore(
             features=pd.DataFrame(features),
+            feature_types=set(self.field.batch_instance_labels["feature"]),
+            inputs=args.model_dump(),
             field=self.field,
             pocket=self.pocket,
             receptor=self.receptor,
-            args=args.model_dump(),
         )
 
 
