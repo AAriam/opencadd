@@ -164,11 +164,23 @@ class Modeler:
             jnp.array(args.max_value).reshape(-1, *(1,) * (self.field.tensor.ndim - 1)),
         )
         final_masks = field_masks if self.pocket is None else jnp.logical_and(field_masks, self.pocket.tensor)
+
+        # For some reason, the line `point_coordinates = points[labels == cluster_label]`
+        # inside the nested (second) loop below was silently causing a segmentation fault.
+        # This was not happening immediately at the first iteration, but after a few iterations.
+        # This was happening when `points` was a JAX array and `labels` was a NumPy array.
+        # Making `labels` a JAX array did not solve the issue,
+        # but making `points` a NumPy array did.
+        # We thus convert `final_masks` and `grid_coordinates` to NumPy arrays
+        # before entering the loop, so that `points` is always a NumPy array.
+        final_masks = np.asarray(final_masks)
+        grid_coordinates = np.asarray(self.field.grid.coordinates)
+
         features = []
         for idx in np.ndindex(tuple(self.field.batch_shape)):
             field_idx = idx[0]
             mask = final_masks[idx]
-            points = self.field.grid.coordinates[mask]
+            points = grid_coordinates[mask]
             labels = scids.pointcloud.from_array(points).cluster_cnn(
                 max_distance=args.max_distance[field_idx],
                 min_neighbors=args.min_neighbors[field_idx],
