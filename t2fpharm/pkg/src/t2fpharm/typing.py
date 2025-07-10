@@ -2,6 +2,7 @@ from typing import Annotated
 
 import jax.numpy as jnp
 from jax.typing import ArrayLike
+import pandas as pd
 from pydantic import Field
 
 
@@ -28,6 +29,8 @@ PositiveFloatTuple = Annotated[
         description="A tuple of positive float values."
     )
 ]
+
+DataFrameLike = pd.DataFrame | list[dict[str, ArrayLike]]
 
 
 def is_real_number(value) -> bool:
