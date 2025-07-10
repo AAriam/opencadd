@@ -11,8 +11,8 @@ from scids.functional.dist import points_with_min_dist
 
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
-from t2fpharm.receptor import Receptor
-from t2fpharm.pharmacophore_receptor import ReceptorPharmacophore
+from t2fpharm.system import System
+from t2fpharm.pharm import Pharmacophore
 from t2fpharm.typing import PositiveInt, PositiveFloat, PositiveIntTuple, PositiveFloatTuple, is_real_number, is_integer
 
 
@@ -21,7 +21,7 @@ class Modeler:
         self,
         field: Field,
         pocket: Pocket | None = None,
-        receptor: Receptor | None = None,
+        receptor: System | None = None,
     ):
         if not isinstance(field, Field):
             raise TypeError(f"Expected Field object, got {type(field).__name__}.")
@@ -56,7 +56,7 @@ class Modeler:
         return self._pocket
 
     @property
-    def receptor(self) -> Receptor | None:
+    def receptor(self) -> System | None:
         return self._receptor
 
     def cnn(
@@ -204,7 +204,7 @@ class Modeler:
                         "points": point_coordinates,
                     }
                 )
-        return ReceptorPharmacophore(
+        return Pharmacophore(
             features=pd.DataFrame(
                 features,
                 columns=[
@@ -290,7 +290,7 @@ class Modeler:
                         "radius": args.min_distance[field_idx] or self.field.grid.spacings[0] / 2,
                     }
                 )
-        return ReceptorPharmacophore(
+        return Pharmacophore(
             features=pd.DataFrame(features),
             feature_types=set(self.field.batch_instance_labels["feature"]),
             inputs=args.model_dump(),
