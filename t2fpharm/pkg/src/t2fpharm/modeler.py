@@ -219,10 +219,10 @@ class Modeler:
                 ]
             ),
             feature_types=set(self.field.batch_instance_labels["feature"]),
-            inputs=args.model_dump(),
-            field=self.field,
+            inputs=args.model_dump(exclude={"field_count"}),
+            system=self.receptor,
             pocket=self.pocket,
-            receptor=self.receptor,
+            field=self.field,
         )
 
     def largest_peaks(
@@ -293,10 +293,10 @@ class Modeler:
         return Pharmacophore(
             features=pd.DataFrame(features),
             feature_types=set(self.field.batch_instance_labels["feature"]),
-            inputs=args.model_dump(),
-            field=self.field,
+            inputs=args.model_dump(exclude={"field_count"}),
+            system=self.receptor,
             pocket=self.pocket,
-            receptor=self.receptor,
+            field=self.field,
         )
 
 
