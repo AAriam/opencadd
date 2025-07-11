@@ -126,6 +126,7 @@ def from_ligand(
     ligand_mask: ArrayLike,
     ligand_radii: ArrayLike | None = None,
     ligand_radii_offset: float | Sequence[float] = 2.5,
+    erosion_radius: float = 0,
     grid: float | Sequence[float] | Grid = 0.3,
 ) -> Pocket:
     """Create a pocket from a ligand."""
@@ -150,6 +151,12 @@ def from_ligand(
     empty_voxels = jnp.logical_not(receptor_volume.tensor)
     ligand_voxels = ligand_volume.tensor
     pocket_voxels = jnp.logical_and(ligand_voxels, empty_voxels)
+    if erosion_radius > 0:
+        pocket_voxels = sp.ndimage.binary_erosion(
+            pocket_voxels,
+            structure=ligand_volume.grid.footprint_spherical(radius=erosion_radius),
+            border_value=0,
+        )
     labels, _ = sp.ndimage.label(pocket_voxels)
     label_set = jnp.unique(labels)
     num_points_per_label = jnp.bincount(labels.ravel())
