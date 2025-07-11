@@ -344,7 +344,7 @@ def from_pdb(
             rows = func(interaction_sets)
             if is_multifile:
                 idx = file_idx[0] if len(file_idx) == 1 else file_idx
-                rows = [{"idx": idx, **row} for row in rows]
+                rows = [{"instance": idx, **row} for row in rows]
             all_rows.extend(rows)
 
     df = pd.DataFrame(all_rows).convert_dtypes()
