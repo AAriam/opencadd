@@ -195,8 +195,8 @@ class Modeler:
                 features.append(
                     {
                         "instance": idx[1:] or 0,
-                        "label": cluster_label,
                         "type": self.field.batch_instance_labels["feature"][field_idx],
+                        "label": cluster_label,
                         "center": point_coordinates.mean(axis=0),
                         "radius": (volume / ((4/3) * np.pi)) ** (1/3),
                         "volume": volume,
@@ -209,8 +209,8 @@ class Modeler:
                 features,
                 columns=[
                     "instance",
-                    "label",
                     "type",
+                    "label",
                     "center",
                     "radius",
                     "volume",
@@ -284,8 +284,8 @@ class Modeler:
                 features.append(
                     {
                         "instance": instance_idx or 0,
-                        "label": peak_idx,
                         "type": self.field.batch_instance_labels["feature"][field_idx],
+                        "label": peak_idx,
                         "center": peak_coordinates,
                         "radius": args.min_distance[field_idx] or self.field.grid.spacings[0] / 2,
                     }
