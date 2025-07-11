@@ -1,4 +1,3 @@
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 import shutil
 from typing import Any, Sequence, Literal, TypeAlias
@@ -8,7 +7,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-import t2fpharm.pharmacophore_receptor
 from tqdm.auto import tqdm
 import ray
 
@@ -20,7 +18,6 @@ import scifile
 import caddpy
 
 import t2fpharm
-
 
 
 PDBID: TypeAlias = str
@@ -45,13 +42,14 @@ class Manager:
         dirpath_field: Path | str = "field",
         dirpath_ligand_plip: Path | str = "ligand/plip",
         dirpath_ligand_features: Path | str = "ligand/features",
+        dirpath_results: Path | str = "results",
     ):
         self._data = dataset
         self.pocket_params = pocket_inputs
         self.field_params = field_inputs
         self._group_color = group_color
         self.dirpath_data = Path(dirpath_data)
-        self._dirpath = {
+        self._path = {
             "pdb_raw": dirpath_pdb_raw,
             "pdb_fixed": dirpath_pdb_fixed,
             "pdb_aligned": dirpath_pdb_aligned,
@@ -63,6 +61,11 @@ class Manager:
             "field": dirpath_field,
             "ligand_plip": dirpath_ligand_plip,
             "ligand_features": dirpath_ligand_features,
+            "results_job_inputs": f"{dirpath_results}/jobs",
+            "results_summary": f"{dirpath_results}/summary",
+            "results_pharm": f"{dirpath_results}/pharmacophore",
+            "results_matches": f"{dirpath_results}/matches",
+            "results_matches_ref": f"{dirpath_results}/matches_ref",
         }
         self._file_ext = {
             "pdb_raw": "pdb",
@@ -71,10 +74,15 @@ class Manager:
             "pdb_apo": "pdb",
             "pdbqt": "pdbqt",
             "affinity": "json",
-            "pocket": "yaml",
-            "field": "json",
+            "pocket": "npz",
+            "field": "npz",
             "ligand_plip": "json",
             "ligand_features": "json",
+            "results_job_inputs": "json",
+            "results_summary": "json",
+            "results_pharm": "json",
+            "results_matches": "json",
+            "results_matches_ref": "json",
         }
         self._pdb = None
         self._cache_enabled = True
@@ -178,7 +186,12 @@ class Manager:
         self._pdb = scifile.pdb.PDBDataset(**styled_params)
         return self._pdb
 
-    def load(self):
+    def load(
+        self,
+        pdb_ids: Sequence[PDBID] | None = None,
+        pdb_raw: bool = False,
+        pdbqt: bool = False,
+    ):
         self.caching(enabled=True)
         for _, entry in tqdm(
             self.dataset.iterrows(),
@@ -187,15 +200,19 @@ class Manager:
             unit="job",
         ):
             pdb_id = entry["pdb_id"]
-            self.pdb_raw(pdb_id)
+            if pdb_ids is not None and pdb_id not in pdb_ids:
+                continue
             self.complex(pdb_id)
             self.receptor(pdb_id)
-            self.pdbqt(pdb_id)
             self.pocket(pdb_id)
             self.field(pdb_id)
             self.modeler(pdb_id)
             self.ligand_pharmacophore(pdb_id)
             self.affinity(pdb_id)
+            if pdb_raw:
+                self.pdb_raw(pdb_id)
+            if pdbqt:
+                self.pdbqt(pdb_id)
         return
 
     def caching(self, enabled: bool = True):
@@ -206,10 +223,14 @@ class Manager:
         return
 
     def run(self, jobs: Sequence[dict[str, Any]]):
-        # Prepare jobs
-        full_jobs = []
+        # Enable caching to avoid recomputing heavy objects during modeler creation
         caching_was_enabled = self._cache_enabled
         self.caching(enabled=True)
+
+        # Prepare jobs
+        ligand_pharms: dict[PDBID, t2fpharm.pharm_ligand.LigandPharmacophore] = {}
+        futures = []
+        ray.init(ignore_reinit_error=True)
         for _, entry in tqdm(
             self.dataset.iterrows(),
             total=len(self.dataset),
@@ -217,58 +238,84 @@ class Manager:
             unit="job",
         ):
             pdb_id = entry["pdb_id"]
-            modeler = self.modeler(pdb_id)
             ligand_pharm = self.ligand_pharmacophore(pdb_id)
+            ligand_pharms[pdb_id] = ligand_pharm
             if not caching_was_enabled:
                 self._cache = {}
             for job_idx, job in enumerate(jobs):
                 job_inputs = job | {
                     "pdb_id": pdb_id,
                     "job_idx": job_idx,
-                    "modeler": modeler,
-                    "ligand_pharm": ligand_pharm,
+                    "modeler": ray.put(self.modeler(pdb_id)),
+                    "ligand_pharm": ray.put(ligand_pharm),
                 }
-                full_jobs.append(job_inputs)
+                remote_job = _run_job_remote.remote(
+                    **job_inputs,
+                    filepath_features=str(self.path("results_pharm", pdb_id=pdb_id, job_idx=job_idx)),
+                    filepath_matches=str(self.path("results_matches", pdb_id=pdb_id, job_idx=job_idx)),
+                    return_pharm=False,
+                    return_matches=False,
+                )
+                futures.append(remote_job)
+
+        # Restore caching state
         self.caching(enabled=caching_was_enabled)
-        # Execute jobs
-        outputs: dict[tuple[str, int], dict[str, t2fpharm.pharmacophore_receptor.ReceptorPharmacophore | pd.DataFrame]] = {}
-        statistics: list[dict] = []
 
-        for job_inputs in tqdm(
-            full_jobs,
-            total=len(full_jobs),
-            desc="Running jobs",
-            unit="job",
-        ):
-            pharm, matches, stats = _run_job(**job_inputs)
-            outputs[(stats["pdb_id"], stats["method"], stats["job_idx"])] = {
-                "pharm": pharm,
-                "matches": matches,
-            }
-            statistics.append(stats)
+        # Gather job results
+        ref_pharms: dict[
+            tuple[PDBID, int],
+            dict[str, t2fpharm.pharm_target.ReceptorPharmacophore | float]
+        ] = {}
+        summaries: list[dict] = []
+        summaries_aligned: list[dict] = []
 
-        # with ProcessPoolExecutor() as exe:
-        #     futures = [exe.submit(_run_job, **job_inputs) for job_inputs in full_jobs]
-        #     for future in tqdm(
-        #         as_completed(futures),
-        #         total=len(futures),
-        #         desc="Running jobs",
-        #         unit="job",
-        #     ):
-        #         pharm, matches, stats = future.result()
-        #         outputs[(stats["pdb_id"], stats["method"], stats["job_idx"])] = {
-        #             "pharm": pharm,
-        #             "matches": matches,
-        #         }
-        #         statistics.append(stats)
-        stats_df = pd.DataFrame(statistics).convert_dtypes()
-        return stats_df, outputs
+        remaining_futures = futures[:]
+        with tqdm(total=len(futures), desc="Running jobs", unit="job") as pbar:
+            while remaining_futures:
+                done_futures, remaining_futures = ray.wait(remaining_futures, num_returns=1)
+                summary, full_args = ray.get(done_futures[0])
+                summaries.append(summary)
+                job_key = (summary["pdb_id"], summary["job_idx"])
+
+                # if summary["is_ref"]:
+                #     ref_pharms[job_key] = {"pharm": pharm, "match_max_dist": summary["match_max_dist"]}
+                #     outputs_aligned[job_key] = matches
+                #     summaries_aligned.append(summary)
+                pbar.update(1)
+
+        summary_df = pd.DataFrame(summaries).convert_dtypes()
+        self.path("results_summary").write_text(summary_df.to_json(orient="records", indent=4))
+        return summary_df
+        # for (pdb_id, method, job_idx), ref in tqdm(
+        #     ref_pharms.items(),
+        #     total=len(ref_pharms),
+        #     desc="Calculating aligned matches",
+        #     unit="job",
+        # ):
+        #     nonref_pdb_ids = self.group_pdb_ids(
+        #         group_id=self.group_id(pdb_id),
+        #         include_ref=False,
+        #     )
+        #     for nonref_pdb_id in nonref_pdb_ids:
+        #         nonref_ligand_pharm = ligand_pharms[nonref_pdb_id]
+        #         matches, summary = _calculate_match(
+        #             receptor_pharm=ref["pharm"],
+        #             ligand_pharm=nonref_ligand_pharm,
+        #             match_max_dist=ref["match_max_dist"],
+        #         )
+        #         job_key = (nonref_pdb_id, method, job_idx)
+        #         outputs_aligned[job_key] = matches
+        #         summaries_aligned.append(summary)
+
+
+        # stats_df_aligned = pd.DataFrame(summaries_aligned).convert_dtypes()
+        # return summary_df, outputs, stats_df_aligned, outputs_aligned
 
     def pdb_raw(self, pdb_id: str) -> scifile.pdb.PDBFile:
         cached = self._cache.get(pdb_id, {}).get("pdb_raw")
         if cached:
             return cached
-        filepath_pdb_raw = self.filepath(pdb_id, "pdb_raw")
+        filepath_pdb_raw = self.path("pdb_raw", pdb_id)
         if filepath_pdb_raw.is_file():
             pdb = scifile.pdb.read(filepath_pdb_raw)
         else:
@@ -279,11 +326,11 @@ class Manager:
             self._cache.setdefault(pdb_id, {})["pdb_raw"] = pdb
         return pdb
 
-    def complex(self, pdb_id: str) -> t2fpharm.receptor.Receptor:
+    def complex(self, pdb_id: str) -> t2fpharm.System:
         cached = self._cache.get(pdb_id, {}).get("complex")
         if cached:
             return cached
-        filepath_pdb_aligned = self.filepath(pdb_id, "pdb_aligned")
+        filepath_pdb_aligned = self.path("pdb_aligned", pdb_id)
         if filepath_pdb_aligned.is_file():
             pdb_aligned_str = filepath_pdb_aligned.read_text()
         else:
@@ -294,7 +341,7 @@ class Manager:
                 missing_atoms,
                 missing_terminals
             ) = caddpy.chemsys.fix_pdb(
-                file=self.filepath(pdb_id, "pdb_raw"),
+                file=self.path("pdb_raw", pdb_id),
                 keep_chain_ids=self.dataset.loc[pdb_id, "chain_id"],
                 add_missing_residues=True,
                 replace_nonstandard_residues=False,
@@ -303,34 +350,34 @@ class Manager:
                 add_missing_hydrogens=7.0,
                 keep_ids=True,
             )
-            self.filepath(pdb_id, "pdb_fixed").write_text(pdb_fixed_str)
+            self.path("pdb_fixed", pdb_id).write_text(pdb_fixed_str)
             if self.dataset.loc[pdb_id, "is_ref"]:
                 pdb_aligned_str = pdb_fixed_str
             else:
                 group_id = self.dataset.loc[pdb_id, "group_id"]
                 is_group_ref = (self.dataset["group_id"] == group_id) & self.dataset["is_ref"]
                 ref_pdb_id = self.dataset.loc[is_group_ref, "pdb_id"].iloc[0]
-                complex_aligned = _align_to_ref_structure(
-                    ref_complex=self.complex(ref_pdb_id),
-                    query_complex=t2fpharm.receptor.from_pdb(pdb_fixed_str),
+                complex_aligned = _align_query_to_ref(
+                    ref=self.complex(ref_pdb_id),
+                    query=t2fpharm.system.from_pdb(pdb_fixed_str),
                     ref_chain_id=self.dataset.loc[ref_pdb_id, "chain_id"],
                     query_chain_id=self.dataset.loc[pdb_id, "chain_id"],
                     ref_pocket=self.pocket(ref_pdb_id),
                 )
                 pdb_aligned_str = str(complex_aligned.to_pdb())
             filepath_pdb_aligned.write_text(pdb_aligned_str)
-        rcomplex = t2fpharm.receptor.from_pdb(pdb_aligned_str)
+        rcomplex = t2fpharm.system.from_pdb(pdb_aligned_str)
         if self._cache_enabled:
             self._cache.setdefault(pdb_id, {})["complex"] = rcomplex
         return rcomplex
 
-    def receptor(self, pdb_id: str) -> t2fpharm.receptor.Receptor:
+    def receptor(self, pdb_id: str) -> t2fpharm.System:
         cached = self._cache.get(pdb_id, {}).get("receptor")
         if cached:
             return cached
-        filepath_pdb_apo = self.filepath(pdb_id, "pdb_apo")
+        filepath_pdb_apo = self.path("pdb_apo", pdb_id)
         if filepath_pdb_apo.is_file():
-            receptor = t2fpharm.receptor.from_pdb(filepath_pdb_apo)
+            receptor = t2fpharm.system.from_pdb(filepath_pdb_apo)
         else:
             rcomplex = self.complex(pdb_id)
             receptor = rcomplex.select(rcomplex.composition.atoms["res_poly"])
@@ -343,7 +390,7 @@ class Manager:
         cached = self._cache.get(pdb_id, {}).get("pdbqt")
         if cached:
             return cached
-        filepath_pdbqt = self.filepath(pdb_id, "pdbqt")
+        filepath_pdbqt = self.path("pdbqt", pdb_id)
         if filepath_pdbqt.is_file():
             pdbqt_str = filepath_pdbqt.read_text()
         else:
@@ -363,16 +410,15 @@ class Manager:
             self._cache.setdefault(pdb_id, {})["pdbqt"] = pdbqt_str
         return pdbqt_str
 
-    def pocket(self, pdb_id: str) -> t2fpharm.pocket.Pocket:
+    def pocket(self, pdb_id: str) -> t2fpharm.Pocket:
         """Prepare the pocket for the structure."""
         cached = self._cache.get(pdb_id, {}).get("pocket")
         if cached:
             return cached
-        filepath_pocket = self.filepath(pdb_id, "pocket")
+        filepath_pocket = self.path("pocket", pdb_id)
         rcomplex = self.complex(pdb_id)
         if filepath_pocket.is_file():
-            pocket_data = pyserials.read.yaml_from_file(filepath_pocket)
-            pocket = t2fpharm.pocket.from_data(**pocket_data, receptor=rcomplex)
+            pocket = t2fpharm.pocket.from_npz(filepath=filepath_pocket, receptor=rcomplex)
         else:
             atoms = rcomplex.composition.atoms
             ligand_res_name = self.dataset.loc[pdb_id, "ligand_res_name"]
@@ -395,32 +441,27 @@ class Manager:
                 grid=self.pocket_params["grid_spacing"],
                 ligand_radii_offset=self.pocket_params["ligand_radii_offset"],
             )
-            pocket_data = pocket.to_dict()
-            pyserials.write.to_yaml_file(
-                data=pocket_data,
-                path=filepath_pocket,
-            )
+            pocket.to_npz(filepath=filepath_pocket)
         if self._cache_enabled:
             self._cache.setdefault(pdb_id, {})["pocket"] = pocket
         return pocket
 
-    def field(self, pdb_id: str):
+    def field(self, pdb_id: str) -> t2fpharm.Field:
         cached = self._cache.get(pdb_id, {}).get("field")
         if cached:
             return cached
-        filepath_field = self.filepath(pdb_id, "field")
+        filepath_field = self.path("field", pdb_id)
         if filepath_field.is_file():
-            field_data = pyserials.read.json_from_file(filepath_field)
-            field = t2fpharm.field.from_data(**field_data)
+            field = t2fpharm.field.from_npz(filepath=filepath_field)
         else:
-            dirpath_autogrid = self.dirpath_data / self._dirpath["autogrid"] / pdb_id
+            dirpath_autogrid = self.dirpath_data / self._path["autogrid"] / pdb_id
             if dirpath_autogrid.exists():
                 shutil.rmtree(dirpath_autogrid)
             dirpath_autogrid.mkdir(parents=True, exist_ok=True)
             pocket_data = self.pocket(pdb_id).to_dict()
             grid_data = {k: v for k, v in pocket_data.items() if k.startswith("grid_")}
             field = t2fpharm.field.from_autogrid(
-                receptor_files=self.filepath(pdb_id, "pdbqt"),
+                receptor_files=self.path("pdbqt", pdb_id),
                 receptor_file_ids=pdb_id,
                 ligand_types=self.field_params["ligand_types"],
                 smooth=self.field_params["smooth"],
@@ -428,16 +469,12 @@ class Manager:
                 output_dir=dirpath_autogrid,
                 **grid_data,
             )
-            field_data = field.to_dict()
-            pyserials.write.to_json_file(
-                data=field_data,
-                path=filepath_field,
-            )
+            field.to_npz(filepath=filepath_field)
         if self._cache_enabled:
             self._cache.setdefault(pdb_id, {})["field"] = field
         return field
 
-    def modeler(self, pdb_id: str):
+    def modeler(self, pdb_id: str) -> t2fpharm.Modeler:
         return t2fpharm.modeler(
             field=self.field(pdb_id),
             pocket=self.pocket(pdb_id),
@@ -448,20 +485,20 @@ class Manager:
         cached = self._cache.get(pdb_id, {}).get("ligand_pharm")
         if cached:
             return cached
-        filepath_ligand_plip = self.filepath(pdb_id, "ligand_plip")
-        filepath_ligand_features = self.filepath(pdb_id, "ligand_features")
+        filepath_ligand_plip = self.path("ligand_plip", pdb_id)
+        filepath_ligand_features = self.path("ligand_features", pdb_id)
         if filepath_ligand_plip.is_file() and filepath_ligand_features.is_file():
             plip_data = pyserials.read.json_from_file(filepath_ligand_plip)
             features_data = pyserials.read.json_from_file(filepath_ligand_features)
             plip_df = pd.DataFrame(plip_data)
-            ligand_pharm = t2fpharm.ligand.LigandPharmacophore(
+            ligand_pharm = t2fpharm.pharm.Pharmacophore(
                 features=features_data,
                 extra={"plip": caddpy.interaction.ProteinLigandInteractions(plip_df)},
-                receptor=self.complex(pdb_id),
+                system=self.complex(pdb_id),
             )
         else:
-            ligand_pharm = t2fpharm.ligand.from_plip(
-                pdb_files=self.filepath(pdb_id, "pdb_aligned"),
+            ligand_pharm = t2fpharm.pharm.from_complex(
+                pdb_files=self.path("pdb_aligned", pdb_id),
                 pocket=self.pocket(pdb_id),
                 receptor=self.complex(pdb_id),
             )
@@ -477,7 +514,7 @@ class Manager:
 
     def affinity(self, pdb_id: str) -> dict:
         """Get affinity data for a given PDB ID and ligand."""
-        filepath_affinity = self.filepath(pdb_id, "affinity")
+        filepath_affinity = self.path("affinity", pdb_id)
         if filepath_affinity.is_file():
             affinity_data = pyserials.read.json_from_file(filepath_affinity)
         else:
@@ -500,25 +537,51 @@ class Manager:
             out[affinity_type] = weighted_average
         return out
 
-    def filepath(
+    def receptor_pharmacophore(self, pdb_id: str, job_idx: int) -> t2fpharm.pharm_target.ReceptorPharmacophore:
+        """Get the receptor pharmacophore for a given PDB ID and job index."""
+        filepath_pharm = self.path("results_pharm", pdb_id)
+        pharm_features = pd.read_json(filepath_pharm)
+
+
+    def job_inputs(self, job_idx: int):
+        """Get the job inputs for a given job index."""
+        return
+
+    def path(
         self,
-        pdb_id: str,
         filetype: Literal[
             "pdb_raw",
             "pdb_fixed",
+            "pdb_aligned",
             "pdb_apo",
             "pdbqt",
             "affinity",
             "pocket",
             "field",
             "ligand_plip",
-            "ligand_features"
-        ]
+            "ligand_features",
+            "results_job_inputs",
+            "results_summary",
+            "results_pharm",
+            "results_matches",
+            "results_matches_ref",
+        ],
+        pdb_id: str | None = None,
+        job_idx: int | None = None,
     ) -> Path:
-        dirpath = self.dirpath_data / self._dirpath[filetype]
+        path = self.dirpath_data / self._path[filetype]
+        dirpath = path.parent if filetype in ("results_job_inputs", "results_summary") else path
         dirpath.mkdir(parents=True, exist_ok=True)
         file_ext = self._file_ext[filetype]
-        return Path(dirpath) / f"{pdb_id}.{file_ext}"
+        if filetype in ("results_job_inputs", "results_summary"):
+            return path.with_suffix(f".{file_ext}")
+        if filetype in ("results_pharm", "results_matches", "results_matches_ref"):
+            if pdb_id is None or job_idx is None:
+                raise ValueError(
+                    "For results files, both `pdb_id` and `job_idx` must be provided."
+                )
+            return path / f"{pdb_id}_{job_idx}.{file_ext}"
+        return path / f"{pdb_id}.{file_ext}"
 
     def group_id(self, pdb_id: str) -> str:
         """Get the group ID for a given PDB ID."""
@@ -638,6 +701,7 @@ def load(
     dirpath_field: Path | str = "field",
     dirpath_ligand_plip: Path | str = "ligand/plip",
     dirpath_ligand_features: Path | str = "ligand/features",
+    dirpath_results: Path | str = "results",
 ) -> Manager:
     """Load the manager.
 
@@ -705,6 +769,7 @@ def load(
         dirpath_field=dirpath_field,
         dirpath_ligand_plip=dirpath_ligand_plip,
         dirpath_ligand_features=dirpath_ligand_features,
+        dirpath_results=dirpath_results,
     )
 
 
@@ -724,41 +789,76 @@ def _make_structure(
     return structure_full
 
 
-def _align_to_ref_structure(
-    ref_complex: t2fpharm.receptor.Receptor,
-    query_complex: t2fpharm.receptor.Receptor,
+def _align_query_to_ref(
+    ref: t2fpharm.system.System,
+    query: t2fpharm.system.System,
     ref_chain_id: str,
     query_chain_id: str,
     ref_pocket: t2fpharm.pocket.Pocket,
-) -> t2fpharm.receptor.Receptor:
-    """Align the query receptor to the reference receptor."""
-    ref_chain = ref_complex.composition.atoms_chain(ref_chain_id, poly=True)
-    query_chain = query_complex.composition.atoms_chain(query_chain_id, poly=True)
+) -> t2fpharm.system.System:
+    """Align the query system to the reference system.
+
+    This function first runs a sequence alignment
+    between the reference and query chains
+    in the corresponding chemical systems
+    to find all pairwise correlations
+    between the atoms in the two chains.
+    It then selects the C-alpha atoms
+    of the binding pocket in the reference that have
+    a corresponding match in the sequence alignment.
+    Lastly, it applies the Kabsch algorithm
+    to find the optimal rotation and translation
+    that aligns the selected C-alpha atoms
+    of the query to the reference system.
+    The rotation and translation are then applied
+    to the entire query system.
+
+    Parameters
+    ----------
+    ref
+        Reference chemical system.
+    query
+        Query chemical system to align.
+    ref_chain_id
+        Chain ID of the polymer chain of interest in the reference.
+    query_chain_id
+        Chain ID of the corresponding polymer chain in the query.
+    ref_pocket
+        Binding pocket of the reference.
+
+    Returns
+    -------
+    The same query chemical system with its trajectory aligned to the reference.
+    """
+    ref_chain = ref.composition.atoms_chain(ref_chain_id, poly=True)
+    query_chain = query.composition.atoms_chain(query_chain_id, poly=True)
     ref_aligned_atoms, query_aligned_atoms = caddpy.alignment.align_sequences(ref_chain, query_chain)
     ref_pocket_c_alpha_atoms = ref_pocket.atoms[ref_pocket.atoms["name"]=="CA"]
     c_alpha_mask = ref_aligned_atoms["serial"].isin(ref_pocket_c_alpha_atoms["serial"])
     ref_pocket_c_alpha_serials = ref_aligned_atoms["serial"][c_alpha_mask]
     query_pocket_c_alpha_serials = query_aligned_atoms["serial"][c_alpha_mask]
-    ref_selection_mask = ref_complex.composition.atoms["serial"].isin(ref_pocket_c_alpha_serials)
-    query_selection_mask = query_complex.composition.atoms["serial"].isin(query_pocket_c_alpha_serials)
-    ref_selection_coordinates = ref_complex.trajectory.points[ref_selection_mask.to_numpy()]
-    query_selection_coordinates = query_complex.trajectory.points[query_selection_mask.to_numpy()]
+    ref_selection_mask = ref.composition.atoms["serial"].isin(ref_pocket_c_alpha_serials)
+    query_selection_mask = query.composition.atoms["serial"].isin(query_pocket_c_alpha_serials)
+    ref_selection_coordinates = ref.trajectory.points[ref_selection_mask.to_numpy()]
+    query_selection_coordinates = query.trajectory.points[query_selection_mask.to_numpy()]
     rotation, translation, rmsd = arrayer.kabsch.kabsch_unweighted(ref_selection_coordinates, query_selection_coordinates)
-    query_complex_aligned = query_complex.new(trajectory=query_complex.trajectory.points @ rotation + translation)
+    query_complex_aligned = query.new(trajectory=query.trajectory.points @ rotation + translation)
     return query_complex_aligned
 
 
 def _run_job(
     modeler: t2fpharm.Modeler,
-    ligand_pharm: t2fpharm.ligand.LigandPharmacophore,
-    group_id: str,
+    ligand_pharm: t2fpharm.pharm_ligand.LigandPharmacophore,
     pdb_id: str,
-    is_ref: bool,
     job_idx: int,
     method: str,
     kwargs: dict[str, Any],
     match_max_dist: float | None,
-) -> dict[str, int | float | t2fpharm.pharmacophore_receptor.ReceptorPharmacophore | pd.DataFrame]:
+    filepath_features: Path | str | None = None,
+    filepath_matches: Path | str | None = None,
+    return_pharm: bool = True,
+    return_matches: bool = True,
+) -> dict[str, int | float | t2fpharm.pharm_target.ReceptorPharmacophore | pd.DataFrame]:
     try:
         func = getattr(modeler, method)
         receptor_pharm = func(**kwargs)
@@ -766,34 +866,48 @@ def _run_job(
         raise RuntimeError(
             f"Error running job {job_idx} for PDB ID {pdb_id} with method {method}: {e}"
         ) from e
-    matches, stats = _calculate_match(
+    if filepath_features:
+        features_json = receptor_pharm.features.to_json(orient="records", indent=4)
+        Path(filepath_features).write_text(features_json)
+
+    matches, summary = _calculate_match(
         receptor_pharm=receptor_pharm,
         ligand_pharm=ligand_pharm,
-        match_max_dist=match_max_dist
+        pdb_id=pdb_id,
+        job_idx=job_idx,
+        match_max_dist=match_max_dist,
+        filepath_matches=filepath_matches,
     )
-    summary = {
-        "group_id": group_id,
-        "pdb_id": pdb_id,
-        "is_ref": is_ref,
-        "method": method,
-        "job_idx": job_idx,
-        "match_max_dist": match_max_dist,
-    } | stats
-    return receptor_pharm, matches, summary
+    output = [summary, receptor_pharm.args]
+    if return_pharm:
+        output.append(receptor_pharm)
+    if return_matches:
+        output.append(matches)
+    return tuple(output)
 
 
 def _calculate_match(
-    receptor_pharm: t2fpharm.pharmacophore_receptor.ReceptorPharmacophore,
-    ligand_pharm: t2fpharm.ligand.LigandPharmacophore,
+    receptor_pharm: t2fpharm.pharm_target.ReceptorPharmacophore,
+    ligand_pharm: t2fpharm.pharm_ligand.LigandPharmacophore,
+    pdb_id: str,
+    job_idx: int,
     match_max_dist: float | None = None,
+    filepath_matches: Path | str | None = None,
 ) -> tuple[pd.DataFrame, dict[str, int | float]]:
     """Calculate matches between receptor and ligand pharmacophores."""
     rfeats = receptor_pharm.features
     lfeats = ligand_pharm.features
     matches = receptor_pharm.match_spherical(ligand_pharm, max_distance=match_max_dist)
+
+    if filepath_matches:
+        matches_json = matches.to_json(orient="records", indent=4)
+        Path(filepath_matches).write_text(matches_json)
+
     match_count = matches["match"].sum()
     lfeat_count_total = len(lfeats)
-    stats = {
+    summary = {
+        "pdb_id": pdb_id,
+        "job_idx": job_idx,
         "feats_receptor": len(rfeats),
         "feats_ligand": lfeat_count_total,
         "matches": match_count,
@@ -805,7 +919,7 @@ def _calculate_match(
         rfeat_count = rtypes.eq(feat_id).sum()
         lfeat_count = ltypes.eq(feat_id).sum()
         feat_match_count = matches[matches["type"] == feat_id]["match"].sum()
-        stats |= {
+        summary |= {
             f"feats_receptor_{feat_id}": rfeat_count,
             f"feats_ligand_{feat_id}": lfeat_count,
             f"matches_{feat_id}": np.nan if lfeat_count == 0 else feat_match_count,
@@ -813,7 +927,7 @@ def _calculate_match(
                 np.nan if lfeat_count == 0 else 100 * feat_match_count / lfeat_count
             )
         }
-    return matches, stats
+    return matches, summary
 
 
 _run_job_remote = ray.remote(_run_job)
