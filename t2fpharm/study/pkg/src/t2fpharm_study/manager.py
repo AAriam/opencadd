@@ -65,7 +65,6 @@ class Manager:
             "results_summary": f"{dirpath_results}/summary",
             "results_pharm": f"{dirpath_results}/pharmacophore",
             "results_matches": f"{dirpath_results}/matches",
-            "results_matches_ref": f"{dirpath_results}/matches_ref",
         }
         self._file_ext = {
             "pdb_raw": "pdb",
@@ -82,7 +81,6 @@ class Manager:
             "results_summary": "json",
             "results_pharm": "json",
             "results_matches": "json",
-            "results_matches_ref": "json",
         }
         self._pdb = None
         self._cache_enabled = True
@@ -231,85 +229,84 @@ class Manager:
         ligand_pharms: dict[PDBID, t2fpharm.pharm_ligand.LigandPharmacophore] = {}
         futures = []
         ray.init(ignore_reinit_error=True)
-        for _, entry in tqdm(
-            self.dataset.iterrows(),
-            total=len(self.dataset),
-            desc="Creating jobs",
-            unit="job",
-        ):
-            pdb_id = entry["pdb_id"]
-            ligand_pharm = self.ligand_pharmacophore(pdb_id)
-            ligand_pharms[pdb_id] = ligand_pharm
-            if not caching_was_enabled:
-                self._cache = {}
-            for job_idx, job in enumerate(jobs):
-                job_inputs = job | {
-                    "pdb_id": pdb_id,
-                    "job_idx": job_idx,
-                    "modeler": ray.put(self.modeler(pdb_id)),
-                    "ligand_pharm": ray.put(ligand_pharm),
-                }
-                remote_job = _run_job_remote.remote(
-                    **job_inputs,
-                    filepath_features=str(self.path("results_pharm", pdb_id=pdb_id, job_idx=job_idx)),
-                    filepath_matches=str(self.path("results_matches", pdb_id=pdb_id, job_idx=job_idx)),
-                    return_pharm=False,
-                    return_matches=False,
+        with tqdm(total=len(self.dataset) * len(jobs), desc="Creating jobs", unit="job") as pbar:
+            for _, group in self.dataset.groupby("group_id"):
+                ligand_pharms = ray.put(
+                    {
+                        pdb_id: self.ligand_pharmacophore(pdb_id)
+                        for pdb_id in group["pdb_id"]
+                    }
                 )
-                futures.append(remote_job)
+                for pdb_id in group["pdb_id"]:
+                    modeler = ray.put(self.modeler(pdb_id))
+                    if not caching_was_enabled:
+                        self._cache = {}
+                    for job_idx, job in enumerate(jobs):
+                        remote_job = _run_job_remote.remote(
+                            **job,
+                            modeler=modeler,
+                            ligand_pharms=ligand_pharms,
+                            target_pdb_id=pdb_id,
+                            job_idx=job_idx,
+                            filepath_features=str(self.path("results_pharm", pdb_id=pdb_id, job_idx=job_idx)),
+                            filepath_matches=str(self.path("results_matches", pdb_id=pdb_id, job_idx=job_idx)),
+                            return_pharm=False,
+                            return_matches=False,
+                        )
+                        futures.append(remote_job)
+                        pbar.update(1)
 
         # Restore caching state
         self.caching(enabled=caching_was_enabled)
 
         # Gather job results
-        ref_pharms: dict[
-            tuple[PDBID, int],
-            dict[str, t2fpharm.pharm_target.ReceptorPharmacophore | float]
-        ] = {}
-        summaries: list[dict] = []
-        summaries_aligned: list[dict] = []
-
+        summaries: list[dict[str, str | int | float]] = []
+        job_args: dict[int, dict[str, Any]] = {}
+        match_dfs: list[pd.DataFrame] = []
         remaining_futures = futures[:]
         with tqdm(total=len(futures), desc="Running jobs", unit="job") as pbar:
             while remaining_futures:
                 done_futures, remaining_futures = ray.wait(remaining_futures, num_returns=1)
                 summary, full_args = ray.get(done_futures[0])
+                pdb_id = summary["pdb_id"]
+                job_index = summary["job_idx"]
+                group_id = self.group_id(pdb_id)
+                summary["group_id"] = group_id
                 summaries.append(summary)
-                job_key = (summary["pdb_id"], summary["job_idx"])
-
-                # if summary["is_ref"]:
-                #     ref_pharms[job_key] = {"pharm": pharm, "match_max_dist": summary["match_max_dist"]}
-                #     outputs_aligned[job_key] = matches
-                #     summaries_aligned.append(summary)
+                if job_index in job_args:
+                    assert job_args[job_index] == full_args, (
+                        f"Job arguments for job index {job_index} do not match previous ones."
+                    )
+                else:
+                    job_args[job_index] = full_args
+                match_df = pd.read_json(
+                    self.path("results_matches", pdb_id=pdb_id, job_idx=job_index),
+                )
+                match_df["group_id"] = group_id
+                match_df["target_pdb_id"] = pdb_id
+                match_df["job_idx"] = job_index
+                match_dfs.append(match_df)
                 pbar.update(1)
 
-        summary_df = pd.DataFrame(summaries).convert_dtypes()
-        self.path("results_summary").write_text(summary_df.to_json(orient="records", indent=4))
-        return summary_df
-        # for (pdb_id, method, job_idx), ref in tqdm(
-        #     ref_pharms.items(),
-        #     total=len(ref_pharms),
-        #     desc="Calculating aligned matches",
-        #     unit="job",
-        # ):
-        #     nonref_pdb_ids = self.group_pdb_ids(
-        #         group_id=self.group_id(pdb_id),
-        #         include_ref=False,
-        #     )
-        #     for nonref_pdb_id in nonref_pdb_ids:
-        #         nonref_ligand_pharm = ligand_pharms[nonref_pdb_id]
-        #         matches, summary = _calculate_match(
-        #             receptor_pharm=ref["pharm"],
-        #             ligand_pharm=nonref_ligand_pharm,
-        #             match_max_dist=ref["match_max_dist"],
-        #         )
-        #         job_key = (nonref_pdb_id, method, job_idx)
-        #         outputs_aligned[job_key] = matches
-        #         summaries_aligned.append(summary)
+        # Combine matches into a single DataFrame
+        summary_df = self._create_summary_df(summaries)
+        matches_df = self._create_matches_df(match_dfs)
+        return summary_df, matches_df, job_args
 
+    def _create_summary_df(self, summaries: list[dict[str, Any]]) -> pd.DataFrame:
+        df = pd.DataFrame(summaries).convert_dtypes()
+        main_cols = ["group_id", "pdb_id", "job_idx", "n_total"]
+        extra_cols = [col for col in df.columns if col not in main_cols]
+        all_cols = main_cols + extra_cols
+        df_final = df[all_cols].sort_values(["group_id", "pdb_id", "job_idx"]).reset_index(drop=True)
+        self.path("results_summary").write_text(df_final.to_json(orient="records", indent=4))
+        return df_final
 
-        # stats_df_aligned = pd.DataFrame(summaries_aligned).convert_dtypes()
-        # return summary_df, outputs, stats_df_aligned, outputs_aligned
+    def _create_matches_df(self, matches: list[pd.DataFrame]) -> pd.DataFrame:
+        df = pd.concat(matches, ignore_index=True).convert_dtypes()
+        sort_cols = ["group_id", "target_pdb_id", "job_idx", "ligand_pdb_id", "type", "distance"]
+        all_cols = sort_cols + ["radius_sum", "ligand_label", "target_label"]
+        df_final = df[all_cols].sort_values(sort_cols).reset_index(drop=True)
 
     def pdb_raw(self, pdb_id: str) -> scifile.pdb.PDBFile:
         cached = self._cache.get(pdb_id, {}).get("pdb_raw")
@@ -537,11 +534,10 @@ class Manager:
             out[affinity_type] = weighted_average
         return out
 
-    def receptor_pharmacophore(self, pdb_id: str, job_idx: int) -> t2fpharm.pharm_target.ReceptorPharmacophore:
+    def receptor_pharmacophore(self, pdb_id: str, job_idx: int) -> t2fpharm.Pharmacophore:
         """Get the receptor pharmacophore for a given PDB ID and job index."""
         filepath_pharm = self.path("results_pharm", pdb_id)
         pharm_features = pd.read_json(filepath_pharm)
-
 
     def job_inputs(self, job_idx: int):
         """Get the job inputs for a given job index."""
@@ -848,86 +844,84 @@ def _align_query_to_ref(
 
 def _run_job(
     modeler: t2fpharm.Modeler,
-    ligand_pharm: t2fpharm.pharm_ligand.LigandPharmacophore,
-    pdb_id: str,
+    ligand_pharms: dict[PDBID, t2fpharm.Pharmacophore],
+    target_pdb_id: str,
     job_idx: int,
     method: str,
     kwargs: dict[str, Any],
-    match_max_dist: float | None,
     filepath_features: Path | str | None = None,
     filepath_matches: Path | str | None = None,
     return_pharm: bool = True,
     return_matches: bool = True,
-) -> dict[str, int | float | t2fpharm.pharm_target.ReceptorPharmacophore | pd.DataFrame]:
+):
+    # Calculate target pharmacophore
     try:
         func = getattr(modeler, method)
-        receptor_pharm = func(**kwargs)
+        target_pharm = func(**kwargs)
     except Exception as e:
         raise RuntimeError(
-            f"Error running job {job_idx} for PDB ID {pdb_id} with method {method}: {e}"
+            f"Error running job {job_idx} for PDB ID {target_pdb_id} with method {method}: {e}"
         ) from e
+
+    # Save target pharmacophore
     if filepath_features:
-        features_json = receptor_pharm.features.to_json(orient="records", indent=4)
+        features_json = target_pharm.features.to_json(orient="records", indent=4)
         Path(filepath_features).write_text(features_json)
 
-    matches, summary = _calculate_match(
-        receptor_pharm=receptor_pharm,
-        ligand_pharm=ligand_pharm,
-        pdb_id=pdb_id,
-        job_idx=job_idx,
-        match_max_dist=match_max_dist,
+    # Generate target pharmacophore summary
+    target_pharm_summary = {
+        "pdb_id": target_pdb_id,
+        "job_idx": job_idx,
+    } | _calculate_target_pharm_summary(target_pharm)
+
+    # Calculate matches with ligand pharmacophores
+    matches = _calculate_matches(
+        target_pharm=target_pharm,
+        ligand_pharms=ligand_pharms,
         filepath_matches=filepath_matches,
     )
-    output = [summary, receptor_pharm.args]
+
+    # Prepare output
+    output = [target_pharm_summary, target_pharm.inputs]
     if return_pharm:
-        output.append(receptor_pharm)
+        output.append(target_pharm)
     if return_matches:
+        matches["job_idx"] = job_idx
+        matches["target_pdb_id"] = target_pdb_id
         output.append(matches)
     return tuple(output)
 
 
-def _calculate_match(
-    receptor_pharm: t2fpharm.pharm_target.ReceptorPharmacophore,
-    ligand_pharm: t2fpharm.pharm_ligand.LigandPharmacophore,
-    pdb_id: str,
-    job_idx: int,
-    match_max_dist: float | None = None,
+def _calculate_target_pharm_summary(target_pharm: t2fpharm.Pharmacophore):
+    features = target_pharm.features
+    return {"n_total": len(features)} | {
+        f"n_{feature_type}": features["type"].eq(feature_type).sum()
+        for feature_type in target_pharm.field.batch_instance_labels["feature"]
+    }
+
+
+def _calculate_matches(
+    target_pharm: t2fpharm.Pharmacophore,
+    ligand_pharms: dict[PDBID, t2fpharm.Pharmacophore],
     filepath_matches: Path | str | None = None,
-) -> tuple[pd.DataFrame, dict[str, int | float]]:
+) -> pd.DataFrame:
     """Calculate matches between receptor and ligand pharmacophores."""
-    rfeats = receptor_pharm.features
-    lfeats = ligand_pharm.features
-    matches = receptor_pharm.match_spherical(ligand_pharm, max_distance=match_max_dist)
+    matches_dfs = []
+    for ligand_pdb_id, ligand_pharm in ligand_pharms.items():
+        matches = (
+            target_pharm.match(ligand_pharm, max_distance=None)
+            .drop(columns=["instance", "target_instance"])
+            .rename(columns={"label": "ligand_label"})
+        )
+        matches["ligand_pdb_id"] = ligand_pdb_id
+        matches_dfs.append(matches)
+
+    matches_df = pd.concat(matches_dfs, ignore_index=True)
 
     if filepath_matches:
-        matches_json = matches.to_json(orient="records", indent=4)
+        matches_json = matches_df.to_json(orient="records", indent=4)
         Path(filepath_matches).write_text(matches_json)
-
-    match_count = matches["match"].sum()
-    lfeat_count_total = len(lfeats)
-    summary = {
-        "pdb_id": pdb_id,
-        "job_idx": job_idx,
-        "feats_receptor": len(rfeats),
-        "feats_ligand": lfeat_count_total,
-        "matches": match_count,
-        "match_percent": 100 * match_count / lfeat_count_total,
-    }
-    rtypes = rfeats["type"]
-    ltypes = lfeats["type"]
-    for feat_id in receptor_pharm.field.batch_instance_labels["feature"]:
-        rfeat_count = rtypes.eq(feat_id).sum()
-        lfeat_count = ltypes.eq(feat_id).sum()
-        feat_match_count = matches[matches["type"] == feat_id]["match"].sum()
-        summary |= {
-            f"feats_receptor_{feat_id}": rfeat_count,
-            f"feats_ligand_{feat_id}": lfeat_count,
-            f"matches_{feat_id}": np.nan if lfeat_count == 0 else feat_match_count,
-            f"match_percent_{feat_id}": (
-                np.nan if lfeat_count == 0 else 100 * feat_match_count / lfeat_count
-            )
-        }
-    return matches, summary
+    return matches_df
 
 
 _run_job_remote = ray.remote(_run_job)
