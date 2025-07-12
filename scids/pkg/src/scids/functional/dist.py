@@ -1,11 +1,6 @@
 import numpy as np
-from scipy.spatial import KDTree, distance
-from numpy.typing import ArrayLike
-
-
-import numpy as np
-from numpy.typing import ArrayLike
 from scipy.spatial import KDTree
+from numpy.typing import ArrayLike
 import arrayer
 
 
@@ -72,9 +67,13 @@ def points_with_min_dist(
 
     Returns
     -------
-    2D array of shape `(n_selected_points, n_dimensions)`
-    containing the coordinates of the selected points from `points`
-    that are at least `min_distance` apart.
+    selected_points
+        2D array of shape `(n_selected_points, n_dimensions)`
+        containing the coordinates of the selected points from `points`
+        that are at least `min_distance` apart.
+    selected_indices
+        1D array of shape `(n_selected_points,)` containing the indices
+        of the selected points in the original `points` array.
 
     Notes
     -----
@@ -88,35 +87,48 @@ def points_with_min_dist(
     if min_distance <= 0:
         raise ValueError("min_distance must be positive")
     if points.size == 0:
-        return points
+        return points, np.empty((0,), dtype=int)
 
     # Calculate largest possible float (within machine precision) smaller than min_distance
     # to keep points at exactly min_distance (due to how KDTree works)
     r_eff = np.nextafter(min_distance, 0.0)
 
     accepted_points: list[np.ndarray] = []
+    accepted_indices: list[int] = []
     accepted_count = 0
 
-    for batch in arrayer.tensor.make_batches(
+    point_batches = arrayer.tensor.make_batches(
         points,
         axis=0,
         min_size=batch_size_min,
         max_size=batch_size_max,
         grow_factor=batch_size_grow_factor,
-    ):
+    )
+    index_batches = arrayer.tensor.make_batches(
+        np.arange(points.shape[0]),
+        axis=0,
+        min_size=batch_size_min,
+        max_size=batch_size_max,
+        grow_factor=batch_size_grow_factor,
+    )
+
+    for point_batch, index_batch in zip(point_batches, index_batches):
         # Filter batch against already accepted points
         if accepted_points:
             # Query first nearest neighbor within min_distance
             dists, _ = KDTree(np.vstack(accepted_points)).query(
-                batch,
+                point_batch,
                 k=1,
                 p=p_norm,
                 distance_upper_bound=r_eff,
                 workers=-1,
             )
-            candidates = batch[np.isinf(dists)]
+            mask = np.isinf(dists)
+            candidates = point_batch[mask]
+            candidate_indices = index_batch[mask]
         else:
-            candidates = batch
+            candidates = point_batch
+            candidate_indices = index_batch
 
         if candidates.size == 0:
             continue
@@ -131,6 +143,7 @@ def points_with_min_dist(
         )
         batch_rejected: set[int] = set()
         batch_accepted: list[np.ndarray] = []
+        batch_accepted_indices: list[int] = []
 
         for idx, neighbors in enumerate(neighbor_lists):
             if idx in batch_rejected:
@@ -138,6 +151,7 @@ def points_with_min_dist(
                 continue
             # Accept this point
             batch_accepted.append(candidates[idx])
+            batch_accepted_indices.append(int(candidate_indices[idx]))
             # Remove self from neighbors
             neighbors = [i for i in neighbors if i != idx]
             # Reject all remaining neighbors
@@ -148,13 +162,16 @@ def points_with_min_dist(
                 break
 
         accepted_points.extend(batch_accepted)
+        accepted_indices.extend(batch_accepted_indices)
         if max_points is not None and accepted_count == max_points:
             break
 
     if not accepted_points:
-        return np.empty((0, points.shape[1]), dtype=points.dtype)
+        return np.empty((0, points.shape[1]), dtype=points.dtype), np.empty((0,), dtype=int)
 
-    result = np.vstack(accepted_points)
+    final_points = np.vstack(accepted_points)
+    final_indices = np.array(accepted_indices, dtype=int)
     if max_points is not None:
-        result = result[:max_points]
-    return result
+        final_points = final_points[:max_points]
+        final_indices = final_indices[:max_points]
+    return final_points, final_indices
