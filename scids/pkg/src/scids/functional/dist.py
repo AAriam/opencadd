@@ -340,9 +340,4 @@ def _exclude_overlapping_spheres_batched(
         accepted_indices.extend(batch_accepted_indices)
         if accepted_count == max_out:
             break
-
-    if not accepted_indices:
-        return []
-    if max_out is not None:
-        accepted_indices = accepted_indices[:max_out]
     return accepted_indices
