@@ -1,3 +1,4 @@
+from typing import Sequence
 import numpy as np
 from scipy.spatial import KDTree
 from numpy.typing import ArrayLike
@@ -6,13 +7,13 @@ import arrayer
 
 def points_with_min_dist(
     points: ArrayLike,
-    min_distance: float,
+    min_distance: float | Sequence[float],
     p_norm: float = 2,
     max_points: int | None = None,
     batch_size_min: int | None = 50,
     batch_size_max: int = 2000,
     batch_size_grow_factor: float = 2.0,
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     """Select a subset of points where a minimum distance is guaranteed.
 
     This function selects a subset of the input `points`
@@ -31,8 +32,12 @@ def points_with_min_dist(
         2D array of shape `(n_points, n_dimensions)`,
         containing the coordinates of `n_points` points in `n_dimensions` space.
     min_distance
-        Minimum required distance between any two returned points.
-        A later point with a distance less than this to an earlier point will be rejected.
+        The "blocking radius" for each point.
+        For each selected point, all other remaining points
+        within this distance are rejected.
+        If a scalar is provided, it applies to all points.
+        If a sequence is provided, it must have the same length as `points`
+        and specifies the minimum distance for each point.
     p_norm
         Minkowski p-norm (in the range `[1, inf]`) to use for distances
         (e.g., 2 for Euclidean, np.inf for Chebyshev).
@@ -82,16 +87,40 @@ def points_with_min_dist(
     and then applying a greedy within-batch distance filter.
     """
     points = np.asarray(points)
+    n_points = points.shape[0]
     if points.ndim != 2:
         raise ValueError(f"Expected 2D array, got shape {points.shape}")
-    if min_distance <= 0:
-        raise ValueError("min_distance must be positive")
-    if points.size == 0:
+    if np.isscalar(min_distance):
+        scalar_case = True
+        if min_distance <= 0:
+            raise ValueError("min_distance must be positive")
+        # Calculate largest possible float (within machine precision) smaller than min_distance
+        # to keep points at exactly min_distance (due to how KDTree works)
+        r_eff = np.nextafter(float(min_distance), 0.0)
+    else:
+        radii = np.asarray(min_distance, float)
+        if radii.ndim != 1 or radii.shape[0] != n_points:
+            raise ValueError(
+                f"min_distance array must have shape ({n_points},), got {radii.shape}"
+            )
+        if np.any(radii <= 0):
+            raise ValueError("all min_distance values must be positive")
+        if np.any(np.isnan(radii)):
+            raise ValueError("min_distance cannot contain NaN values")
+        if np.any(np.isinf(radii)):
+            raise ValueError("min_distance cannot contain infinite values")
+        if arrayer.tensor.pairwise_allclose(radii):
+            # All radii are the same, so we can treat it as a scalar case
+            scalar_case = True
+            r_eff = np.nextafter(radii[0], 0.0)
+        else:
+            # We have a different radius for each point
+            # Use the next float smaller than each radius
+            # to ensure we can still select points at exactly min_distance
+            scalar_case = False
+            r_eff = np.nextafter(radii, 0.0)
+    if n_points == 0:
         return points, np.empty((0,), dtype=int)
-
-    # Calculate largest possible float (within machine precision) smaller than min_distance
-    # to keep points at exactly min_distance (due to how KDTree works)
-    r_eff = np.nextafter(min_distance, 0.0)
 
     accepted_points: list[np.ndarray] = []
     accepted_indices: list[int] = []
@@ -105,7 +134,7 @@ def points_with_min_dist(
         grow_factor=batch_size_grow_factor,
     )
     index_batches = arrayer.tensor.make_batches(
-        np.arange(points.shape[0]),
+        np.arange(n_points),
         axis=0,
         min_size=batch_size_min,
         max_size=batch_size_max,
@@ -115,15 +144,28 @@ def points_with_min_dist(
     for point_batch, index_batch in zip(point_batches, index_batches):
         # Filter batch against already accepted points
         if accepted_points:
-            # Query first nearest neighbor within min_distance
-            dists, _ = KDTree(np.vstack(accepted_points)).query(
-                point_batch,
-                k=1,
-                p=p_norm,
-                distance_upper_bound=r_eff,
-                workers=-1,
-            )
-            mask = np.isinf(dists)
+            if scalar_case:
+                # Query first nearest neighbor within min_distance
+                dists, _ = KDTree(np.vstack(accepted_points)).query(
+                    point_batch,
+                    k=1,
+                    p=p_norm,
+                    distance_upper_bound=r_eff,
+                    workers=-1,
+                )
+                mask = np.isinf(dists)
+            else:
+                # KDTree.query expects a single scalar radius
+                # and doesn’t support arrays for distance_upper_bound
+                pairs = KDTree(np.vstack(accepted_points)).sparse_distance_matrix(
+                    other=KDTree(point_batch),
+                    max_distance=r_eff[np.array(accepted_indices)].max(),
+                    p=p_norm
+                )
+                mask = np.ones(len(point_batch), bool)
+                for (i, j), d in pairs.items():
+                    if d < r_eff[accepted_indices[i]]:
+                        mask[j] = False
             candidates = point_batch[mask]
             candidate_indices = index_batch[mask]
         else:
@@ -136,7 +178,7 @@ def points_with_min_dist(
         # Greedy within-batch filtering
         neighbor_lists = KDTree(candidates).query_ball_point(
             candidates,
-            r=r_eff,
+            r=r_eff if scalar_case else r_eff[candidate_indices],
             p=p_norm,
             workers=-1,
             return_sorted=True,
