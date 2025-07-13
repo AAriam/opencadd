@@ -1,4 +1,4 @@
-from typing import Sequence, Literal
+from typing import Sequence, Literal, Callable, Any
 
 import pandas as pd
 import numpy as np
@@ -7,13 +7,17 @@ from pydantic import BaseModel, Field, model_validator
 import arrayer
 
 import scids
-from scids.functional.dist import points_with_min_dist
+from scids.functional.dist import exclude_overlapping_spheres
 
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
 from t2fpharm.system import System
 from t2fpharm.pharm import Pharmacophore
 from t2fpharm.typing import PositiveInt, PositiveFloat, PositiveIntTuple, PositiveFloatTuple, is_real_number, is_integer
+
+
+FilterExtensionMode = Literal["constant", "nearest", "mirror", "reflect", "wrap"]
+FilterFunction = Literal["gaussian", "mean", "percentile"] | Callable
 
 
 class Modeler:
@@ -219,7 +223,7 @@ class Modeler:
                 ]
             ),
             feature_types=set(self.field.batch_instance_labels["feature"]),
-            inputs=args.model_dump(exclude={"field_count"}),
+            inputs=args.model_dump(),
             system=self.receptor,
             pocket=self.pocket,
             field=self.field,
@@ -227,77 +231,284 @@ class Modeler:
 
     def largest_peaks(
         self,
-        peak_type: Literal["min", "max"] |  Sequence[Literal["min", "max"]] = "min",
-        min_distance: float | Sequence[float | None] | None = None,
-        max_features: int | Sequence[int | None] | None = None,
-        value_threshold: float | Sequence[float | None] | None = None,
+        peak_type: Literal["min", "max"] | Sequence[Literal["min", "max"]] = "min",
+        best_per_point: bool | Sequence[bool] = False,
+        feature_radii: float | None | Sequence[float | None] = None,
+        max_features: int | None | Sequence[int | None] = None,
+        value_threshold: float | None | Sequence[float | None] = None,
         include_equal_threshold: bool | Sequence[bool] = True,
+        filter_function: FilterFunction | None | Sequence[FilterFunction | None] = None,
+        filter_radius: float | None | Sequence[float | None] = None,
+        filter_extension_mode: FilterExtensionMode | Sequence[FilterExtensionMode] = "constant",
+        filter_extension_constant_value: float | Sequence[float] = 0,
+        filter_gaussian_sigma: float | None | Sequence[float | None] = None,
+        filter_percentile: float | Sequence[float] = 50,
+        no_overlap: bool = False,
+        overlap_feature_radii: float | None | Sequence[float | None] = None,
+        overlap_priority_factor: Sequence[float] | None = None,
     ):
-        """Perceive pharmacophore features as largest minima/maxima in the field tensor.
+        """Perceive pharmacophore features as largest extrema in the field.
+
+        All parameters except `no_overlap` can be specified
+        as a single value for all feature types in the field,
+        or as a sequence of values, one for each feature type.
 
         Parameters
         ----------
-        max_value
-            Maximum value for feature types in the field tensor.
-            Local minima with values greater than this are not considered.
-            - If a single number is provided, it applies to all feature types.
-            - If a sequence is provided, it must match
-              the order and number of feature types in the field.
-            - If `None` (default), all local minima are considered regardless of their value.
-        local_radius
-            Radius of the local region around each grid point within which to search for minima.
+        peak_type
+            Type of peaks to search for in the field tensor.
+            - "min": Best values are minima.
+            - "max": Best values are maxima.
+        best_per_point
+            If `True`, discard grid points
+            where the field value is not the best value
+            (i.e., lowest for "min" `peak_type` or highest for "max" `peak_type`)
+            among all feature types at that grid point.
+        feature_radii
+            Radius of the sphere around each feature center
+            Minimum distance between two peaks to consider them as separate features.
+            If a value is `None`, no distance filtering is applied,
+            i.e., the minimum distance is the grid spacing.
+        max_features
+            Maximum number of features to return.
+            If a value is `None`, all features are returned.
+        value_threshold
+            Threshold value for the peaks.
+            - When `peak_type` is "min", only minima with values
+              less than this threshold are considered.
+            - When `peak_type` is "max", only maxima with values
+              greater than this threshold are considered.
+            - If a value is `None`, no thresholding is applied.
+        include_equal_threshold
+            Whether to include peaks with values equal to the threshold.
+        filter_function
+            Function to apply to the field values before peak detection.
+            This can be either a generic callable object
+            or one of the predefined filter functions.
+            If a callable is provided, it must accept a single argument,
+            which is a 1D array of field values
+            within a sphere of radius `filter_radius` centered at the grid point.
+            The function must then return a single value
+            as the replacement value for that grid point.
+            For example, passing `numpy.mean` would have the same effect
+            as the predefined "mean" filter function described below.
+            The predefined filter functions are:
+            - "gaussian": Apply a [Gaussian filter](https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.gaussian_filter.html)
+              with `filter_gaussian_sigma` as the standard deviation
+              and `filter_radius` as the radius of the Gaussian kernel.
+              This performs a spherical smoothing of the field values,
+              where the value at each grid point is replaced by the weighted average
+              of its neighbors within the specified radius, with weights
+              determined by the Gaussian function.
+            - "mean": Apply a mean filter with a spherical footprint of `filter_radius`.
+              This is similar to a Gaussian filter but uses a uniform weight for all neighbors.
+            - "percentile": Apply a [percentile filter](https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.percentile_filter.html)
+              with `filter_percentile` as the percentile to compute.
+              This replaces each grid point value with the specified percentile
+              of the values within a sphere of radius `filter_radius`.
 
+
+        Notes
+        -----
+        The algorithm works as follows:
+        For each feature type in the field,
+        1. If `filter_function` is provided,
+           for each grid point the field value is replaced
+           by the value of the `filter_function`
+           applied to the field values within a sphere
+           of radius `filter_radius` centered at the grid point.
+           This can be used to smooth the field
+           (e.g., using a Gaussian or percentile filter),
+           or to apply a custom transformation to the field values.
+        2. If `best_per_point` is `True`,
+           grid points whose (replaced) field value is not the best
+           (i.e. lowest for "min" peaks or highest for "max" peaks)
+           among all feature type field values at that grid point are discarded.
+           This prevents selecting multiple feature types at the exact same grid point.
+        3. If `value_threshold` is provided,
+           grid points whose (replaced) field values
+           do not meet the threshold are discarded.
+           Along with `max_features`,
+           this is useful to filter out noise
+           and reduce the number of features.
+        4. If the modeler has a pocket defined,
+           grid points outside the pocket are discarded.
+           This ensures that only features
+           within the pocket are considered.
+        5. The remaining grid points are sorted by their field value from best to worst
+           (i.e. lowest to highest for "min" peaks or highest to lowest for "max" peaks).
+        6. The first best point is selected as the center of the first feature,
+           and all other points within its `2 * feature_radii` (if specified) are discarded.
+        7. The next best remaining point is selected as the center of the next feature,
+           and all other points within its `2 * feature_radii` (if specified) are discarded.
+           This process is repeated until either all points are processed
+           or `max_features` is reached.
+           Therefore, setting `feature_radii` ensures that no two features of the same type
+           overlap, i.e., the distance between their centers
+           is greater than `2 * feature_radii`.
+
+        Finally, if `no_overlap` is `True`,
+        the algorithm ensures that for each pharmacophore instance
+        no two features of any type overlap.
+        This is done as follows:
+        For each pharmacophore instance,
+        1. All features are sorted by their center's field value from best to worst.
+        2. If `overlap_priority_factor` is provided, the field values are multiplied
+           by the corresponding `overlap_priority_factor` for each feature type
+           and then sorted.
+           This allows prioritizing features of certain types over others
+           when removing overlapping features, and is especially useful
+           when the field values of different feature types are either very similar
+           or very different.
+        3. Each feature is perceived as a sphere
+           with radius `overlap_feature_radii` (if specified)
+           or `feature_radii` for that feature type.
+           Providing a different `overlap_feature_radii` for each feature type
+           allows for more flexibility in defining the overlap criteria
+           for intra-feature-type vs. inter-feature-type cases.
+        4. Similar to steps 6 and 7 above, the algorithm checks for overlaps
+           between the features and discards overlapping features with the lower priority.
+
+        Note that this global overlap filtering can also be done
+        after the pharmacophore has been generated,
+        by calling its `remove_overlaps` method.
         """
-
-        args = _LargesPeaksArgs(
+        args = _LargestPeaksArgs(
             field_count=self.field.tensor.shape[0],
             peak_type=peak_type,
+            best_per_point=best_per_point,
+            min_distance=feature_radii,
             max_features=max_features,
             value_threshold=value_threshold,
             include_equal_threshold=include_equal_threshold,
-            min_distance=min_distance,
+            filter_function=filter_function,
+            filter_radius=filter_radius,
+            filter_extension_mode=filter_extension_mode,
+            filter_extension_constant_value=filter_extension_constant_value,
+            filter_gaussian_sigma=filter_gaussian_sigma,
+            filter_percentile=filter_percentile,
         )
+
+        fields = np.empty_like(self.field.tensor)
+
+        # Apply filter function if specified
+        for feature_field_idx, feature_field in enumerate(self.field.tensor):
+            filter_function = args.filter_function[feature_field_idx]
+            fields[feature_field_idx] = (
+                feature_field
+                if filter_function is None else
+                filter_function(feature_field)
+            )
+
+        # Create a boolean mask for the best per point selection and pocket filtering
+        masks = self._best_per_point_mask(
+            field=fields,
+            peak_type=args.peak_type,
+            best_per_point=args.best_per_point,
+        )
+        if self.pocket is not None:
+            masks = jnp.logical_and(masks, self.pocket.tensor)
 
         features = []
         for idx in np.ndindex(tuple(self.field.batch_shape)):
             field_idx = idx[0]
             instance_idx = idx[1:]
+            field = fields[idx]
             peaks_indices = arrayer.tensor.indices_sorted_by_value(
-                tensor=self.field.tensor[idx],
+                tensor=field,
                 first=args.peak_type[field_idx],
                 threshold=args.value_threshold[field_idx],
                 include_equal=args.include_equal_threshold[field_idx],
-                mask=None if self.pocket is None else self.pocket.tensor[instance_idx],
+                mask=masks[instance_idx],
             )
             if peaks_indices.size == 0:
                 continue
             peaks_coordinates = self.field.grid.index_coordinates(peaks_indices)
             if args.min_distance[field_idx] is not None:
-                peaks_coordinates = points_with_min_dist(
-                    points=peaks_coordinates,
-                    min_distance=args.min_distance[field_idx],
-                    max_points=args.max_features[field_idx],
+                peaks_indices = exclude_overlapping_spheres(
+                    centers=peaks_coordinates,
+                    radii=args.min_distance[field_idx],
+                    max_out=args.max_features[field_idx],
                 )
+                peaks_coordinates = peaks_coordinates[peaks_indices]
             if peaks_coordinates.size == 0:
                 continue
-            for peak_idx, peak_coordinates in enumerate(peaks_coordinates, start=1):
+            for peak_index, peak_coordinates in zip(peaks_indices, peaks_coordinates):
                 features.append(
                     {
                         "instance": instance_idx or 0,
                         "type": self.field.batch_instance_labels["feature"][field_idx],
-                        "label": peak_idx,
+                        "label": peak_index,
                         "center": peak_coordinates,
                         "radius": args.min_distance[field_idx] or self.field.grid.spacings[0] / 2,
+                        "value": field[peak_index],
                     }
                 )
         return Pharmacophore(
             features=pd.DataFrame(features),
             feature_types=set(self.field.batch_instance_labels["feature"]),
-            inputs=args.model_dump(exclude={"field_count"}),
+            inputs=args.model_dump(),
             system=self.receptor,
             pocket=self.pocket,
             field=self.field,
         )
+
+    def _best_per_point_mask(
+        self,
+        field: np.ndarray,
+        peak_type: Sequence[Literal["min", "max"]],
+        best_per_point: Sequence[bool]
+    ) -> jnp.ndarray:
+        """Compute a boolean mask to select best feature per point.
+
+        For each feature `f` in `field`:
+        - If `best_per_mode[f]` is `False`, `mask[f]` is all `True` (no filtering).
+        - If `best_per_mode[f]` is `True`, `mask[f]` is `True` only where `field[f]`
+          is the min (if `peak_type[f]=='min'`) or max (if 'max') across features.
+
+        Parameters
+        ----------
+        data
+            Input field of shape `(n_features, *n_batches, nx, ny, nz)`.
+        peak_type
+            Sequence of length `n_features` where each element is 'min' or 'max',
+            determining which extremum to filter for when `best_per_point[f]` is True.
+        best_per_point
+            Boolean sequence of length `n_features`, where each element indicates
+            whether to filter for the best value for each feature type.
+
+        Returns
+        -------
+        Boolean array of same shape as `field` with per-feature filtering.
+
+        Notes
+        -----
+        - Computes argmin and/or argmax only if at least one feature needs it.
+        - Initializes an all-True mask and overrides only the flagged features.
+        - Ties broken by first occurrence via argmin/argmax.
+        """
+        # Determine which extrema to compute
+        need_min = any(best and peak == 'min' for best, peak in zip(best_per_point, peak_type))
+        need_max = any(best and peak == 'max' for best, peak in zip(best_per_point, peak_type))
+
+        # Compute indices of extrema if needed
+        idx_min = np.argmin(field, axis=0) if need_min else None
+        idx_max = np.argmax(field, axis=0) if need_max else None
+
+        # Start with all True mask
+        mask = np.ones_like(field, dtype=bool)
+
+        # Override flagged features based on their peak type
+        for feature_idx, (best, peak) in enumerate(zip(best_per_point, peak_type)):
+            if not best:
+                continue
+            if peak == 'min':
+                mask[feature_idx] = (idx_min == feature_idx)
+            elif peak == 'max':
+                mask[feature_idx] = (idx_max == feature_idx)
+            else:
+                raise ValueError(f"Invalid `peak_type` '{peak}' at index {feature_idx}; must be 'min' or 'max'")
+        return jnp.asarray(mask)
 
 
 class _CNNArgs(BaseModel):
@@ -445,82 +656,86 @@ class _CNNArgs(BaseModel):
         return values
 
 
-class _LargesPeaksArgs(BaseModel):
-    method: str = "largest_peaks"
-    field_count: int
+class _LargestPeaksArgs(BaseModel):
+    """Validator for arguments of the `Modeler.largest_peaks` method.
+
+    In addition to the arguments defined as fields below,
+    this class requires the following parameters;
+    these are not included in the created instance,
+    but are used to validate/create the other parameters:
+
+    Parameters
+    ----------
+    field_count
+        Number of feature types in the field tensor.
+        This is used to validate the length of other parameters.
+    filter_radius
+    filter_extension_mode
+    filter_extension_constant_value
+    filter_gaussian_sigma
+    filter_percentile
+        Parameters for the filter function.
+        These are used to create a partial function
+        that is returned as `filter_function`.
+    """
+    method: Literal["largest_peaks"] = "largest_peaks"
     peak_type: tuple[Literal["min", "max"], ...]
+    best_per_point: tuple[bool, ...]
+    min_distance: tuple[PositiveFloat | None, ...]
     max_features: tuple[PositiveInt | None, ...]
     value_threshold: tuple[float | None, ...]
     include_equal_threshold: tuple[bool, ...]
-    min_distance: tuple[PositiveFloat | None, ...]
+    filter_function: tuple[Callable | None, ...]
+    filter_radius: tuple[PositiveFloat, ...] | None = None
 
     @model_validator(mode="before")
     def _preprocess(cls, values: dict[str, object]) -> dict[str, object]:
+        """Preprocess and validate the input values."""
+        def fix(argname: str, is_scalar_fn: Callable[[Any], bool]) -> None:
+            """Validate and, if necessary, fix the input value.
+
+            This function expands a scalar value into a tuple of length `field_count`,
+            or validates that an iterable has exactly `field_count` elements.
+            The fixed value is stored back in `values` under the same key.
+
+            Parameters
+            ----------
+            argname
+                Name of the argument to process.
+            is_scalar_fn
+                Function that checks if the value is a scalar.
+            """
+            raw_value = values[argname]
+            if is_scalar_fn(raw_value):
+                values[argname] = (raw_value,) * field_count
+                return
+            try:
+                value_tuple = tuple(raw_value)
+            except TypeError:
+                raise TypeError(
+                    f"`{argname}` must be a scalar or an iterable, "
+                    f"but got {raw_value} with type {type(raw_value)}."
+                )
+            if len(value_tuple) != field_count:
+                raise ValueError(
+                    f"`{argname}` must have length {field_count}, "
+                    f"but got {len(value_tuple)}."
+                )
+            values[argname] = value_tuple
+            return
+
         field_count = values["field_count"]
-        peak_type_raw = values["peak_type"]
-        max_features_raw = values["max_features"]
-        value_threshold_raw = values["value_threshold"]
-        include_equal_threshold_raw = values["include_equal_threshold"]
-        min_distance_raw = values["min_distance"]
 
-        # Process `peak_type`
-        if isinstance(peak_type_raw, str):
-            peak_type = (peak_type_raw,) * field_count
-        else:
-            peak_type = tuple(max_features_raw)
-            if len(peak_type) != field_count:
-                raise ValueError(
-                    f"`peak_type` must have length {field_count}, "
-                    f"but got {len(peak_type)}."
-                )
+        for argname, is_scalar_fn in (
+            ("peak_type", lambda x: isinstance(x, str)),
+            ("best_per_point", lambda x: isinstance(x, bool)),
+            ("min_distance", lambda x: is_real_number(x) or x is None),
+            ("max_features", lambda x: is_integer(x) or x is None),
+            ("value_threshold", lambda x: is_real_number(x) or x is None),
+            ("include_equal_threshold", lambda x: isinstance(x, bool)),
 
-        # Process `max_features`
-        if is_integer(max_features_raw) or max_features_raw is None:
-            max_features = (max_features_raw,) * field_count
-        else:
-            max_features = tuple(max_features_raw)
-            if len(max_features) != field_count:
-                raise ValueError(
-                    f"`max_features` must have length {field_count}, "
-                    f"but got {len(max_features)}."
-                )
+        ):
+            fix(argname, is_scalar_fn)
 
-        # Process `value_threshold`
-        if is_real_number(value_threshold_raw) or value_threshold_raw is None:
-            value_threshold = (value_threshold_raw,) * field_count
-        else:
-            value_threshold = tuple(value_threshold_raw)
-            if len(value_threshold) != field_count:
-                raise ValueError(
-                    f"`value_threshold` must have length {field_count}, "
-                    f"but got {len(value_threshold)}."
-                )
 
-        # Process `include_equal_threshold`
-        if isinstance(include_equal_threshold_raw, bool):
-            include_equal_threshold = (include_equal_threshold_raw,) * field_count
-        else:
-            include_equal_threshold = tuple(include_equal_threshold_raw)
-            if len(include_equal_threshold) != field_count:
-                raise ValueError(
-                    f"`include_equal_threshold` must have length {field_count}, "
-                    f"but got {len(include_equal_threshold)}."
-                )
-
-        # Process `min_distance`
-        if is_real_number(min_distance_raw) or min_distance_raw is None:
-            min_distance = (min_distance_raw,) * field_count
-        else:
-            min_distance = tuple(min_distance_raw)
-            if len(min_distance) != field_count:
-                raise ValueError(
-                    f"`min_distance` must have length {field_count}, "
-                    f"but got {len(min_distance)}."
-                )
-
-        values["peak_type"] = peak_type
-        values["max_features"] = max_features
-        values["value_threshold"] = value_threshold
-        values["include_equal_threshold"] = include_equal_threshold
-        values["min_distance"] = min_distance
         return values
