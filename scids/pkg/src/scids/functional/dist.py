@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Sequence, Callable
 import numpy as np
 import jax
 from scipy.spatial import KDTree
@@ -121,17 +121,41 @@ def exclude_overlapping_spheres(
             "`centers` must be a 2D array of shape (n_spheres, n_dims), "
             f"but got shape {centers.shape}."
         )
-    # Broadcast scalar radius to all spheres and validate
-    radii = (
-        np.full(n_spheres, float(radii)) if np.isscalar(radii) or (
-            isinstance(radii, np.ndarray | jax.Array) and radii.ndim == 0
-        ) else np.asarray(radii, dtype=float)
-    )
-    if radii.shape != (n_spheres,):
-        raise ValueError(
-            "`radii` array must have shape (n_spheres,) to match centers, "
-            f"but got shape {radii.shape} for {n_spheres} spheres."
-        )
+    if np.isscalar(radii) or (
+        isinstance(radii, np.ndarray | jax.Array) and radii.ndim == 0
+    ):
+        radii = float(radii)
+        max_distance = radii * 2
+        distance_comparison_function = None
+        if not exclude_tangents:
+            # If tangents should be included,
+            # calculate largest possible float (within machine precision)
+            # smaller than max_distance so that the KDTree.query_ball_point
+            # doesn't return points at exactly max_distance.
+            # This way we can avoid the subsequent distance check altogether.
+            max_distance = np.nextafter(max_distance, 0.0)
+    else:
+        radii = np.asarray(radii)
+        if radii.shape != (n_spheres,):
+            raise ValueError(
+                "`radii` array must have shape (n_spheres,) to match centers, "
+                f"but got shape {radii.shape} for {n_spheres} spheres."
+            )
+        if not np.issubdtype(radii.dtype, np.floating) and not np.issubdtype(radii.dtype, np.integer):
+            raise TypeError(
+                "`radii` must be a floating-point or integer array, "
+                f"but got dtype {radii.dtype}."
+            )
+        if arrayer.tensor.pairwise_allclose(radii):
+            # All radii are the same, so we can treat it as a scalar case
+            radii = float(radii[0])
+            max_distance = radii * 2
+            distance_comparison_function = None
+            if not exclude_tangents:
+                max_distance = np.nextafter(max_distance, 0.0)
+        else:
+            max_distance = None
+            distance_comparison_function = np.less_equal if exclude_tangents else np.less
     if np.any(radii <= 0):
         raise ValueError(
             f"`radii` must be positive, but got {radii}."
@@ -146,19 +170,21 @@ def exclude_overlapping_spheres(
         return []
 
     if n_spheres <= batch_threshold:
-        return _exclude_overlapping_spheres(
+        return _exclude_overlapping_spheres_single(
             centers=centers,
             radii=radii,
+            max_distance=max_distance,
+            distance_comparison_function=distance_comparison_function,
             p_norm=p_norm,
-            exclude_tangents=exclude_tangents,
             max_out=max_out,
             kdtree_leafsize=kdtree_leafsize_single,
         )
     return _exclude_overlapping_spheres_batched(
         centers=centers,
         radii=radii,
+        max_distance=max_distance,
+        distance_comparison_function=distance_comparison_function,
         p_norm=p_norm,
-        exclude_tangents=exclude_tangents,
         max_out=max_out,
         batch_size_min=batch_size_min,
         batch_size_max=batch_size_max,
@@ -167,17 +193,19 @@ def exclude_overlapping_spheres(
     )
 
 
-def _exclude_overlapping_spheres(
+def _exclude_overlapping_spheres_single(
     centers: np.ndarray,
-    radii: np.ndarray,
+    radii: np.ndarray | float,
+    max_distance: float | None,
+    distance_comparison_function: Callable | None,
     p_norm: float,
-    exclude_tangents: bool,
     max_out: int,
     kdtree_leafsize: int = 40,
 ) -> list[int]:
     """Unbatched implementation of `exclude_overlapping_spheres`."""
+    if not max_distance:
+        max_radius = radii.max()
     tree = KDTree(centers, leafsize=kdtree_leafsize)
-    dist_comparison_function = np.less_equal if exclude_tangents else np.less
     n_spheres = centers.shape[0]
     removed = np.zeros(n_spheres, dtype=bool)
     selected_indices = []
@@ -191,7 +219,7 @@ def _exclude_overlapping_spheres(
         if len(selected_indices) == max_out:
             break
         # Maximum possible exclusion radius for sphere i against any later sphere
-        max_excl_radius = radii[i] + radii.max()
+        max_excl_radius = max_distance or (radii[i] + max_radius)
         # Find all neighbors within that maximum radius
         neighbors = tree.query_ball_point(
             centers[i],
@@ -203,20 +231,29 @@ def _exclude_overlapping_spheres(
         neighbors = [j for j in neighbors if j > i]
         if not neighbors:
             continue
+        if max_distance:
+            # If we are in the scalar case,
+            # we can directly add the neighbors to the removed set.
+            removed[neighbors] = True
+            continue
         # Compute actual distances and mark overlaps
         neigh_idx = np.array(neighbors, dtype=int)
         diffs = centers[neigh_idx] - centers[i]  # shape (k, n_dims)
         dists = np.linalg.norm(diffs, ord=p_norm, axis=1)
-        overlap_mask = dist_comparison_function(dists, (radii[i] + radii[neigh_idx]))
+        overlap_mask = distance_comparison_function(
+            dists,
+            max_distance or (radii[i] + radii[neigh_idx])
+        )
         removed[neigh_idx[overlap_mask]] = True
     return selected_indices
 
 
 def _exclude_overlapping_spheres_batched(
     centers: np.ndarray,
-    radii: np.ndarray,
+    radii: np.ndarray | float,
+    max_distance: float | None,
+    distance_comparison_function: Callable | None,
     p_norm: float,
-    exclude_tangents: bool,
     max_out: int,
     batch_size_min: int,
     batch_size_max: int,
@@ -224,19 +261,6 @@ def _exclude_overlapping_spheres_batched(
     kdtree_leafsize: int = 70,
 ) -> list[int]:
     """Batched implementation of `exclude_overlapping_spheres`."""
-    if arrayer.tensor.pairwise_allclose(radii):
-        # All radii are the same, so we can treat it as a scalar case
-        scalar_case = True
-        radii = radii[0]
-        r_sum = radii * 2
-        # If tangents should be included,
-        # calculate largest possible float (within machine precision)
-        # smaller than r_sum to keep points at exactly r_sum (due to how KDTree works)
-        r_eff = r_sum if exclude_tangents else np.nextafter(r_sum, 0.0)
-    else:
-        scalar_case = False
-        distance_comparison_function = np.less_equal if exclude_tangents else np.less
-
     accepted_points: list[np.ndarray] = []
     accepted_indices: list[int] = []
     accepted_count = 0
@@ -259,13 +283,16 @@ def _exclude_overlapping_spheres_batched(
     for point_batch, index_batch in zip(point_batches, index_batches):
         # Filter batch against already accepted points
         if accepted_points:
-            if scalar_case:
-                # Query first nearest neighbor within r_sum
-                dists, _ = KDTree(np.vstack(accepted_points), leafsize=kdtree_leafsize).query(
+            if max_distance:
+                # Query first nearest neighbor within max_distance
+                dists, _ = KDTree(
+                    np.vstack(accepted_points),
+                    leafsize=kdtree_leafsize
+                ).query(
                     point_batch,
                     k=1,
                     p=p_norm,
-                    distance_upper_bound=r_eff,
+                    distance_upper_bound=max_distance,
                     workers=-1,
                 )
                 mask = np.isinf(dists)
@@ -273,12 +300,15 @@ def _exclude_overlapping_spheres_batched(
                 # KDTree.query expects a single scalar radius
                 # and doesn’t support arrays for distance_upper_bound.
                 # We compute worst-case search radius = max_i,j (r_i + r_j)
-                max_distance = (
+                curr_max_distance = (
                     radii[accepted_indices][:,None] + radii[index_batch][None,:]
                 ).max()
-                pairs = KDTree(np.vstack(accepted_points), leafsize=kdtree_leafsize).sparse_distance_matrix(
+                pairs = KDTree(
+                    np.vstack(accepted_points),
+                    leafsize=kdtree_leafsize
+                ).sparse_distance_matrix(
                     other=KDTree(point_batch, leafsize=kdtree_leafsize),
-                    max_distance=max_distance,
+                    max_distance=curr_max_distance,
                     p=p_norm
                 )
                 mask = np.ones(len(point_batch), bool)
@@ -291,15 +321,17 @@ def _exclude_overlapping_spheres_batched(
         else:
             candidates = point_batch
             candidate_indices = index_batch
-
         if candidates.size == 0:
             continue
 
         # Greedy within-batch filtering.
         # First, rough filter up to the maximum possible sum-of-radii.
-        neighbor_lists = KDTree(candidates, leafsize=kdtree_leafsize).query_ball_point(
+        neighbor_lists = KDTree(
             candidates,
-            r=r_eff if scalar_case else (
+            leafsize=kdtree_leafsize
+        ).query_ball_point(
+            candidates,
+            r=max_distance if max_distance else (
                 radii[candidate_indices][:,None] + radii[candidate_indices][None,:]
             ).max(),
             p=p_norm,
@@ -307,22 +339,19 @@ def _exclude_overlapping_spheres_batched(
             return_sorted=True,
         )
         batch_rejected: set[int] = set()
-        batch_accepted: list[np.ndarray] = []
-        batch_accepted_indices: list[int] = []
-
         for idx, neighbors in enumerate(neighbor_lists):
             if idx in batch_rejected:
                 # Already rejected this point
                 continue
             # Accept this point
-            batch_accepted.append(candidates[idx])
-            batch_accepted_indices.append(int(candidate_indices[idx]))
+            accepted_points.append(candidates[idx])
+            accepted_indices.append(int(candidate_indices[idx]))
             # If we have reached the maximum number of points, stop
             accepted_count += 1
             if accepted_count == max_out:
                 break
             # Reject any neighbor j where dist <= r_i + r_j (with tangent logic)
-            if scalar_case:
+            if max_distance:
                 # Remove self from neighbors
                 neighbors = [i for i in neighbors if i != idx]
                 # Reject all remaining neighbors
@@ -335,9 +364,6 @@ def _exclude_overlapping_spheres_batched(
                     thresh = radii[candidate_indices[idx]] + radii[candidate_indices[j]]
                     if distance_comparison_function(d, thresh):
                         batch_rejected.add(j)
-
-        accepted_points.extend(batch_accepted)
-        accepted_indices.extend(batch_accepted_indices)
         if accepted_count == max_out:
             break
     return accepted_indices
