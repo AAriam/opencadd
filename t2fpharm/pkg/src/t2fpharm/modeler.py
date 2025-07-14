@@ -455,10 +455,10 @@ class Modeler:
 
     def _best_per_point_mask(
         self,
-        field: np.ndarray,
-        peak_type: Sequence[Literal["min", "max"]],
-        best_per_point: Sequence[bool]
-    ) -> jnp.ndarray:
+        tensor: np.ndarray,
+        peak_type: dict[str, Literal["min", "max"]],
+        best_per_point: dict[str, bool]
+    ) -> np.ndarray:
         """Compute a boolean mask to select best feature per point.
 
         For each feature `f` in `field`:
@@ -468,8 +468,8 @@ class Modeler:
 
         Parameters
         ----------
-        data
-            Input field of shape `(n_features, *n_batches, nx, ny, nz)`.
+        tensor
+            Input tensor of shape `(n_features, *n_batches, nx, ny, nz)`.
         peak_type
             Sequence of length `n_features` where each element is 'min' or 'max',
             determining which extremum to filter for when `best_per_point[f]` is True.
@@ -488,27 +488,32 @@ class Modeler:
         - Ties broken by first occurrence via argmin/argmax.
         """
         # Determine which extrema to compute
-        need_min = any(best and peak == 'min' for best, peak in zip(best_per_point, peak_type))
-        need_max = any(best and peak == 'max' for best, peak in zip(best_per_point, peak_type))
+        need_min = any(best and peak == 'min' for best, peak in zip(best_per_point.values(), peak_type.values()))
+        need_max = any(best and peak == 'max' for best, peak in zip(best_per_point.values(), peak_type.values()))
 
         # Compute indices of extrema if needed
-        idx_min = np.argmin(field, axis=0) if need_min else None
-        idx_max = np.argmax(field, axis=0) if need_max else None
+        idx_min = np.argmin(tensor, axis=0) if need_min else None
+        idx_max = np.argmax(tensor, axis=0) if need_max else None
 
         # Start with all True mask
-        mask = np.ones_like(field, dtype=bool)
+        mask = np.ones_like(tensor, dtype=bool)
 
         # Override flagged features based on their peak type
-        for feature_idx, (best, peak) in enumerate(zip(best_per_point, peak_type)):
-            if not best:
+        for feature_idx in range(mask.shape[0]):
+            feature_type = self._feature_type(feature_idx)
+            if not best_per_point[feature_type]:
                 continue
-            if peak == 'min':
+            peak_type_value = peak_type[feature_type]
+            if peak_type_value == 'min':
                 mask[feature_idx] = (idx_min == feature_idx)
-            elif peak == 'max':
+            elif peak_type_value == 'max':
                 mask[feature_idx] = (idx_max == feature_idx)
             else:
-                raise ValueError(f"Invalid `peak_type` '{peak}' at index {feature_idx}; must be 'min' or 'max'")
-        return jnp.asarray(mask)
+                raise ValueError(
+                    f"Invalid `peak_type` '{peak_type_value}' for feature '{feature_type}'; must be 'min' or 'max'"
+                )
+        return mask
+
     def _filter(self, filter_function: dict[str, FilterFunction | None]) -> np.ndarray:
         """Apply the specified filter functions to the field tensor."""
         tensor = np.empty_like(self.field.tensor)
