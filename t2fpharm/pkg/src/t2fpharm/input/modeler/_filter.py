@@ -46,6 +46,7 @@ def validate(
                     "but no filter function is provided. "
                     "Please provide a valid filter function or unset radius."
                 )
+            functions[feature_type] = None
             continue
         if radius is None:
             raise ValueError(
