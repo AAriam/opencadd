@@ -6,13 +6,16 @@ import jax.numpy as jnp
 def validate_input_dict(
     name: str,
     value: Any,
-    value_validator: Callable[[Any], bool],
     feature_types: Sequence[Any],
+    fill_value: Any = None,
+    value_validator: Callable[[Any], bool] | None = None,
     none_allowed: bool = True,
 ) -> dict[str, Any]:
     """Validate an input value."""
-    if value is None and none_allowed:
-        return {feature_type: None for feature_type in feature_types}
+    if value is None:
+        if none_allowed:
+            return {feature_type: fill_value for feature_type in feature_types}
+        raise ValueError(f"{name} cannot be None.")
     if isinstance(value, dict):
         for k, v in value.items():
             if k not in feature_types:
@@ -20,13 +23,13 @@ def validate_input_dict(
                     f"Invalid feature type '{k}' in {name} dictionary. "
                     f"Available feature types are: {', '.join(feature_types)}."
                 )
-            if not value_validator(v):
+            if value_validator and not value_validator(v):
                 raise ValueError(
                     f"Invalid value for feature type '{k}' in {name}; "
                     f"got {v} with type {type(v)}."
                 )
-        return {feature_type: value.get(feature_type, None) for feature_type in feature_types}
-    if not value_validator(value):
+        return {feature_type: value.get(feature_type, fill_value) for feature_type in feature_types}
+    if value_validator and not value_validator(value):
         raise ValueError(
             f"Invalid value for {name}; "
             f"got {value} with type {type(value)}."
