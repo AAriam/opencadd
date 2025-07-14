@@ -4,7 +4,7 @@ from functools import partial
 import numpy as np
 from scipy import ndimage
 
-from t2fpharm.input import _validator
+from t2fpharm.input import validator
 from t2fpharm.grid import Grid
 
 
@@ -19,23 +19,22 @@ def validate(
     grid: Grid,
 ):
     args = {}
-    for name, value, fill_value, validator, none_allowed in (
+    for name, value, fill_value, value_validator, none_allowed in (
         ("filter_function", filter_function, None, _validator_function, True),
-        ("filter_radius", filter_radius, None, _validator.is_positive_number, True),
-        ("filter_extension_mode", filter_extension_mode, "constant", _validator_extension_mode, False),
-        ("filter_extension_constant_value", filter_extension_constant_value, 0, _validator.is_real_number, False),
-        ("filter_gaussian_sigma", filter_gaussian_sigma, None, _validator.is_positive_number, True),
-        ("filter_percentile", filter_percentile, 50, _validator_percentile, False),
+        ("filter_radius", filter_radius, None, validator.is_positive_number, True),
+        ("filter_extension_mode", filter_extension_mode, None, _validator_extension_mode, False),
+        ("filter_extension_constant_value", filter_extension_constant_value, None, validator.is_real_number, False),
+        ("filter_gaussian_sigma", filter_gaussian_sigma, None, validator.is_positive_number, True),
+        ("filter_percentile", filter_percentile, None, _validator_percentile, False),
     ):
-        args[name] = _validator.validate_input_dict(
+        args[name] = validator.validate_input_dict(
             name=name,
             value=value,
             fill_value=fill_value,
-            value_validator=validator,
+            value_validator=value_validator,
             feature_types=feature_types,
             none_allowed=none_allowed,
         )
-    functions = {}
     for feature_type in feature_types:
         func_input = args["filter_function"][feature_type]
         radius = args["filter_radius"][feature_type]
@@ -46,7 +45,6 @@ def validate(
                     "but no filter function is provided. "
                     "Please provide a valid filter function or unset radius."
                 )
-            functions[feature_type] = None
             continue
         if radius is None:
             raise ValueError(
@@ -86,8 +84,8 @@ def validate(
                 "Expected a callable or one of ['gaussian', 'mean', 'percentile']."
             )
 
-        functions[feature_type] = partial(func, **func_args)
-    return functions
+        args["filter_function"][feature_type] = partial(func, **func_args)
+    return args
 
 
 def _validator_function(value: Any) -> bool:
@@ -103,7 +101,7 @@ def _validator_extension_mode(value: Any) -> bool:
 
 
 def _validator_percentile(value: Any) -> bool:
-    return _validator.is_real_number(value) and 0 <= value <= 100
+    return validator.is_real_number(value) and 0 <= value <= 100
 
 
 def _calculate_gaussian_sigma(
