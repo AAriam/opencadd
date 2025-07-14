@@ -87,7 +87,7 @@ class Pharmacophore:
         extra: dict[str, Any] | None = None,
     ):
         self._features = _FeaturesInput(features=features, feature_types=feature_types).features
-        self._feature_types = feature_types
+        self._feature_types = feature_types or set(self._features['type'].unique())
         self._inputs = inputs or {}
         self._name = name
         self._system = system
@@ -160,6 +160,114 @@ class Pharmacophore:
     def extra(self) -> dict[str, Any]:
         """Additional information related to the pharmacophore."""
         return self._extra
+
+    def remove_overlaps(
+        self,
+        min_distance: dict[tuple[Any, Any], float],
+        priority: pd.Series | Sequence,
+        highest_priority: Literal["lowest", "highest"] = "lowest",
+        max_features: dict[Any, int] | None = None,
+    ) -> Self:
+        """Remove overlapping features in each pharmacophore instance."""
+        def make_min_spacing():
+            min_spacing = np.zeros((n_types, n_types), dtype=np.float64)
+            seen = set()
+            for type_pair, distance in min_distance.items():
+                unique_pair = tuple(sorted(type_pair))
+                if unique_pair in seen:
+                    raise ValueError(
+                        f"Duplicate minimum distance for feature types {type_pair}: {distance}"
+                    )
+                seen.add(unique_pair)
+                for typ in unique_pair:
+                    if typ not in feature_types:
+                        raise ValueError(f"Invalid feature type: {typ}. Allowed: {feature_types}")
+                if distance < 0:
+                    raise ValueError(
+                        f"Minimum distance must be non-negative, got {distance} for types {unique_pair}"
+                    )
+                if len(unique_pair) != 2:
+                    raise ValueError(
+                        f"Minimum distance must be specified for pairs of feature types, got {unique_pair}"
+                    )
+                i, j = feature_types.index(unique_pair[0]), feature_types.index(unique_pair[1])
+                min_spacing[i, j] = min_spacing[j, i] = distance
+            return min_spacing
+
+        def make_max_count():
+            if max_features is None:
+                return None
+            max_counts = np.full(n_types, np.iinfo(np.int64).max, dtype=np.int64)
+            for feature_type, max_count in max_features.items():
+                if feature_type not in feature_types:
+                    raise ValueError(f"Invalid feature type: {feature_type}. Allowed: {feature_types}")
+                max_counts[feature_types.index(feature_type)] = max_count
+            return max_counts
+
+        feature_types = list(self.feature_types)
+        n_types = len(feature_types)
+
+        # Convert priority to numpy array and validate length
+        priority = np.asarray(priority)
+        if priority.ndim != 1 or priority.shape[0] != len(self._features):
+            raise ValueError(
+                f"Priority must be 1D with length {len(self._features)}, but got shape {priority.shape}"
+            )
+        # Validate highest_priority argument
+        if highest_priority not in ("lowest", "highest"):
+            raise ValueError("`highest_priority` must be either 'lowest' or 'highest'")
+
+        # Validate feature_types covers all present types
+        unique_types = set(self._features["type"])
+        missing = unique_types.difference(feature_types)
+        if missing:
+            raise ValueError(f"Found types not in feature_types: {missing}")
+
+        # Build mapping from type value to index
+        type_to_idx = {t: i for i, t in enumerate(feature_types)}
+
+        # Work on a copy to avoid modifying original
+        df = self._features.copy()
+        df["_priority"] = priority
+
+        selected_groups: list[pd.DataFrame] = []
+        ascending = highest_priority == "lowest"
+
+        min_spacing = make_min_spacing()
+        max_count = make_max_count()
+
+        # Process each instance separately
+        for _, group in df.groupby("instance", sort=False):
+            # sort by priority
+            sorted_grp = group.sort_values("_priority", ascending=ascending)
+            # prepare arrays for ensure_spacing
+            centers = np.stack(sorted_grp["center"].to_numpy())
+            types_idx = sorted_grp["type"].map(type_to_idx).to_numpy(dtype=int)
+            # call external spacing function
+            chosen_indices = ensure_spacing(
+                points=centers,
+                point_type=types_idx,
+                min_spacing=min_spacing,
+                max_count=max_count,
+            )
+            # select corresponding rows
+            filtered = sorted_grp.iloc[chosen_indices]
+            selected_groups.append(filtered)
+        # concatenate results and drop helper column
+        if selected_groups:
+            result = pd.concat(selected_groups).drop(columns="_priority")
+        else:
+            result = self._features.iloc[0:0].copy()
+        return Pharmacophore(
+            features=result,
+            feature_types=self.feature_types,
+            inputs=self.inputs,
+            name=self.name,
+            system=self.system,
+            pocket=self.pocket,
+            field=self.field,
+            extra=self.extra,
+        )
 
     def match(
         self,
