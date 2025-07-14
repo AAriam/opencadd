@@ -374,20 +374,12 @@ class Modeler:
         after the pharmacophore has been generated,
         by calling its `remove_overlaps` method.
         """
-        args = _LargestPeaksArgs(
-            field_count=self.field.tensor.shape[0],
-            peak_type=peak_type,
-            best_per_point=best_per_point,
-            min_distance=feature_radii,
-            max_features=max_features,
-            value_threshold=value_threshold,
-            include_equal_threshold=include_equal_threshold,
-            filter_function=filter_function,
-            filter_radius=filter_radius,
-            filter_extension_mode=filter_extension_mode,
-            filter_extension_constant_value=filter_extension_constant_value,
-            filter_gaussian_sigma=filter_gaussian_sigma,
-            filter_percentile=filter_percentile,
+        kwargs = locals()
+        del kwargs["self"]
+        args = LargestPeaksInput(
+            **kwargs,
+            feature_types=self.field.batch_instance_labels["feature"],
+            grid=self.field.grid,
         )
 
         fields = np.empty_like(self.field.tensor)
