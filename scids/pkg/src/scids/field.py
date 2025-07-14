@@ -261,7 +261,6 @@ class Field(dataset.DataSet):
         }
         return super().to_npz(filepath=filepath, kwds=kwds, data_key="tensor", compress=compress)
 
-
     def to_dict(self, dtype: DTypeLike | None = None) -> dict[str, list]:
         """Convert the field to a serializable dictionary representation.
 
