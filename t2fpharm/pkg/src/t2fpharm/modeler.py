@@ -406,13 +406,13 @@ class Modeler:
         for idx in np.ndindex(tuple(self.field.batch_shape)):
             field_idx = idx[0]
             instance_idx = idx[1:]
-            field = fields[idx]
+            field = tensor[idx]
             peaks_indices = arrayer.tensor.indices_sorted_by_value(
                 tensor=field,
                 first=args.peak_type[field_idx],
-                threshold=args.value_threshold[field_idx],
-                include_equal=args.include_equal_threshold[field_idx],
-                mask=masks[instance_idx],
+                threshold=args.threshold_value[field_idx],
+                include_equal=args.threshold_include_equal[field_idx],
+                mask=mask[instance_idx],
             )
             if peaks_indices.size == 0:
                 continue
