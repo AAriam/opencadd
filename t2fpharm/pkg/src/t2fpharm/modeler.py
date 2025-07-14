@@ -509,6 +509,45 @@ class Modeler:
             else:
                 raise ValueError(f"Invalid `peak_type` '{peak}' at index {feature_idx}; must be 'min' or 'max'")
         return jnp.asarray(mask)
+    def _filter(self, filter_function: dict[str, FilterFunction | None]) -> np.ndarray:
+        """Apply the specified filter functions to the field tensor."""
+        tensor = np.empty_like(self.field.tensor)
+        for feature_field_idx, feature_field in enumerate(self.field.tensor):
+            feature_type = self._feature_type(feature_field_idx)
+            function = filter_function[feature_type]
+            if function is None:
+                tensor[feature_field_idx] = feature_field
+            else:
+                function(
+                    input=feature_field,
+                    output=tensor[feature_field_idx],
+                    axes=(-3, -2, -1),
+                )
+        return tensor
+
+    def _mask(
+        self,
+        tensor: np.ndarray,
+        peak_type: dict[str, Literal["min", "max"]],
+        best_per_point: dict[str, bool],
+        threshold_value: dict[str, float | None],
+        threshold_include_equal: dict[str, bool],
+    ):
+        mask = self._best_per_point_mask(
+            tensor=tensor,
+            peak_type=peak_type,
+            best_per_point=best_per_point,
+        )
+        mask = self._mask_threshold(
+            tensor=tensor,
+            mask=mask,
+            peak_type=peak_type,
+            threshold_value=threshold_value,
+            threshold_include_equal=threshold_include_equal,
+        )
+        if self.pocket is not None:
+            mask = np.logical_and(mask, self.pocket.tensor)
+        return mask
 
     def _mask_threshold(
         self,
