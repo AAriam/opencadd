@@ -437,7 +437,7 @@ class Modeler:
                         "value": field[peak_index],
                     }
                 )
-        return Pharmacophore(
+        pharm = Pharmacophore(
             features=pd.DataFrame(features),
             feature_types=set(self.field.batch_instance_labels["feature"]),
             inputs=args.model_dump(),
@@ -445,6 +445,7 @@ class Modeler:
             pocket=self.pocket,
             field=self.field,
         )
+        return pharm
 
     def _best_per_point_mask(
         self,
