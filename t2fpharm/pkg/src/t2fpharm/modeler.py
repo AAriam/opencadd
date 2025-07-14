@@ -510,6 +510,36 @@ class Modeler:
                 raise ValueError(f"Invalid `peak_type` '{peak}' at index {feature_idx}; must be 'min' or 'max'")
         return jnp.asarray(mask)
 
+    def _mask_threshold(
+        self,
+        tensor: np.ndarray,
+        mask: np.ndarray,
+        peak_type: dict[str, Literal["min", "max"]],
+        threshold_value: dict[str, float | None],
+        threshold_include_equal: dict[str, bool],
+    ):
+        comparison_function = {
+            ("min", True): np.less_equal,
+            ("min", False): np.less,
+            ("max", True): np.greater_equal,
+            ("max", False): np.greater,
+        }
+        for feature_idx in range(mask.shape[0]):
+            feature_type = self._feature_type(feature_idx)
+            if threshold_value[feature_type] is None:
+                continue
+            comp_func = comparison_function[
+                (peak_type[feature_type], threshold_include_equal[feature_type])
+            ]
+            mask[feature_idx] = np.logical_and(
+                mask[feature_idx],
+                comp_func(tensor[feature_idx], threshold_value[feature_type])
+            )
+        return mask
+
+    def _feature_type(self, field_idx: int) -> str:
+        """Get the feature type for a given field index."""
+        return self.field.batch_instance_labels["feature"][field_idx]
 
 class _CNNArgs(BaseModel):
     method: str = "cnn"
