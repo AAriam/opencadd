@@ -163,10 +163,10 @@ class Pharmacophore:
 
     def remove_overlaps(
         self,
-        min_distance: dict[tuple[Any, Any], float],
+        min_distance: dict[tuple[str, str], float],
         priority: pd.Series | Sequence,
         highest_priority: Literal["lowest", "highest"] = "lowest",
-        max_features: dict[Any, int] | None = None,
+        max_features: dict[str, int] | None = None,
     ) -> Self:
         """Remove overlapping features in each pharmacophore instance."""
         def make_min_spacing():
