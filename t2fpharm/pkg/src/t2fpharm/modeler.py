@@ -306,7 +306,6 @@ class Modeler:
               This replaces each grid point value with the specified percentile
               of the values within a sphere of radius `filter_radius`.
 
-
         Notes
         -----
         The algorithm works as follows:
