@@ -1,14 +1,13 @@
-from typing import Sequence, Literal, Callable, Any
-from functools import partial
+from typing import Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import model_validator
 
-from t2fpharm.input import _validator
-from t2fpharm.input.modeler import _filter
+from t2fpharm.input import validator
+from t2fpharm.input.modeler.simple import SimpleInput
 from t2fpharm.typing import PositiveInt, PositiveFloat
 
 
-class LargestPeaksInput(BaseModel):
+class LargestPeaksInput(SimpleInput):
     """Validator for arguments of the `Modeler.largest_peaks` method.
 
     In addition to the arguments defined as fields below,
@@ -32,44 +31,31 @@ class LargestPeaksInput(BaseModel):
     """
     method: Literal["largest_peaks"] = "largest_peaks"
 
-    peak_type: dict[str, Literal["min", "max"]]
-    best_per_point: dict[str, bool]
-    threshold_value: dict[str, float]
-    threshold_include_equal: dict[str, bool]
-    max_features: dict[str, PositiveInt]
-    min_distance: dict[tuple[str, str], PositiveFloat]
-    priority_factor: dict[str, float]
-    filter_function: dict[str, partial]
+    max_features: dict[str, PositiveInt | None]
+    min_distance: dict[tuple[str, str], PositiveFloat] | None
+    priority_factor: dict[str, float | None]
 
     @model_validator(mode="before")
     def _preprocess(cls, values: dict[str, object]) -> dict[str, object]:
         """Preprocess and validate the input values."""
         feature_types = values["feature_types"]
-        values["filter_function"] = _filter.validate(
-            filter_function=values["filter_function"],
-            filter_radius=values["filter_radius"],
-            filter_extension_mode=values["filter_extension_mode"],
-            filter_extension_constant_value=values["filter_extension_constant_value"],
-            filter_gaussian_sigma=values["filter_gaussian_sigma"],
-            filter_percentile=values["filter_percentile"],
-            feature_types=feature_types,
-            grid=values["grid"],
-        )
         for argname, fill_value, none_allowed in (
-            ("peak_type", "min", False),
-            ("best_per_point", False, False),
-            ("threshold_value", None, True),
-            ("threshold_include_equal", True, False),
             ("max_features", None, True),
-            ("min_distance", None, True),
             ("priority_factor", None, True),
         ):
-            values[argname] = _validator.validate_input_dict(
+            values[argname] = validator.validate_input_dict(
                 name=argname,
                 value=values[argname],
                 fill_value=fill_value,
                 feature_types=feature_types,
                 none_allowed=none_allowed,
             )
+        min_distance = values["min_distance"]
+        if min_distance is None:
+            if any(factor is not None for factor in values["priority_factor"].values()):
+                raise ValueError(
+                    "`priority_factor` is provided, "
+                    "but `min_distance` is None. "
+                    "Please provide a valid `min_distance` value."
+                )
         return values
-
