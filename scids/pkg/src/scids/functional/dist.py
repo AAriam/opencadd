@@ -5,6 +5,9 @@ from scipy.spatial import KDTree
 from numpy.typing import ArrayLike
 import arrayer
 
+from numba import njit
+from numba.typed import List
+
 
 def exclude_overlapping_spheres(
     centers: ArrayLike,
@@ -367,3 +370,235 @@ def _exclude_overlapping_spheres_batched(
         if accepted_count == max_out:
             break
     return accepted_indices
+
+
+def ensure_pointcloud_spacing(
+    points: ArrayLike,
+    point_types: Sequence[int] | None,
+    min_spacing: float | ArrayLike,
+    include_exact: bool = True,
+    max_count: int | Sequence[int] | None = None,
+    p_norm: float = 2,
+) -> list[int]:
+    """Ensure spacing between points of different types using a greedy selection.
+
+    This function selects the largest possible subset
+    of points from the input `points` array,
+    such that the Minkowski distance of order `p_norm`
+    between any two points `i` and `j` of types `t_i` and `t_j`
+    is at least `spacing[t_i, t_j]`.
+    The points are selected in the order they appear in the input,
+    so that earlier points are preferred over later points
+    when it comes to satisfying the spacing constraints.
+    At any time, if the number of points of a certain type
+    reaches the maximum allowed count `max_count[t_i]`,
+    no more points of that type will be selected.
+
+    Parameters
+    ----------
+    points
+        2D array of shape `(n_points, n_dimensions)`,
+        containing the coordinates of
+        `n_points` points in `n_dimensions`-dimensional space.
+    point_types
+        Type of each point.
+        If `None`, all points are considered to be of the same type.
+        Otherwise, this must be a 1D integer array of shape `(n_points,)`,
+        containing the types of each point.
+        Types should be integers in the range `[0, n_types - 1]`,
+        where each unique integer represents a different point type.
+    spacing
+        Minimum spacing between points of different types.
+        If `point_types` is `None`, this must be a scalar value
+        specifying the minimum distance between any two points.
+        Otherwise, this must be a square (optionally upper triangular)
+        matrix of shape `(n_types, n_types)`,
+        where `spacing[i, j]` specifies the minimum distance
+        between points of type `i` and `j`.
+        The matrix must be symmetric, i.e., `spacing[i, j] == spacing[j, i]`.
+
+        2D array (or upper triangular matrix) of shape `(n_types, n_types)`,
+        containing the minimum spacing between points of different types.
+        The element at `(i, j)` (i <= j) specifies the minimum distance
+        between points of type `i` and type `j`.
+
+        Array of shape `(n_types, n_types)` with upper-triangular values
+        specifying minimum Minkowski distances between types.
+
+    max_count
+        1D integer array of shape `(n_types,)`,
+        containing the maximum number of points allowed for each type.
+
+        Sequence of length `n_types` giving maximum number of points per type.
+    p_norm
+        Order of the Minkowski distance (p >= 1).
+
+    Returns
+    -------
+    List of indices of selected points that satisfy the spacing constraints.
+    The returned indices correspond to the input `points` array.
+    """
+    points = np.asarray(points)
+    if not np.issubdtype(points.dtype, np.floating) and not np.issubdtype(points.dtype, np.integer):
+        raise TypeError(
+            "`points` must be a floating-point or integer array, "
+            f"but got dtype {points.dtype}."
+        )
+    if points.ndim != 2:
+        raise ValueError(
+            "`points` must be a 2D array of shape (n_points, n_dims), "
+            f"but got shape {points.shape}."
+        )
+    n_points = points.shape[0]
+    if point_types is None:
+        point_types = np.zeros(n_points, dtype=int)
+        min_required_types = 1
+        single_type = True
+    else:
+        point_types = np.asarray(point_types)
+        if not np.issubdtype(point_types.dtype, np.integer):
+            raise TypeError(
+                "`point_types` must be an integer array, "
+                f"but got dtype {point_types.dtype}."
+            )
+        if point_types.ndim != 1 or point_types.shape[0] != n_points:
+            raise ValueError(
+                "`point_types` must be a 1D array of shape (n_points,), "
+                f"but got shape {point_types.shape}."
+            )
+        if np.any(point_types < 0):
+            raise ValueError(
+                "`point_types` must contain non-negative integers, "
+                f"but got {point_types}."
+            )
+        min_required_types = point_types.max() + 1
+        single_type = min_required_types == 1
+
+    if np.isscalar(min_spacing) or (
+        isinstance(min_spacing, np.ndarray | jax.Array) and min_spacing.ndim == 0
+    ):
+        if min_required_types > 1:
+            raise ValueError(
+                "`min_spacing` must be a 2D array of shape (n_types, n_types) "
+                "when `point_types` is not None, "
+                f"but got a scalar {min_spacing} for {min_required_types} types."
+            )
+        min_spacing = np.full((1, 1), float(min_spacing))
+    else:
+        min_spacing = np.asarray(min_spacing)
+        if min_spacing.ndim != 2:
+            raise ValueError(
+                "`min_spacing` must be a 2D array of shape (n_types, n_types), "
+                f"but got shape {min_spacing.shape}."
+            )
+        if min_spacing.shape[0] != min_spacing.shape[1]:
+            raise ValueError(
+                "`min_spacing` must be a square matrix, "
+                f"but got shape {min_spacing.shape}."
+            )
+        if min_spacing.shape[0] < min_required_types:
+            raise ValueError(
+                "`min_spacing` must have at least `n_types` rows and columns, "
+                f"but got shape {min_spacing.shape} for {min_required_types} types."
+            )
+        if single_type and min_spacing.shape[0] > 1:
+            raise ValueError(
+                "`min_spacing` must have at most `n_types` rows and columns, "
+                f"but got shape {min_spacing.shape} for a single type."
+            )
+    if not np.all(np.isfinite(min_spacing)):
+        raise ValueError(
+            "`min_spacing` must contain finite values, "
+            f"but got {min_spacing}."
+        )
+    if not np.all(np.isreal(min_spacing)):
+        raise ValueError(
+            "`min_spacing` must contain real values, "
+            f"but got {min_spacing}."
+        )
+    if np.any(min_spacing < 0):
+        raise ValueError(
+            "`min_spacing` must contain non-negative values, "
+            f"but got {min_spacing}."
+        )
+    if max_count is not None:
+        max_count = np.asarray(max_count)
+        if not np.issubdtype(max_count.dtype, np.integer):
+            raise TypeError(
+                "`max_count` must be an integer array, "
+                f"but got dtype {max_count.dtype}."
+            )
+        if max_count.ndim != 1:
+            raise ValueError(
+                "`max_count` must be a 1D array, "
+                f"but got shape {max_count.shape}."
+            )
+        if max_count.shape[0] < min_required_types:
+            raise ValueError(
+                "`max_count` must have at least `n_types` elements, "
+                f"but got shape {max_count.shape} for {min_required_types} types."
+            )
+    # print("points:", points)
+    # print("point_types:", point_types)
+    # print("min_spacing:", min_spacing)
+    # print("max_count:", max_count)
+    # print("p_norm:", p_norm)
+
+    return _ensure_pointcloud_spacing(
+        points=points,
+        point_types=point_types,
+        spacing=min_spacing,
+        max_count=max_count,
+        include_exact=include_exact,
+        p_norm=float(p_norm)
+    )
+
+
+@njit
+def _ensure_pointcloud_spacing(
+    points: np.ndarray,
+    point_types: np.ndarray,
+    spacing: np.ndarray,
+    include_exact: bool,
+    max_count: np.ndarray | None,
+    p_norm: float,
+) -> List:
+    # Dimensions
+    n_points, n_dim = points.shape
+    n_types = spacing.shape[0]
+
+    # Precompute spacing^p_norm for threshold comparisons
+    spacing_p = np.empty((n_types, n_types), dtype=np.float64)
+    for i in range(n_types):
+        for j in range(i, n_types):
+            spacing_p[i, j] = spacing_p[j, i] = spacing[i, j] ** p_norm
+    # print("spacing_p:", spacing_p)
+
+    # Initialize counts and selected list
+    counts = np.zeros(n_types, dtype=np.int64)
+    selected_indices = List()
+
+    # Greedy selection
+    for point_idx in range(n_points):
+        point_type = point_types[point_idx]
+        # Skip if this type is disallowed or reaches max
+        if max_count is not None and counts[point_type] >= max_count[point_type]:
+            continue
+        point_coords = points[point_idx]
+        ok = True
+        # Check against all previously selected
+        for selected_idx in selected_indices:
+            selected_type = point_types[selected_idx]
+            # threshold^p for this pair of types
+            thresh_p = spacing_p[point_type, selected_type]
+            # compute Minkowski distance^p
+            d_p = 0.0
+            for d in range(n_dim):
+                d_p += abs(point_coords[d] - points[selected_idx, d]) ** p_norm
+            if d_p < thresh_p:
+                ok = False
+                break
+        if ok:
+            counts[point_type] += 1
+            selected_indices.append(point_idx)
+    return selected_indices
