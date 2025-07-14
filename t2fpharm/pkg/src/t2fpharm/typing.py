@@ -32,26 +32,3 @@ PositiveFloatTuple = Annotated[
 
 DataFrameLike = pd.DataFrame | list[dict[str, ArrayLike]]
 
-
-def is_real_number(value) -> bool:
-    """Check if the value is a real number (int or float).
-
-    This covers both native Python types, as well as JAX/NumPy types.
-    """
-    return is_integer(value) or is_float(value)
-
-
-def is_integer(value) -> bool:
-    """Check if the value is an integer (int or np.integer).
-
-    This covers both native Python types, as well as JAX/NumPy types.
-    """
-    return jnp.issubdtype(type(value), jnp.integer)
-
-
-def is_float(value) -> bool:
-    """Check if the value is a float (float or np.floating).
-
-    This covers both native Python types, as well as JAX/NumPy types.
-    """
-    return jnp.issubdtype(type(value), jnp.floating)
