@@ -1,4 +1,4 @@
-from typing import Sequence, Callable
+from typing import Sequence, NamedTuple
 from functools import partial
 
 import numpy as np
@@ -7,11 +7,13 @@ from pydantic import model_validator
 import scids
 
 from t2fpharm.input import validator
-from t2fpharm.typing import PositiveInt, PositiveFloat, PositiveIntTuple, PositiveFloatTuple
+from t2fpharm.typing import (
+    PositiveInt, PositiveFloat, PositiveIntTuple, PositiveFloatTuple, ClusteringFunction, ClusteringResult
+)
 
 
 class CNNInput:
-    clustering_function: dict[str, Callable]
+    clustering_function: dict[str, ClusteringFunction]
     max_distance: dict[str, PositiveFloatTuple]
     min_neighbors: dict[str, PositiveIntTuple]
     min_members: dict[str, PositiveInt]
@@ -49,16 +51,24 @@ class CNNInput:
         return values
 
 
+class CNNResult(NamedTuple):
+    """Result of the CNN clustering."""
+    labels: np.ndarray
+    centers: None = None
+
+
 def cnn_function(
     centers: np.ndarray,
+    weights: np.ndarray,
     max_distance: PositiveFloat | Sequence[PositiveFloat],
     min_neighbors: PositiveInt | Sequence[PositiveInt],
     min_members: PositiveInt,
     max_members: PositiveInt | None,
-) -> np.ndarray:
-    return scids.pointcloud.from_array(centers).cluster_cnn(
+) -> ClusteringResult:
+    labels = scids.pointcloud.from_array(centers).cluster_cnn(
         max_distance=max_distance,
         min_neighbors=min_neighbors,
         min_members=min_members,
         max_members=max_members,
     )
+    return CNNResult(labels=labels)
