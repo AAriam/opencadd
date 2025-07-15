@@ -20,7 +20,7 @@ class PharmClusterCNNInput(PharmClusterInput):
     max_members: dict[str, PositiveInt | None]
 
     @model_validator(mode="before")
-    def _preprocess(cls, values: dict[str, object]) -> dict[str, object]:
+    def _cluster_cnn_input(cls, values: dict[str, object]) -> dict[str, object]:
         feature_types = values["feature_types"]
         for argname in (
             "max_distance",
