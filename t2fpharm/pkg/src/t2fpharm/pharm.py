@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+import scids.functional.dist
 import scishow
 import caddpy
 import scids
@@ -15,7 +16,10 @@ from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
 from t2fpharm.input import validator
 from t2fpharm.input.pharm.cnn import CNNInput
-from t2fpharm.typing import DataFrameLike, PositiveFloat, PositiveInt
+from t2fpharm.input.pharm.cluster import ClusterInput
+from t2fpharm.typing import DataFrameLike, PositiveFloat, PositiveInt, ClusteringFunction
+
+import scids.functional
 
 
 class Pharmacophore:
@@ -251,9 +255,9 @@ class Pharmacophore:
             centers = np.stack(sorted_grp["center"].to_numpy())
             types_idx = sorted_grp["type"].map(type_to_idx).to_numpy(dtype=int)
             # call external spacing function
-            chosen_indices = ensure_spacing(
+            chosen_indices = scids.functional.dist.ensure_pointcloud_spacing(
                 points=centers,
-                point_type=types_idx,
+                point_types=types_idx,
                 min_spacing=min_spacing,
                 max_count=max_count,
             )
@@ -276,12 +280,139 @@ class Pharmacophore:
             extra=self.extra,
         )
 
+    def cluster(
+        self,
+        function: ClusteringFunction | dict[str, ClusteringFunction],
+        weights: pd.Series | np.ndarray | Sequence[float] | None = None,
+        center_type: Literal["function", "midpoint", "mean", "average"] | dict[str, Literal["function", "midpoint", "mean", "average"]] = "average",
+        radius_type: Literal["average", "mean", "max", "min"] = "average",
+        per_instance: bool = True,
+    ) -> Self:
+        """Cluster pharmacophore features using provided clustering functions.
+
+        Parameters
+        ----------
+        function
+            Either a single clustering function for all feature types,
+            or a dictionary mapping each feature type to a clustering function.
+            Each function must accept a 2D numpy array of shape `(n_features, 3)`
+            containing the coordinates of feature centers,
+            and return a 1D array/sequence of cluster labels as integers
+            for each feature center in the input array.
+            Labels that are 0 or negative are considered background/noise
+            and will not be included in the output pharmacophore.
+        per_instance
+            If `True`, clusters features separately for each instance.
+            If `False`, clusters all features together regardless of instance.
+        """
+        args = ClusterInput(
+            function=function,
+            weights=weights,
+            center_type=center_type,
+            per_instance=per_instance,
+            n_features=len(self.features),
+            feature_types=self.feature_types
+        )
+        function = args.function
+        center_type = args.center_type
+        radius_type = args.radius_type
+        per_instance = args.per_instance
+
+        df = self._features.copy()
+        df["_weights"] = args.weights
+
+        selected: list[dict] = []
+        for group_idx, group in df.groupby(
+            ["instance", "type"] if per_instance else ["type"],
+            sort=False
+        ):
+            feature_type = group_idx[-1]
+            centers = np.stack(group["center"].to_numpy())
+            weights = group["_weights"].to_numpy(dtype=np.float64)
+            clustering_result = function[feature_type](centers, weights)
+            labels = np.asarray(clustering_result.labels)
+            if labels.ndim != 1:
+                raise ValueError(
+                    f"Clustering function for feature type '{feature_type}' must return a 1D array of labels, "
+                    f"but got shape {labels.shape}."
+                )
+            if labels.size != centers.shape[0]:
+                raise ValueError(
+                    f"Clustering function for feature type '{feature_type}' must return labels "
+                    f"for all feature centers, but got {labels.size} labels for {centers.shape[0]} centers."
+                )
+            if labels.dtype.kind != 'i':
+                raise ValueError(
+                    f"Clustering function for feature type '{feature_type}' must return integer labels, "
+                    f"but got dtype {labels.dtype}."
+                )
+            unique_labels = np.unique(labels)
+            mask_accepted = unique_labels > 0
+            unique_positive_labels = unique_labels[mask_accepted]
+            instance = group_idx[0] if per_instance else 0
+            feature_center_type = center_type[feature_type]
+            feature_radius_type = radius_type[feature_type]
+            for label in unique_positive_labels:
+                label_mask = labels == label
+                point_coordinates = centers[label_mask]
+
+                if feature_center_type == "function":
+                    cluster_center = clustering_result.centers[label]
+                elif feature_center_type == "midpoint":
+                    cluster_center = (point_coordinates.min(axis=0) + point_coordinates.max(axis=0)) / 2
+                elif feature_center_type == "mean":
+                    cluster_center = np.mean(point_coordinates, axis=0)
+                elif feature_center_type == "average":
+                    cluster_center = np.average(point_coordinates, weights=weights[label_mask], axis=0)
+                else:
+                    raise ValueError(
+                        f"Invalid center_type '{feature_center_type}' for feature type '{feature_type}'. "
+                        "Must be one of 'function', 'midpoint', or 'average'."
+                    )
+                dist_to_center = np.linalg.norm(point_coordinates - cluster_center, axis=1) + group["radius"][label_mask].to_numpy(dtype=np.float64)
+                if feature_radius_type == "average":
+                    radius = np.average(dist_to_center, weights=weights[label_mask])
+                elif feature_radius_type == "mean":
+                    radius = np.mean(dist_to_center)
+                elif feature_radius_type == "max":
+                    radius = np.max(dist_to_center)
+                elif feature_radius_type == "min":
+                    radius = np.min(dist_to_center)
+                else:
+                    raise ValueError(
+                        f"Invalid radius_type '{feature_radius_type}' for feature type '{feature_type}'. "
+                        "Must be one of 'average', 'mean', 'max', or 'min'."
+                    )
+                selected.append(
+                    {
+                        "instance": instance,
+                        "type": feature_type,
+                        "label": label,
+                        "center": cluster_center,
+                        "radius": radius,
+                        "members": group.index[label_mask].to_numpy()
+                    }
+                )
+        return Pharmacophore(
+            features=pd.DataFrame(selected) if selected else self.features.iloc[0:0].copy(),
+            feature_types=self.feature_types,
+            inputs=self.inputs,
+            name=self.name,
+            system=self.system,
+            pocket=self.pocket,
+            field=self.field,
+            extra=self.extra,
+        )
+
     def cluster_cnn(
         self,
         max_distance: PositiveFloat | Sequence[PositiveFloat] | dict[str, PositiveFloat | Sequence[PositiveFloat]],
         min_neighbors: PositiveInt | Sequence[PositiveInt] | dict[str, PositiveInt | Sequence[PositiveInt]],
         min_members: PositiveInt | dict[str, PositiveInt] = 1,
         max_members: PositiveInt | dict[str, PositiveInt] | None = None,
+        weights: pd.Series | np.ndarray | Sequence[float] | None = None,
+        center_type: Literal["function", "midpoint", "mean", "average"] | dict[str, Literal["function", "midpoint", "mean", "average"]] = "average",
+        radius_type: Literal["average", "mean", "max", "min"] = "average",
         per_instance: bool = True,
     ) -> Self:
         """Cluster pharmacophore features using the Common Nearest Neighbors (CNN) algorithm.
@@ -568,59 +699,6 @@ class Pharmacophore:
                 raise ValueError(f"Color must be a tuple of three values for feature '{feature}'")
         return
 
-    def _cluster(
-        self,
-        clustering_function: dict[str, Callable],
-        per_instance: bool = True,
-    ) -> Self:
-        """Cluster pharmacophore features.
-
-        Parameters
-        ----------
-        clustering_function
-            A dictionary mapping each feature type to a clustering function.
-            Each function must take a 2D numpy array of feature centers
-            and return cluster labels for each center.
-        per_instance
-            If `True`, clusters features separately for each instance.
-            If `False`, clusters all features together regardless of instance.
-        """
-        selected: list[dict] = []
-        for group_idx, group in self.features.groupby(
-            ["instance", "type"] if per_instance else "type",
-            sort=False
-        ):
-            feature_type = group_idx[1] if per_instance else group_idx
-            centers = np.stack(group["center"].to_numpy())
-            labels = clustering_function[feature_type](centers)
-            cluster_sizes = np.bincount(labels)[1:]  # Exclude background label (0)
-            cluster_count = cluster_sizes.size
-            for cluster_label in range(1, cluster_count + 1):
-                n_points = cluster_sizes[cluster_label - 1]
-                volume = n_points * self.field.grid.point_volume
-                point_coordinates = centers[labels == cluster_label]
-                selected.append(
-                    {
-                        "instance": group_idx[0] if per_instance else 0,
-                        "type": feature_type,
-                        "label": cluster_label,
-                        "center": point_coordinates.mean(axis=0),
-                        "radius": (volume / ((4/3) * np.pi)) ** (1/3),
-                        "volume": volume,
-                        "n_points": n_points,
-                        "points": point_coordinates,
-                    }
-                )
-        return Pharmacophore(
-            features=pd.DataFrame(selected) if selected else self.features.iloc[0:0].copy(),
-            feature_types=self.feature_types,
-            inputs=self.inputs,
-            name=self.name,
-            system=self.system,
-            pocket=self.pocket,
-            field=self.field,
-            extra=self.extra,
-        )
 
 def from_complex(
     pdb_files: str | bytes | Path | Sequence,
@@ -772,3 +850,8 @@ class _FeaturesInput(BaseModel):
         all_cols = main_cols + extra_cols
         self.features = df[all_cols].convert_dtypes()
         return self
+
+
+def _center_midpoint(points: np.ndarray) -> np.ndarray:
+    """Compute the midpoint of a set of points."""
+    return np.mean(points, axis=0)
