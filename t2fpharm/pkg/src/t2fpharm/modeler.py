@@ -1,19 +1,17 @@
-from typing import Sequence, Literal, Callable, Any
+from typing import Sequence, Literal, Callable
 
 import pandas as pd
 import numpy as np
 import jax.numpy as jnp
-
-import arrayer
+from pydantic import BaseModel
 
 import scids
-from scids.functional.dist import exclude_overlapping_spheres
 
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
 from t2fpharm.system import System
 from t2fpharm.pharm import Pharmacophore
-from t2fpharm.input.modeler import CNNInput, LargestPeaksInput
+from t2fpharm.input.modeler import ModelerCNNInput, ModelerLargestPeaksInput, ModelerSimpleInput
 from t2fpharm.typing import PositiveInt, PositiveFloat
 
 
@@ -66,11 +64,20 @@ class Modeler:
 
     def cnn(
         self,
-        max_value: float | Sequence[float] = (-0.35, -0.4, -0.6, -1, -1),
-        max_distance: float | Sequence[float] | Sequence[Sequence[float]] | None = None,
-        min_neighbors: int | Sequence[int] | Sequence[Sequence[int]] = tuple(range(6, 100, 4)),
-        min_members: int | Sequence[int] | None = None,
-        max_members: int | Sequence[int | None] | None = None,
+        peak_type: Literal["min", "max"] | dict[str, Literal["min", "max"]] = "min",
+        best_per_point: bool | dict[str, bool] = False,
+        threshold_value: float | dict[str, float] | None = None,
+        threshold_include_equal: bool | dict[str, bool] = True,
+        max_distance: float | dict[str, float | Sequence[float]] | None = None,
+        min_neighbors: int | dict[str, int | Sequence[int]] = tuple(range(6, 100, 4)),
+        min_members: int | dict[str, Sequence[int]] | None = None,
+        max_members: int | dict[str, Sequence[int]] | None = None,
+        filter_function: FilterFunction | dict[str, FilterFunction] | None = None,
+        filter_radius: PositiveFloat | dict[str, PositiveFloat] | None = None,
+        filter_extension_mode: FilterExtensionMode | dict[str, FilterExtensionMode] = "constant",
+        filter_extension_constant_value: float | dict[str, float] = 0,
+        filter_gaussian_sigma: PositiveFloat | dict[str, PositiveFloat] | None = None,
+        filter_percentile: float | dict[str, float] = 50,
     ):
         """Perceive pharmacophore features using the CNN algorithm.
 
@@ -89,20 +96,24 @@ class Modeler:
             - If a sequence is provided, it must match
               the order and number of feature types in the field.
         max_distance
-            Maximum distance between two points to consider them as neighbors during clustering.
-            - If a single number is provided, it applies to all feature types and all (re)clustering runs.
-            - If a sequence of numbers is provided, the sequence is applied to all feature types,
+            Maximum distance between two points
+            to consider them as neighbors during clustering.
+            - If a single number is provided,
+              it applies to all feature types and all (re)clustering runs.
+            - If a sequence of numbers is provided,
+              the sequence is applied to all feature types,
               where the i-th number in the sequence corresponds to the input for the i-th clustering run
               (see the `max_members` parameter below for more details).
-            - If a sequence of sequences is provided, the outer sequence must match
+            - If a sequence of sequences is provided,
+              the outer sequence must match
               the order and number of feature types in the field.
             - If `None`, defaults to 2.1 times the grid spacing of the field
               for all feature types and clustering runs.
               This ensures that for each grid point, all 26 first neighbors
               plus 6 orthogonal second neighbors are included in the clustering.
         min_neighbors
-            Minimum number of common neighbors between two points
-            that belong to the same cluster.
+            Minimum number of common neighbors
+            between two points that belong to the same cluster.
             Similar to `max_distance`, this can be a single integer,
             a sequence of integers, or a sequence of sequences.
         min_members
@@ -141,93 +152,50 @@ class Modeler:
             - If `None`, defaults to 5 times the `min_members` value
               for each feature type.
         """
+        inputs = locals()
+        del inputs["self"]
         if max_distance is None:
             # As default, include all 26 neighbors in a 3D grid
             # plus orthogonal second neighbors (i.e., 26 + 6 = 32 neighbors)
-            max_distance = self.field.grid.spacings[0] * 2.1
+            inputs["max_distance"] = self.field.grid.spacings[0] * 2.1
         if min_members is None:
             hydrogen_radius = 1.2
             hydrogen_volume = (4/3) * np.pi * hydrogen_radius**3
             half_hydrogen_volume = hydrogen_volume / 2
             voxel_volume = self.field.grid.point_volume
-            min_members = int(np.ceil(half_hydrogen_volume / voxel_volume))
+            min_members = inputs["min_members"] = int(np.ceil(half_hydrogen_volume / voxel_volume))
         if max_members is None:
-            max_members = min_members * 5 if isinstance(min_members, int) else [
+            inputs["max_members"] = min_members * 5 if isinstance(min_members, int) else [
                 min_member * 5 for min_member in min_members
             ]
-        args = _CNNArgs(
-            field_count=self.field.tensor.shape[0],
-            max_value=max_value,
-            max_distance=max_distance,
-            min_neighbors=min_neighbors,
-            min_members=min_members,
-            max_members=max_members,
+        args = ModelerCNNInput(
+            **inputs,
+            feature_types=self.field.batch_instance_labels["feature"],
         )
-        field_masks = jnp.less_equal(
-            self.field.tensor,
-            jnp.array(args.max_value).reshape(-1, *(1,) * (self.field.tensor.ndim - 1)),
+
+        pharm = self.simple(
+            peak_type=args.peak_type,
+            best_per_point=args.best_per_point,
+            threshold_value=args.threshold_value,
+            threshold_include_equal=args.threshold_include_equal,
+            filter_function=args.filter_function,
+            filter_radius=args.filter_radius,
+            filter_extension_mode=args.filter_extension_mode,
+            filter_extension_constant_value=args.filter_extension_constant_value,
+            filter_gaussian_sigma=args.filter_gaussian_sigma,
+            filter_percentile=args.filter_percentile,
         )
-        final_masks = field_masks if self.pocket is None else jnp.logical_and(field_masks, self.pocket.tensor)
+        pharm._inputs = args.model_dump()
 
-        # For some reason, the line `point_coordinates = points[labels == cluster_label]`
-        # inside the nested (second) loop below was silently causing a segmentation fault.
-        # This was not happening immediately at the first iteration, but after a few iterations.
-        # This was happening when `points` was a JAX array and `labels` was a NumPy array.
-        # Making `labels` a JAX array did not solve the issue,
-        # but making `points` a NumPy array did.
-        # We thus convert `final_masks` and `grid_coordinates` to NumPy arrays
-        # before entering the loop, so that `points` is always a NumPy array.
-        final_masks = np.asarray(final_masks)
-        grid_coordinates = np.asarray(self.field.grid.coordinates)
-
-        features = []
-        for idx in np.ndindex(tuple(self.field.batch_shape)):
-            field_idx = idx[0]
-            mask = final_masks[idx]
-            points = grid_coordinates[mask]
-            labels = scids.pointcloud.from_array(points).cluster_cnn(
-                max_distance=args.max_distance[field_idx],
-                min_neighbors=args.min_neighbors[field_idx],
-                min_members=args.min_members[field_idx],
-                max_members=args.max_members[field_idx],
-            )
-            cluster_sizes = np.bincount(labels)[1:]  # Exclude background label (0)
-            cluster_count = cluster_sizes.size
-            for cluster_label in range(1, cluster_count + 1):
-                n_points = cluster_sizes[cluster_label - 1]
-                volume = n_points * self.field.grid.point_volume
-                point_coordinates = points[labels == cluster_label]
-                features.append(
-                    {
-                        "instance": idx[1:] or 0,
-                        "type": self.field.batch_instance_labels["feature"][field_idx],
-                        "label": cluster_label,
-                        "center": point_coordinates.mean(axis=0),
-                        "radius": (volume / ((4/3) * np.pi)) ** (1/3),
-                        "volume": volume,
-                        "n_points": n_points,
-                        "points": point_coordinates,
-                    }
-                )
-        return Pharmacophore(
-            features=pd.DataFrame(
-                features,
-                columns=[
-                    "instance",
-                    "type",
-                    "label",
-                    "center",
-                    "radius",
-                    "volume",
-                    "n_points",
-                    "points"
-                ]
-            ),
-            feature_types=set(self.field.batch_instance_labels["feature"]),
-            inputs=args.model_dump(),
-            system=self.receptor,
-            pocket=self.pocket,
-            field=self.field,
+        return pharm.cluster_cnn(
+            max_distance=args.max_distance,
+            min_neighbors=args.min_neighbors,
+            min_members=args.min_members,
+            max_members=args.max_members,
+            weights=args.weights,
+            center_type=args.center_type,
+            radius_type=args.radius_type,
+            per_instance=True,
         )
 
     def largest_peaks(
@@ -373,78 +341,143 @@ class Modeler:
         """
         kwargs = locals()
         del kwargs["self"]
-        args = LargestPeaksInput(
+        args = ModelerLargestPeaksInput(
             **kwargs,
             feature_types=self.field.batch_instance_labels["feature"],
             grid=self.field.grid,
         )
-
-        fields = np.empty_like(self.field.tensor)
-
-        # Apply filter function if specified
-        for feature_field_idx, feature_field in enumerate(self.field.tensor):
-            filter_function = args.filter_function[feature_field_idx]
-            fields[feature_field_idx] = (
-                feature_field
-                if filter_function is None else
-                filter_function(feature_field)
-            )
-
-        # Create a boolean mask for the best per point selection and pocket filtering
-        masks = self._best_per_point_mask(
-            field=fields,
+        pharm = self.simple(
             peak_type=args.peak_type,
             best_per_point=args.best_per_point,
+            threshold_value=args.threshold_value,
+            threshold_include_equal=args.threshold_include_equal,
+            filter_function=args.filter_function,
+            filter_radius=args.filter_radius,
+            filter_extension_mode=args.filter_extension_mode,
+            filter_extension_constant_value=args.filter_extension_constant_value,
+            filter_gaussian_sigma=args.filter_gaussian_sigma,
+            filter_percentile=args.filter_percentile,
         )
-        if self.pocket is not None:
-            masks = jnp.logical_and(masks, self.pocket.tensor)
-
-        features = []
-        for idx in np.ndindex(tuple(self.field.batch_shape)):
-            field_idx = idx[0]
-            instance_idx = idx[1:]
-            field = tensor[idx]
-            peaks_indices = arrayer.tensor.indices_sorted_by_value(
-                tensor=field,
-                first=args.peak_type[field_idx],
-                threshold=args.threshold_value[field_idx],
-                include_equal=args.threshold_include_equal[field_idx],
-                mask=mask[instance_idx],
+        pharm._inputs = args.model_dump()
+        if args.min_distance is not None:
+            priority = pharm.features["value"]
+            for feature_type, factor in args.priority_factor.items():
+                if factor is not None:
+                    priority.loc[pharm.features["type"] == feature_type] *= factor
+            pharm = pharm.remove_overlaps(
+                min_distance=args.min_distance,
+                priority=priority,
+                highest_priority="lowest",
             )
-            if peaks_indices.size == 0:
-                continue
-            peaks_coordinates = self.field.grid.index_coordinates(peaks_indices)
-            if args.min_distance[field_idx] is not None:
-                peaks_indices = exclude_overlapping_spheres(
-                    centers=peaks_coordinates,
-                    radii=args.min_distance[field_idx],
-                    max_out=args.max_features[field_idx],
-                )
-                peaks_coordinates = peaks_coordinates[peaks_indices]
-            if peaks_coordinates.size == 0:
-                continue
-            for peak_index, peak_coordinates in zip(peaks_indices, peaks_coordinates):
-                features.append(
-                    {
-                        "instance": instance_idx or 0,
-                        "type": self.field.batch_instance_labels["feature"][field_idx],
-                        "label": peak_index,
-                        "center": peak_coordinates,
-                        "radius": args.min_distance[field_idx] or self.field.grid.spacings[0] / 2,
-                        "value": field[peak_index],
-                    }
-                )
-        pharm = Pharmacophore(
-            features=pd.DataFrame(features),
-            feature_types=set(self.field.batch_instance_labels["feature"]),
-            inputs=args.model_dump(),
-            system=self.receptor,
-            pocket=self.pocket,
-            field=self.field,
-        )
         return pharm
 
-    def _best_per_point_mask(
+    def simple(
+        self,
+        peak_type: Literal["min", "max"] | dict[str, Literal["min", "max"]] = "min",
+        best_per_point: bool | dict[str, bool] = False,
+        threshold_value: float | dict[str, float] | None = None,
+        threshold_include_equal: bool | dict[str, bool] = True,
+        filter_function: FilterFunction | dict[str, FilterFunction] | None = None,
+        filter_radius: PositiveFloat | dict[str, PositiveFloat] | None = None,
+        filter_extension_mode: FilterExtensionMode | dict[str, FilterExtensionMode] = "constant",
+        filter_extension_constant_value: float | dict[str, float] = 0,
+        filter_gaussian_sigma: PositiveFloat | dict[str, PositiveFloat] | None = None,
+        filter_percentile: float | dict[str, float] = 50,
+    ) -> Pharmacophore:
+        kwargs = locals()
+        del kwargs["self"]
+        args = ModelerSimpleInput(
+            **kwargs,
+            feature_types=self.field.batch_instance_labels["feature"],
+            grid=self.field.grid,
+        )
+        tensor = self._filter(args.filter_function)
+        mask = self._mask(
+            tensor=tensor,
+            peak_type=args.peak_type,
+            best_per_point=args.best_per_point,
+            threshold_value=args.threshold_value,
+            threshold_include_equal=args.threshold_include_equal,
+        )
+        feature_radius = {
+            feature_type: radius or self.field.grid.spacings[0] / 2
+            for feature_type, radius in args.filter_radius.items()
+        }
+        return self._pharmacophore(
+            tensor=tensor,
+            mask=mask,
+            feature_radius=feature_radius,
+            args=args
+        )
+
+    def _filter(self, filter_function: dict[str, FilterFunction | None]) -> np.ndarray:
+        """Apply the specified filter functions to the field tensor."""
+        tensor = np.empty_like(self.field.tensor)
+        for feature_field_idx, feature_field in enumerate(self.field.tensor):
+            feature_type = self._feature_type(feature_field_idx)
+            function = filter_function[feature_type]
+            if function is None:
+                tensor[feature_field_idx] = feature_field
+            else:
+                function(
+                    input=feature_field,
+                    output=tensor[feature_field_idx],
+                    axes=(-3, -2, -1),
+                )
+        return tensor
+
+    def _mask(
+        self,
+        tensor: np.ndarray,
+        peak_type: dict[str, Literal["min", "max"]],
+        best_per_point: dict[str, bool],
+        threshold_value: dict[str, float | None],
+        threshold_include_equal: dict[str, bool],
+    ):
+        mask = self._mask_best_per_point(
+            tensor=tensor,
+            peak_type=peak_type,
+            best_per_point=best_per_point,
+        )
+        mask = self._mask_threshold(
+            tensor=tensor,
+            mask=mask,
+            peak_type=peak_type,
+            threshold_value=threshold_value,
+            threshold_include_equal=threshold_include_equal,
+        )
+        if self.pocket is not None:
+            mask = np.logical_and(mask, self.pocket.tensor)
+        return mask
+
+    def _mask_threshold(
+        self,
+        tensor: np.ndarray,
+        mask: np.ndarray,
+        peak_type: dict[str, Literal["min", "max"]],
+        threshold_value: dict[str, float | None],
+        threshold_include_equal: dict[str, bool],
+    ):
+        comparison_function = {
+            ("min", True): np.less_equal,
+            ("min", False): np.less,
+            ("max", True): np.greater_equal,
+            ("max", False): np.greater,
+        }
+        for feature_idx in range(mask.shape[0]):
+            feature_type = self._feature_type(feature_idx)
+            if threshold_value[feature_type] is None:
+                continue
+            comp_func = comparison_function[
+                (peak_type[feature_type], threshold_include_equal[feature_type])
+            ]
+            mask[feature_idx] = np.logical_and(
+                mask[feature_idx],
+                comp_func(tensor[feature_idx], threshold_value[feature_type])
+            )
+        return mask
+
+    def _mask_best_per_point(
         self,
         tensor: np.ndarray,
         peak_type: dict[str, Literal["min", "max"]],
@@ -505,74 +538,45 @@ class Modeler:
                 )
         return mask
 
-    def _filter(self, filter_function: dict[str, FilterFunction | None]) -> np.ndarray:
-        """Apply the specified filter functions to the field tensor."""
-        tensor = np.empty_like(self.field.tensor)
-        for feature_field_idx, feature_field in enumerate(self.field.tensor):
-            feature_type = self._feature_type(feature_field_idx)
-            function = filter_function[feature_type]
-            if function is None:
-                tensor[feature_field_idx] = feature_field
-            else:
-                function(
-                    input=feature_field,
-                    output=tensor[feature_field_idx],
-                    axes=(-3, -2, -1),
-                )
-        return tensor
-
-    def _mask(
-        self,
-        tensor: np.ndarray,
-        peak_type: dict[str, Literal["min", "max"]],
-        best_per_point: dict[str, bool],
-        threshold_value: dict[str, float | None],
-        threshold_include_equal: dict[str, bool],
-    ):
-        mask = self._best_per_point_mask(
-            tensor=tensor,
-            peak_type=peak_type,
-            best_per_point=best_per_point,
-        )
-        mask = self._mask_threshold(
-            tensor=tensor,
-            mask=mask,
-            peak_type=peak_type,
-            threshold_value=threshold_value,
-            threshold_include_equal=threshold_include_equal,
-        )
-        if self.pocket is not None:
-            mask = np.logical_and(mask, self.pocket.tensor)
-        return mask
-
-    def _mask_threshold(
+    def _pharmacophore(
         self,
         tensor: np.ndarray,
         mask: np.ndarray,
-        peak_type: dict[str, Literal["min", "max"]],
-        threshold_value: dict[str, float | None],
-        threshold_include_equal: dict[str, bool],
-    ):
-        comparison_function = {
-            ("min", True): np.less_equal,
-            ("min", False): np.less,
-            ("max", True): np.greater_equal,
-            ("max", False): np.greater,
-        }
-        for feature_idx in range(mask.shape[0]):
-            feature_type = self._feature_type(feature_idx)
-            if threshold_value[feature_type] is None:
-                continue
-            comp_func = comparison_function[
-                (peak_type[feature_type], threshold_include_equal[feature_type])
-            ]
-            mask[feature_idx] = np.logical_and(
-                mask[feature_idx],
-                comp_func(tensor[feature_idx], threshold_value[feature_type])
-            )
-        return mask
+        args: BaseModel,
+        feature_radius: dict[str, PositiveFloat | None],
+    ) -> Pharmacophore:
+        indices = np.argwhere(mask)
+        grid_indices = indices[:, -3:]
+        coordinates = self.field.grid.index_coordinates(grid_indices)
+        instances_ndim = indices.shape[1] - 4
+        if instances_ndim == 0:
+            instance_indices = np.zeros(indices.shape[0], dtype=int)
+        elif instances_ndim == 1:
+            instance_indices = indices[:, 1]
+        else:
+            instance_indices = list(map(tuple, indices[:, 1:-3].tolist()))
+        types = [self._feature_type(idx) for idx in indices[:, 0]]
+        radii = [feature_radius[feature_type] for feature_type in types]
+        features = pd.DataFrame(
+            {
+                "instance": instance_indices,
+                "type": types,
+                "label":list(map(tuple, grid_indices.tolist())),
+                "center": list(coordinates),
+                "radius": radii,
+                "value": tensor[mask],
+            }
+        )
+        pharm = Pharmacophore(
+            features=features,
+            feature_types=set(self.field.batch_instance_labels["feature"]),
+            inputs=args.model_dump(),
+            system=self.receptor,
+            pocket=self.pocket,
+            field=self.field,
+        )
+        return pharm
 
     def _feature_type(self, field_idx: int) -> str:
         """Get the feature type for a given field index."""
         return self.field.batch_instance_labels["feature"][field_idx]
-
