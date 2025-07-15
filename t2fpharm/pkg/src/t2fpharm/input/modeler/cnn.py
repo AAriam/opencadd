@@ -1,8 +1,8 @@
 from pydantic import model_validator
 
-from t2fpharm.input.modeler.simple import SimpleInput
+from t2fpharm.input.modeler.simple import ModelerSimpleInput
 
-class CNNInput(SimpleInput):
+class ModelerCNNInput(ModelerSimpleInput):
     method: str = "cnn"
 
     max_distance: tuple[PositiveFloatTuple, ...]
@@ -11,7 +11,7 @@ class CNNInput(SimpleInput):
     max_members: tuple[PositiveInt | None, ...]
 
     @model_validator(mode="before")
-    def _preprocess(cls, values: dict[str, object]) -> dict[str, object]:
+    def _validate_modeler_cnn_input(cls, values: dict[str, object]) -> dict[str, object]:
         field_count = values["field_count"]
         max_value_raw = values["max_value"]
         max_distant_raw = values["max_distance"]
