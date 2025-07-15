@@ -1,6 +1,6 @@
 """Pharmacophore."""
 
-from typing import Sequence, Any, Self, Literal
+from typing import Sequence, Any, Self, Literal, Callable
 from pathlib import Path
 
 import numpy as np
@@ -8,11 +8,14 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 import scishow
 import caddpy
+import scids
 
 from t2fpharm.system import System
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
-from t2fpharm.typing import DataFrameLike
+from t2fpharm.input import validator
+from t2fpharm.input.pharm.cnn import CNNInput
+from t2fpharm.typing import DataFrameLike, PositiveFloat, PositiveInt
 
 
 class Pharmacophore:
@@ -163,13 +166,17 @@ class Pharmacophore:
 
     def remove_overlaps(
         self,
-        min_distance: dict[tuple[str, str], float],
+        min_distance: PositiveFloat | dict[tuple[str, str], PositiveFloat],
         priority: pd.Series | Sequence,
         highest_priority: Literal["lowest", "highest"] = "lowest",
-        max_features: dict[str, int] | None = None,
+        max_features: dict[str, PositiveInt] | None = None,
     ) -> Self:
         """Remove overlapping features in each pharmacophore instance."""
         def make_min_spacing():
+            if validator.is_real_number(min_distance):
+                if not validator.is_positive_number(min_distance):
+                    raise ValueError(f"Minimum distance must be positive, got {min_distance}")
+                return np.full((n_types, n_types), min_distance, dtype=np.float64)
             min_spacing = np.zeros((n_types, n_types), dtype=np.float64)
             seen = set()
             for type_pair, distance in min_distance.items():
@@ -268,6 +275,77 @@ class Pharmacophore:
             field=self.field,
             extra=self.extra,
         )
+
+    def cluster_cnn(
+        self,
+        max_distance: PositiveFloat | Sequence[PositiveFloat] | dict[str, PositiveFloat | Sequence[PositiveFloat]],
+        min_neighbors: PositiveInt | Sequence[PositiveInt] | dict[str, PositiveInt | Sequence[PositiveInt]],
+        min_members: PositiveInt | dict[str, PositiveInt] = 1,
+        max_members: PositiveInt | dict[str, PositiveInt] | None = None,
+        per_instance: bool = True,
+    ) -> Self:
+        """Cluster pharmacophore features using the Common Nearest Neighbors (CNN) algorithm.
+
+        Parameters
+        ----------
+        max_distance
+            Maximum distance between two feature centers
+            to consider them as neighbors during clustering.
+            - If a single number is provided,
+              it applies to all feature types and all (re)clustering runs.
+            - If a sequence of numbers is provided,
+              the sequence is applied to all feature types,
+              where the i-th number in the sequence corresponds to
+              the input for the i-th clustering run
+              (see the `max_members` parameter below for more details).
+            - If a dictionary is provided,
+              it must map each feature type in the pharmacophore
+              to a single number or a sequence of numbers.
+        min_neighbors
+            Minimum number of common neighbors
+            between two feature centers that belong to the same cluster.
+            Similar to `max_distance`, this can be a single integer,
+            a sequence of integers, or a dictionary.
+        min_members
+            Minimum number of members in a cluster.
+            Cluster with fewer members than this are discarded.
+            This can either be a single integer applied to all feature types,
+            or a dictionary mapping each feature type in the pharmacophore
+            to an integer.
+        max_members
+            Optional cap for the maximum number of members in a cluster.
+            This can either be a single integer applied to all feature types,
+            or a dictionary mapping each feature type in the pharmacophore
+            to an integer.
+            If specified, clusters with more members than this
+            are reclustered into smaller clusters.
+            For this, either one or both of `max_distance` and `min_neighbors`
+            must be a sequence of values,
+            where the i-th value corresponds to the i-th clustering step.
+            In each step, clusters from the last step
+            with more members than `max_members`
+            are reclustered until all clusters
+            have maximum `max_members` members.
+            If all `max_distance` and `min_neighbors`
+            values are exhausted without reaching the desired number of members,
+            an error is raised.
+            If only one of `max_distance` or `min_neighbors`
+            is a sequence, the other one is assumed to be constant
+            for all clustering steps.
+            If both are sequences,
+            they must have the same length,
+            and the i-th value of `max_distance` and `min_neighbors`
+            is used for the i-th clustering step.
+        """
+        args = CNNInput(
+            feature_types=self.feature_types,
+            max_distance=max_distance,
+            min_neighbors=min_neighbors,
+            min_members=min_members,
+            max_members=max_members,
+            per_instance=per_instance
+        )
+        return self._cluster(clustering_function=args.clustering_function, per_instance=args.per_instance)
 
     def match(
         self,
@@ -490,6 +568,59 @@ class Pharmacophore:
                 raise ValueError(f"Color must be a tuple of three values for feature '{feature}'")
         return
 
+    def _cluster(
+        self,
+        clustering_function: dict[str, Callable],
+        per_instance: bool = True,
+    ) -> Self:
+        """Cluster pharmacophore features.
+
+        Parameters
+        ----------
+        clustering_function
+            A dictionary mapping each feature type to a clustering function.
+            Each function must take a 2D numpy array of feature centers
+            and return cluster labels for each center.
+        per_instance
+            If `True`, clusters features separately for each instance.
+            If `False`, clusters all features together regardless of instance.
+        """
+        selected: list[dict] = []
+        for group_idx, group in self.features.groupby(
+            ["instance", "type"] if per_instance else "type",
+            sort=False
+        ):
+            feature_type = group_idx[1] if per_instance else group_idx
+            centers = np.stack(group["center"].to_numpy())
+            labels = clustering_function[feature_type](centers)
+            cluster_sizes = np.bincount(labels)[1:]  # Exclude background label (0)
+            cluster_count = cluster_sizes.size
+            for cluster_label in range(1, cluster_count + 1):
+                n_points = cluster_sizes[cluster_label - 1]
+                volume = n_points * self.field.grid.point_volume
+                point_coordinates = centers[labels == cluster_label]
+                selected.append(
+                    {
+                        "instance": group_idx[0] if per_instance else 0,
+                        "type": feature_type,
+                        "label": cluster_label,
+                        "center": point_coordinates.mean(axis=0),
+                        "radius": (volume / ((4/3) * np.pi)) ** (1/3),
+                        "volume": volume,
+                        "n_points": n_points,
+                        "points": point_coordinates,
+                    }
+                )
+        return Pharmacophore(
+            features=pd.DataFrame(selected) if selected else self.features.iloc[0:0].copy(),
+            feature_types=self.feature_types,
+            inputs=self.inputs,
+            name=self.name,
+            system=self.system,
+            pocket=self.pocket,
+            field=self.field,
+            extra=self.extra,
+        )
 
 def from_complex(
     pdb_files: str | bytes | Path | Sequence,
