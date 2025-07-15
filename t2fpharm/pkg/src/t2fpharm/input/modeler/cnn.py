@@ -1,10 +1,10 @@
-from pydantic import BaseModel, model_validator
+from pydantic import model_validator
 
+from t2fpharm.input.modeler.simple import SimpleInput
 
-class CNNInput(BaseModel):
+class CNNInput(SimpleInput):
     method: str = "cnn"
-    field_count: int
-    max_value: tuple[float, ...]
+
     max_distance: tuple[PositiveFloatTuple, ...]
     min_neighbors: tuple[PositiveIntTuple, ...]
     min_members: tuple[PositiveInt, ...]
