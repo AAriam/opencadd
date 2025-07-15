@@ -10,6 +10,7 @@ def validate_input_dict(
     fill_value: Any = None,
     value_validator: Callable[[Any], bool] | None = None,
     none_allowed: bool = True,
+    require_all_types: bool = False,
 ) -> dict[str, Any]:
     """Validate an input value."""
     if value is None:
@@ -28,6 +29,12 @@ def validate_input_dict(
                     f"Invalid value for feature type '{k}' in {name}; "
                     f"got {v} with type {type(v)}."
                 )
+        if require_all_types and len(value) != len(feature_types):
+            raise ValueError(
+                f"{name} dictionary must contain all feature types: "
+                f"{', '.join(feature_types)}. "
+                f"Got {len(value)} types instead."
+            )
         return {feature_type: value.get(feature_type, fill_value) for feature_type in feature_types}
     if value_validator and not value_validator(value):
         raise ValueError(
