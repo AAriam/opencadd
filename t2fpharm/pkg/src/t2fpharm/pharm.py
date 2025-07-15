@@ -1,11 +1,11 @@
 """Pharmacophore."""
 
-from typing import Sequence, Any, Self, Literal, Callable
+from typing import Sequence, Any, Self, Literal
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+
 import scids.functional.dist
 import scishow
 import caddpy
@@ -15,8 +15,9 @@ from t2fpharm.system import System
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
 from t2fpharm.input import validator
-from t2fpharm.input.pharm.cnn import CNNInput
-from t2fpharm.input.pharm.cluster import ClusterInput
+from t2fpharm.input.pharm.cluster_cnn import PharmClusterCNNInput
+from t2fpharm.input.pharm.cluster import PharmClusterInput, CenterType, RadiusType
+from t2fpharm.input.pharm.features import PharmFeaturesInput
 from t2fpharm.typing import DataFrameLike, PositiveFloat, PositiveInt, ClusteringFunction
 
 import scids.functional
@@ -93,7 +94,7 @@ class Pharmacophore:
         field: Field | None = None,
         extra: dict[str, Any] | None = None,
     ):
-        self._features = _FeaturesInput(features=features, feature_types=feature_types).features
+        self._features = PharmFeaturesInput(features=features, feature_types=feature_types).features
         self._feature_types = feature_types or set(self._features['type'].unique())
         self._inputs = inputs or {}
         self._name = name
@@ -284,31 +285,62 @@ class Pharmacophore:
         self,
         function: ClusteringFunction | dict[str, ClusteringFunction],
         weights: pd.Series | np.ndarray | Sequence[float] | None = None,
-        center_type: Literal["function", "midpoint", "mean", "average"] | dict[str, Literal["function", "midpoint", "mean", "average"]] = "average",
-        radius_type: Literal["average", "mean", "max", "min"] = "average",
+        center_type: CenterType | dict[str, CenterType] = "average",
+        radius_type: RadiusType | dict[str, RadiusType] = "average",
         per_instance: bool = True,
     ) -> Self:
         """Cluster pharmacophore features using provided clustering functions.
+
+        The clustering is performed on centers of each feature type;
+        it can be used in one of two ways:
+        - **Per instance**: To cluster features of the same type separately for each instance.
+          This reduces the number of features per type in each instance.
+        - **Across all instances**: To cluster features of the same type across all instances.
+          This reduces all pharmacophore instances into one.
+
+        The method also supports different ways
+        to compute the center and radius of each cluster,
+        allowing flexibility in how clusters are represented.
 
         Parameters
         ----------
         function
             Either a single clustering function for all feature types,
             or a dictionary mapping each feature type to a clustering function.
-            Each function must accept a 2D numpy array of shape `(n_features, 3)`
+            Each function is called with two positional argumentsmust accept a 2D numpy array of shape `(n_features, 3)`
             containing the coordinates of feature centers,
             and return a 1D array/sequence of cluster labels as integers
             for each feature center in the input array.
             Labels that are 0 or negative are considered background/noise
             and will not be included in the output pharmacophore.
+        weights
+            Optional weights for each feature center.
+            If provided, it must be a 1D array-like object
+            with the same length and order as `self.features`.
+            These are passed to the clustering function,
+            and can also be used to compute center and radius of each cluster.
+        center_type
+            How to compute the center of each cluster:
+            - "function": Use the clustering result's `centers` attribute.
+            - "midpoint": Use the midpoint of the feature centers in the cluster.
+            - "mean": Use the mean of the feature centers in the cluster.
+            - "average": Use the weighted average of the feature centers in the cluster,
+              where weights are taken from the `weights` parameter.
+        radius_type
+            How to compute the radius of each cluster:
+            - "average": Use the average distance from the cluster center to the feature centers in the cluster.
+            - "mean": Use the mean distance from the cluster center to the feature centers in the cluster.
+            - "max": Use the maximum distance from the cluster center to the feature centers in the cluster.
+            - "min": Use the minimum distance from the cluster center to the feature centers in the cluster.
         per_instance
             If `True`, clusters features separately for each instance.
             If `False`, clusters all features together regardless of instance.
         """
-        args = ClusterInput(
+        args = PharmClusterInput(
             function=function,
             weights=weights,
             center_type=center_type,
+            radius_type=radius_type,
             per_instance=per_instance,
             n_features=len(self.features),
             feature_types=self.feature_types
@@ -321,7 +353,7 @@ class Pharmacophore:
         df = self._features.copy()
         df["_weights"] = args.weights
 
-        selected: list[dict] = []
+        new_features: list[dict] = []
         for group_idx, group in df.groupby(
             ["instance", "type"] if per_instance else ["type"],
             sort=False
@@ -347,31 +379,34 @@ class Pharmacophore:
                     f"but got dtype {labels.dtype}."
                 )
             unique_labels = np.unique(labels)
-            mask_accepted = unique_labels > 0
-            unique_positive_labels = unique_labels[mask_accepted]
+            unique_positive_labels = unique_labels[unique_labels > 0]
             instance = group_idx[0] if per_instance else 0
             feature_center_type = center_type[feature_type]
             feature_radius_type = radius_type[feature_type]
             for label in unique_positive_labels:
                 label_mask = labels == label
-                point_coordinates = centers[label_mask]
+                cluster_points = centers[label_mask]
+                cluster_weight = weights[label_mask]
 
+                # Calculate cluster center
                 if feature_center_type == "function":
                     cluster_center = clustering_result.centers[label]
                 elif feature_center_type == "midpoint":
-                    cluster_center = (point_coordinates.min(axis=0) + point_coordinates.max(axis=0)) / 2
+                    cluster_center = (cluster_points.min(axis=0) + cluster_points.max(axis=0)) / 2
                 elif feature_center_type == "mean":
-                    cluster_center = np.mean(point_coordinates, axis=0)
+                    cluster_center = np.mean(cluster_points, axis=0)
                 elif feature_center_type == "average":
-                    cluster_center = np.average(point_coordinates, weights=weights[label_mask], axis=0)
+                    cluster_center = np.average(cluster_points, weights=cluster_weight, axis=0)
                 else:
                     raise ValueError(
                         f"Invalid center_type '{feature_center_type}' for feature type '{feature_type}'. "
                         "Must be one of 'function', 'midpoint', or 'average'."
                     )
-                dist_to_center = np.linalg.norm(point_coordinates - cluster_center, axis=1) + group["radius"][label_mask].to_numpy(dtype=np.float64)
+
+                # Calculate cluster radius
+                dist_to_center = np.linalg.norm(cluster_points - cluster_center, axis=1) + group["radius"][label_mask].to_numpy(dtype=np.float64)
                 if feature_radius_type == "average":
-                    radius = np.average(dist_to_center, weights=weights[label_mask])
+                    radius = np.average(dist_to_center, weights=cluster_weight)
                 elif feature_radius_type == "mean":
                     radius = np.mean(dist_to_center)
                 elif feature_radius_type == "max":
@@ -383,7 +418,8 @@ class Pharmacophore:
                         f"Invalid radius_type '{feature_radius_type}' for feature type '{feature_type}'. "
                         "Must be one of 'average', 'mean', 'max', or 'min'."
                     )
-                selected.append(
+
+                new_features.append(
                     {
                         "instance": instance,
                         "type": feature_type,
@@ -394,7 +430,7 @@ class Pharmacophore:
                     }
                 )
         return Pharmacophore(
-            features=pd.DataFrame(selected) if selected else self.features.iloc[0:0].copy(),
+            features=pd.DataFrame(new_features) if new_features else self.features.iloc[0:0].copy(),
             feature_types=self.feature_types,
             inputs=self.inputs,
             name=self.name,
@@ -468,15 +504,25 @@ class Pharmacophore:
             and the i-th value of `max_distance` and `min_neighbors`
             is used for the i-th clustering step.
         """
-        args = CNNInput(
-            feature_types=self.feature_types,
+        args = PharmClusterCNNInput(
             max_distance=max_distance,
             min_neighbors=min_neighbors,
             min_members=min_members,
             max_members=max_members,
-            per_instance=per_instance
+            weights=weights,
+            center_type=center_type,
+            radius_type=radius_type,
+            per_instance=per_instance,
+            n_features=len(self.features),
+            feature_types=self.feature_types,
         )
-        return self._cluster(clustering_function=args.clustering_function, per_instance=args.per_instance)
+        return self.cluster(
+            function=args.function,
+            weights=args.weights,
+            center_type=args.center_type,
+            radius_type=args.radius_type,
+            per_instance=args.per_instance
+        )
 
     def match(
         self,
@@ -529,7 +575,7 @@ class Pharmacophore:
            Only present if `max_distance` is not `None`.
         """
         query_unverified = query.features if isinstance(query, Pharmacophore) else query
-        query = _FeaturesInput(
+        query = PharmFeaturesInput(
             features=query_unverified,
             feature_types=self.feature_types if raise_missing_types else None
         ).features
@@ -745,113 +791,3 @@ def from_complex(
         coverages = pocket.point_coverage(positions)
         out = [feature for feature, coverage in zip(out, coverages) if coverage]
     return Pharmacophore(features=out, extra={"plip": plip}, system=receptor)
-
-
-class _FeaturesInput(BaseModel):
-    """Model to validate and normalize the `features` input argument.
-
-    This model accepts any input convertible to a pandas DataFrame and ensures:
-    - Columns 'type' and 'center' are present.
-    - 'type' values are strings.
-    - 'center' entries are 1D numpy arrays of three floats.
-    - A non-negative 'radius' column is present (added with zeros if missing).
-    - 'instance' column is added with default value 0 if missing.
-    - 'label' column is added with sequential integers starting from 1 if missing.
-
-    Attributes
-    ----------
-    features
-        Normalized DataFrame with columns
-        'instance', 'type', 'label', 'center', 'radius',
-        and any additional columns from the input.
-    """
-    features: pd.DataFrame
-    feature_types: set[str] | None = None
-
-    # Allow arbitrary types like pandas DataFrame
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    @field_validator('features', mode='before')
-    def ensure_dataframe(cls, v: Any) -> pd.DataFrame:
-        """Convert input to a pandas DataFrame if it isn't already."""
-        if isinstance(v, pd.DataFrame):
-            return v.copy().convert_dtypes()
-        try:
-            return pd.DataFrame(v).convert_dtypes()
-        except Exception as e:
-            raise ValueError(f"Cannot convert input to DataFrame.") from e
-
-    @model_validator(mode='after')
-    def validate_and_normalize(self) -> Self:
-        """Validate and normalize the features DataFrame."""
-        def to_array(val: Any) -> np.ndarray:
-            """Convert position to a 1D numpy array of three floats."""
-            arr = np.asarray(val, dtype=float)
-            if arr.shape != (3,):
-                raise ValueError(
-                    f"Position must be sequence of 3 numbers, got shape {arr.shape}"
-                )
-            return arr
-
-        df = self.features
-
-        # Check required columns
-        required_cols = {'type', 'center'}
-        missing_cols = required_cols - set(df.columns)
-        if missing_cols:
-            raise ValueError(f"Missing required columns: {missing_cols}")
-
-        # Validate 'instance'
-        if "instance" not in df.columns:
-            df["instance"] = 0
-
-        # Validate 'type'
-        if not pd.api.types.is_string_dtype(df['type']):
-            raise ValueError("Feature column 'type' must be strings")
-        if self.feature_types is not None:
-            invalid_types = set(df['type']) - self.feature_types
-            if invalid_types:
-                raise ValueError(
-                    f"Invalid feature types found: {sorted(invalid_types)}. "
-                    f"Allowed: {sorted(self.feature_types)}"
-                )
-
-        # Validate 'label'
-        if "label" in df.columns:
-            # Compute group sizes vs. unique label counts
-            grp = df.groupby(["instance", "type"])["label"]
-            sizes = grp.size()
-            unique_counts = grp.nunique()
-            bad = sizes[unique_counts != sizes]
-            if not bad.empty:
-                bad_groups = ", ".join(f"{inst},{typ}" for inst, typ in bad.index)
-                raise ValueError(f"Duplicate labels found in groups: {bad_groups}")
-        else:
-            # Add labels sequentially within each (instance, type) group
-            df["label"] = df.groupby(["instance", "type"]).cumcount() + 1
-
-        # Validate and normalize 'center'
-        df['center'] = df['center'].apply(to_array)
-
-        # Handle 'radius' column
-        if 'radius' in df.columns:
-            try:
-                df['radius'] = df['radius'].astype(float)
-            except Exception:
-                raise ValueError("Radius column must be real numbers")
-            neg_idx = df.index[df['radius'] < 0].tolist()
-            if neg_idx:
-                raise ValueError(f"Negative radius at rows: {neg_idx}")
-        else:
-            df['radius'] = 0.0
-
-        main_cols = ['instance', 'type', 'label', 'center', 'radius']
-        extra_cols = [col for col in df.columns if col not in main_cols]
-        all_cols = main_cols + extra_cols
-        self.features = df[all_cols].convert_dtypes()
-        return self
-
-
-def _center_midpoint(points: np.ndarray) -> np.ndarray:
-    """Compute the midpoint of a set of points."""
-    return np.mean(points, axis=0)
