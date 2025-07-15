@@ -1,4 +1,4 @@
-from typing import Callable, Literal
+from typing import Callable, Literal, Sequence, Protocol, TypeAlias, runtime_checkable
 
 from pydantic import model_validator
 import numpy as np
@@ -8,11 +8,38 @@ from t2fpharm.input import validator
 from t2fpharm.typing import ClusteringFunction
 
 
-class ClusterInput:
+@runtime_checkable
+class ClusteringResult(Protocol):
+    """Protocol for clustering results.
+
+    Any given clustering function must
+    return an instance of this protocol.
+
+    Attributes
+    ----------
+    labels
+        1D integer array/sequence of cluster labels
+        for each feature center in the input array.
+        Labels that are 0 or negative are considered background/noise.
+    centers
+        Optional 2D array/sequence of coordinates of cluster centers.
+        If available, a cluster with label `i` must have its center
+        at `centers[i]`.
+    """
+    labels: np.ndarray | Sequence[int]
+    centers: np.ndarray | Sequence[tuple[float, float, float]] | None
+
+
+ClusteringFunction: TypeAlias = Callable[[np.ndarray, np.ndarray], ClusteringResult]
+CenterType: TypeAlias = Literal["average", "mean", "midpoint", "function"]
+RadiusType: TypeAlias = Literal["average", "mean", "max", "min"]
+
+
+class PharmClusterInput:
     function: dict[str, ClusteringFunction]
     weights: NDArray[np.float64]
-    center_type: dict[str, Literal["function", "midpoint", "mean", "average"]]
-    radius_type: dict[str, Literal["average", "mean", "max", "min"]]
+    center_type: dict[str, CenterType]
+    radius_type: dict[str, RadiusType]
     per_instance: bool = True
 
     @model_validator(mode="before")
