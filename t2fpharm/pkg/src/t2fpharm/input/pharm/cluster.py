@@ -43,7 +43,7 @@ class PharmClusterInput:
     per_instance: bool = True
 
     @model_validator(mode="before")
-    def _preprocess(cls, values: dict[str, object]) -> dict[str, object]:
+    def _cluster_input(cls, values: dict[str, object]) -> dict[str, object]:
         for argname, value_validator in (
             ("function", callable),
             ("center_type", None)
