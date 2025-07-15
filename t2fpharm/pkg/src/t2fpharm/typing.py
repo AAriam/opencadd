@@ -32,25 +32,3 @@ PositiveFloatTuple = Annotated[
 ]
 
 DataFrameLike = pd.DataFrame | list[dict[str, ArrayLike]]
-
-
-@runtime_checkable
-class ClusteringResult(Protocol):
-    """Protocol for clustering results.
-
-    Attributes
-    ----------
-    labels
-        1D integer array/sequence of cluster labels
-        for each feature center in the input array.
-        Labels that are 0 or negative are considered background/noise.
-    centers
-        Optional 2D array/sequence of coordinates of cluster centers.
-        If available, a cluster with label `i` must have its center
-        at `centers[i]`.
-    """
-    labels: np.ndarray | Sequence[int]
-    centers: np.ndarray | Sequence[tuple[float, float, float]] | None
-
-
-ClusteringFunction = Callable[[np.ndarray, np.ndarray], ClusteringResult]
