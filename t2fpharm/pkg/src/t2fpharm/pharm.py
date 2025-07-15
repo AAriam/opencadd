@@ -15,9 +15,10 @@ from t2fpharm.system import System
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
 from t2fpharm.input import validator
-from t2fpharm.input.pharm.cluster_cnn import PharmClusterCNNInput
 from t2fpharm.input.pharm.cluster import PharmClusterInput, CenterType, RadiusType
+from t2fpharm.input.pharm.cluster_cnn import PharmClusterCNNInput
 from t2fpharm.input.pharm.features import PharmFeaturesInput
+from t2fpharm.input.pharm.remove_overlaps import RemoveOverlapsInput
 from t2fpharm.typing import DataFrameLike, PositiveFloat, PositiveInt, ClusteringFunction
 
 import scids.functional
@@ -177,6 +178,15 @@ class Pharmacophore:
         max_features: dict[str, PositiveInt] | None = None,
     ) -> Self:
         """Remove overlapping features in each pharmacophore instance."""
+        args = RemoveOverlapsInput(
+            min_distance=min_distance,
+            priority=priority,
+            highest_priority=highest_priority,
+            max_features=max_features,
+            n_features=len(self.features),
+            feature_types=self.feature_types
+        )
+
         def make_min_spacing():
             if validator.is_real_number(min_distance):
                 if not validator.is_positive_number(min_distance):
