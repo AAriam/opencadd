@@ -61,14 +61,18 @@ class Modeler:
 
     def cnn(
         self,
+        max_distance: PositiveFloat | Sequence[PositiveFloat] | dict[str, PositiveFloat | Sequence[PositiveFloat]] | None = None,
+        min_neighbors: PositiveInt | Sequence[PositiveInt] | dict[str, PositiveInt | Sequence[PositiveInt]] = tuple(range(6, 100, 4)),
+        min_members: PositiveInt | dict[str, PositiveInt] | None = None,
+        max_members: PositiveInt | dict[str, PositiveInt] | None = None,
+        weights: pd.Series | np.ndarray | Sequence[float] | None = None,
+        center_type: Literal["function", "midpoint", "mean", "average"] | dict[str, Literal["function", "midpoint", "mean", "average"]] = "average",
+        radius_type: Literal["average", "mean", "max", "min"] = "average",
+        # Parameters for `self.simple`
         peak_type: Literal["min", "max"] | dict[str, Literal["min", "max"]] = "min",
         best_per_point: bool | dict[str, bool] = False,
         threshold_value: float | dict[str, float] | None = None,
         threshold_include_equal: bool | dict[str, bool] = True,
-        max_distance: float | dict[str, float | Sequence[float]] | None = None,
-        min_neighbors: int | dict[str, int | Sequence[int]] = tuple(range(6, 100, 4)),
-        min_members: int | dict[str, Sequence[int]] | None = None,
-        max_members: int | dict[str, Sequence[int]] | None = None,
         filter_function: FilterFunction | dict[str, FilterFunction] | None = None,
         filter_radius: PositiveFloat | dict[str, PositiveFloat] | None = None,
         filter_extension_mode: FilterExtensionMode | dict[str, FilterExtensionMode] = "constant",
@@ -183,7 +187,6 @@ class Modeler:
             filter_percentile=args.filter_percentile,
         )
         pharm._inputs = args.model_dump()
-
         return pharm.cluster_cnn(
             max_distance=args.max_distance,
             min_neighbors=args.min_neighbors,
@@ -197,13 +200,14 @@ class Modeler:
 
     def largest_peaks(
         self,
+        min_distance: PositiveFloat | dict[tuple[str, str], PositiveFloat] = 2,
+        priority_factor: dict[str, float] | None = None,
+        max_features: PositiveInt | dict[str, PositiveInt] | None = None,
+        # Parameters for `self.simple`
         peak_type: Literal["min", "max"] | dict[str, Literal["min", "max"]] = "min",
         best_per_point: bool | dict[str, bool] = False,
         threshold_value: float | dict[str, float] | None = None,
         threshold_include_equal: bool | dict[str, bool] = True,
-        max_features: PositiveInt | dict[str, PositiveInt] | None = None,
-        min_distance: PositiveFloat | dict[tuple[str, str], PositiveFloat] | None = None,
-        priority_factor: dict[str, float] | None = None,
         filter_function: FilterFunction | dict[str, FilterFunction] | None = None,
         filter_radius: PositiveFloat | dict[str, PositiveFloat] | None = None,
         filter_extension_mode: FilterExtensionMode | dict[str, FilterExtensionMode] = "constant",
@@ -356,17 +360,15 @@ class Modeler:
             filter_percentile=args.filter_percentile,
         )
         pharm._inputs = args.model_dump()
-        if args.min_distance is not None:
-            priority = pharm.features["value"]
-            for feature_type, factor in args.priority_factor.items():
-                if factor is not None:
-                    priority.loc[pharm.features["type"] == feature_type] *= factor
-            pharm = pharm.remove_overlaps(
-                min_distance=args.min_distance,
-                priority=priority,
-                highest_priority="lowest",
-            )
-        return pharm
+        priority = pharm.features["value"].copy()
+        for feature_type, factor in args.priority_factor.items():
+            if factor is not None:
+                priority.loc[pharm.features["type"] == feature_type] *= factor
+        return pharm.remove_overlaps(
+            min_distance=args.min_distance,
+            priority=priority,
+            highest_priority="lowest",
+        )
 
     def simple(
         self,
