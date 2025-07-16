@@ -713,43 +713,73 @@ class Pharmacophore:
 def from_complex(
     pdb_files: str | bytes | Path | Sequence,
     ligands: Sequence[tuple[str, int | str, int]] | None = None,
-    type_hbond_donor: str = "HD",
-    type_hbond_acceptor: str = "OA",
-    type_anion: str = "e-",
-    type_cation: str = "e+",
-    type_hydrophobic: str = "C",
+    type_hbond_acceptor: str | None = "OA",
+    type_hbond_donor: str | None = "HD",
+    type_water_bridge_ligand_acceptor: str | None = "OA",
+    type_water_bridge_ligand_donor: str | None = "HD",
+    type_water_bridge_water_acceptor: str | None = "OA",
+    type_anion: str | None = "e-",
+    type_cation: str | None = "e+",
+    type_hydrophobic: str | None = "C",
+    type_aromatic: str | None = "A",
     pocket: Pocket | None = None,
     receptor: System | None = None,
 ):
     plip = caddpy.interaction.from_pdb(pdb_files, ligands=ligands)
     out = []
     for _, row in plip.all.iterrows():
-        position_col = "l_position"
+        selected: list[tuple[str, str]] = []
         match row["type"]:
             case "hbond":
                 if row["r_is_d"]:
-                    feature_type = type_hbond_acceptor
+                    # Ligand is acceptor
+                    if type_hbond_acceptor:
+                        selected.append((type_hbond_acceptor, "l_position"))
                 else:
-                    feature_type = type_hbond_donor
-                    position_col = "h_position"
+                    # Ligand is donor
+                    if type_hbond_donor:
+                        selected.append((type_hbond_donor, "h_position"))
             case "water_bridge":
-                position_col = "w_position"
-                feature_type = type_hbond_acceptor if row["r_is_d"] else type_hbond_donor
+                # Plip only detects bridges where ligand and receptor have different roles
+                # i.e., ligand is acceptor and receptor is donor, or vice versa.
+                if row["r_is_d"]:
+                    # Ligand and water are acceptors
+                    if type_water_bridge_ligand_acceptor:
+                        selected.append((type_water_bridge_ligand_acceptor, "l_position"))
+                    if type_water_bridge_water_acceptor:
+                        selected.append((type_water_bridge_water_acceptor, "w_position"))
+                else:
+                    # Ligand and water are donors
+                    if type_water_bridge_ligand_donor:
+                        selected.append((type_water_bridge_ligand_donor, "l_position"))
+                    # Position of water hydrogen is not available in PLIP
             case "salt_bridge":
-                feature_type = type_anion if row["r_is_cation"] else type_cation
+                if row["r_is_cation"]:
+                    # Ligand is anion
+                    if type_anion:
+                        selected.append((type_anion, "l_position"))
+                else:
+                    # Ligand is cation
+                    if type_cation:
+                        selected.append((type_cation, "l_position"))
             case "hydrophobic":
-                feature_type = type_hydrophobic
+                if type_hydrophobic:
+                    selected.append((type_hydrophobic, "l_position"))
+            case "pi_stacking":
+                if type_aromatic:
+                    selected.append((type_aromatic, "l_position"))
             case _:
                 continue
-        position = row[position_col]
+        selected = [(feature_type, row[position_col]) for feature_type, position_col in selected]
         # Sometimes a single atom can be involved
         # in multiple interactions of the same type, e.g., hydrophobic interactions with different residues.
         # Therefore, we only add a new feature if not already present
-        for entry in out:
-            if entry["type"] == feature_type and np.allclose(entry["center"], position):
-                break
-        else:
-            out.append({"type": feature_type, "center": position})
+        for feature_type, position in selected:
+            for entry in out:
+                if entry["type"] == feature_type and np.allclose(entry["center"], position):
+                    break
+            else:
+                out.append({"instance": row.get("instance", 0), "type": feature_type, "center": position})
     if pocket is not None:
         positions = np.stack([feature["center"] for feature in out])
         coverages = pocket.point_coverage(positions)
