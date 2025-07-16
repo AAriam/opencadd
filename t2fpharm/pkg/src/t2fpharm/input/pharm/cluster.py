@@ -1,11 +1,10 @@
 from typing import Callable, Literal, Sequence, Protocol, TypeAlias, runtime_checkable
 
-from pydantic import model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 import numpy as np
 from numpy.typing import NDArray
 
 from t2fpharm.input import validator
-from t2fpharm.typing import ClusteringFunction
 
 
 @runtime_checkable
@@ -35,18 +34,20 @@ CenterType: TypeAlias = Literal["average", "mean", "midpoint", "function"]
 RadiusType: TypeAlias = Literal["average", "mean", "max", "min"]
 
 
-class PharmClusterInput:
+class PharmClusterInput(BaseModel):
     function: dict[str, ClusteringFunction]
     weights: NDArray[np.float64]
     center_type: dict[str, CenterType]
     radius_type: dict[str, RadiusType]
     per_instance: bool = True
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     @model_validator(mode="before")
     def _cluster_input(cls, values: dict[str, object]) -> dict[str, object]:
         for argname, value_validator in (
             ("function", callable),
-            ("center_type", None)
+            ("center_type", None),
             ("radius_type", None),
         ):
             values[argname] = validator.validate_input_dict(
