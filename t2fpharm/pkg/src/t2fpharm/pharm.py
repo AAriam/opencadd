@@ -185,7 +185,7 @@ class Pharmacophore:
         min_distance: PositiveFloat | dict[tuple[str, str], PositiveFloat],
         priority: pd.Series | Sequence,
         highest_priority: Literal["lowest", "highest"] = "lowest",
-        max_features: dict[str, PositiveInt] | None = None,
+        max_features: PositiveInt | dict[str, PositiveInt] | None = None,
     ) -> Self:
         """Remove overlapping features in each pharmacophore instance."""
         args = RemoveOverlapsInput(
