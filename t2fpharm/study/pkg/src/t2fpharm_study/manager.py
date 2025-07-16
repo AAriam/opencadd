@@ -498,6 +498,15 @@ class Manager:
                 pdb_files=self.path("pdb_aligned", pdb_id),
                 pocket=self.pocket(pdb_id),
                 receptor=self.complex(pdb_id),
+                type_hbond_acceptor="OA",
+                type_hbond_donor="HD",
+                type_water_bridge_ligand_acceptor=None,
+                type_water_bridge_ligand_donor=None,
+                type_water_bridge_water_acceptor="OA",
+                type_anion="e-",
+                type_cation="e+",
+                type_hydrophobic="C",
+                type_aromatic=None,
             )
             filepath_ligand_plip.write_text(
                 ligand_pharm.extra["plip"].all.to_json(orient="records", indent=4)
