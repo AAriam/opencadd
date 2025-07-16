@@ -2,10 +2,7 @@ from typing import Sequence, Literal, Callable
 
 import pandas as pd
 import numpy as np
-import jax.numpy as jnp
 from pydantic import BaseModel
-
-import scids
 
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
