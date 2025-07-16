@@ -7,17 +7,18 @@ from pydantic import model_validator
 import scids
 
 from t2fpharm.input import validator
-from t2fpharm.input.pharm.cluster import PharmClusterInput
+from t2fpharm.input.pharm.cluster import PharmClusterInput, ClusteringFunction, ClusteringResult
 from t2fpharm.typing import (
-    PositiveInt, PositiveFloat, PositiveIntTuple, PositiveFloatTuple, ClusteringResult
+    PositiveInt, PositiveFloat, PositiveIntTuple, PositiveFloatTuple
 )
 
 
 class PharmClusterCNNInput(PharmClusterInput):
-    max_distance: dict[str, PositiveFloatTuple]
-    min_neighbors: dict[str, PositiveIntTuple]
+    max_distance: dict[str, PositiveFloat | PositiveFloatTuple]
+    min_neighbors: dict[str, PositiveFloat | PositiveIntTuple]
     min_members: dict[str, PositiveInt]
     max_members: dict[str, PositiveInt | None]
+    function: dict[str, ClusteringFunction]
 
     @model_validator(mode="before")
     def _cluster_cnn_input(cls, values: dict[str, object]) -> dict[str, object]:
