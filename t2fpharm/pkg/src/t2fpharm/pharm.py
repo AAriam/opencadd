@@ -14,12 +14,11 @@ import scids
 from t2fpharm.system import System
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
-from t2fpharm.input import validator
-from t2fpharm.input.pharm.cluster import PharmClusterInput, CenterType, RadiusType
+from t2fpharm.input.pharm.cluster import PharmClusterInput, ClusteringFunction, CenterType, RadiusType
 from t2fpharm.input.pharm.cluster_cnn import PharmClusterCNNInput
 from t2fpharm.input.pharm.features import PharmFeaturesInput
 from t2fpharm.input.pharm.remove_overlaps import RemoveOverlapsInput
-from t2fpharm.typing import DataFrameLike, PositiveFloat, PositiveInt, ClusteringFunction
+from t2fpharm.typing import DataFrameLike, PositiveFloat, PositiveInt
 
 import scids.functional
 
@@ -96,7 +95,18 @@ class Pharmacophore:
         extra: dict[str, Any] | None = None,
     ):
         self._features = PharmFeaturesInput(features=features, feature_types=feature_types).features
-        self._feature_types = feature_types or set(self._features['type'].unique())
+
+        if feature_types is None:
+            self._feature_types = set(self._features['type'].unique())
+        else:
+            feature_types = set(feature_types)
+            # Validate feature_types covers all present types
+            unique_types = set(self._features["type"])
+            missing = unique_types.difference(feature_types)
+            if missing:
+                raise ValueError(f"Found types not in feature_types: {missing}")
+            self._feature_types = feature_types
+
         self._inputs = inputs or {}
         self._name = name
         self._system = system
@@ -187,58 +197,7 @@ class Pharmacophore:
             feature_types=self.feature_types
         )
 
-        def make_min_spacing():
-            if validator.is_real_number(min_distance):
-                if not validator.is_positive_number(min_distance):
-                    raise ValueError(f"Minimum distance must be positive, got {min_distance}")
-                return np.full((n_types, n_types), min_distance, dtype=np.float64)
-            min_spacing = np.zeros((n_types, n_types), dtype=np.float64)
-            seen = set()
-            for type_pair, distance in min_distance.items():
-                unique_pair = tuple(sorted(type_pair))
-                if unique_pair in seen:
-                    raise ValueError(
-                        f"Duplicate minimum distance for feature types {type_pair}: {distance}"
-                    )
-                seen.add(unique_pair)
-                for typ in unique_pair:
-                    if typ not in feature_types:
-                        raise ValueError(f"Invalid feature type: {typ}. Allowed: {feature_types}")
-                if distance < 0:
-                    raise ValueError(
-                        f"Minimum distance must be non-negative, got {distance} for types {unique_pair}"
-                    )
-                if len(unique_pair) != 2:
-                    raise ValueError(
-                        f"Minimum distance must be specified for pairs of feature types, got {unique_pair}"
-                    )
-                i, j = feature_types.index(unique_pair[0]), feature_types.index(unique_pair[1])
-                min_spacing[i, j] = min_spacing[j, i] = distance
-            return min_spacing
-
-        def make_max_count():
-            if max_features is None:
-                return None
-            max_counts = np.full(n_types, np.iinfo(np.int64).max, dtype=np.int64)
-            for feature_type, max_count in max_features.items():
-                if feature_type not in feature_types:
-                    raise ValueError(f"Invalid feature type: {feature_type}. Allowed: {feature_types}")
-                max_counts[feature_types.index(feature_type)] = max_count
-            return max_counts
-
         feature_types = list(self.feature_types)
-        n_types = len(feature_types)
-
-        # Convert priority to numpy array and validate length
-        priority = np.asarray(priority)
-        if priority.ndim != 1 or priority.shape[0] != len(self._features):
-            raise ValueError(
-                f"Priority must be 1D with length {len(self._features)}, but got shape {priority.shape}"
-            )
-        # Validate highest_priority argument
-        if highest_priority not in ("lowest", "highest"):
-            raise ValueError("`highest_priority` must be either 'lowest' or 'highest'")
-
         # Validate feature_types covers all present types
         unique_types = set(self._features["type"])
         missing = unique_types.difference(feature_types)
@@ -250,32 +209,25 @@ class Pharmacophore:
 
         # Work on a copy to avoid modifying original
         df = self._features.copy()
-        df["_priority"] = priority
+        df["_priority"] = args.priority
 
         selected_groups: list[pd.DataFrame] = []
-        ascending = highest_priority == "lowest"
-
-        min_spacing = make_min_spacing()
-        max_count = make_max_count()
 
         # Process each instance separately
         for _, group in df.groupby("instance", sort=False):
-            # sort by priority
-            sorted_grp = group.sort_values("_priority", ascending=ascending)
-            # prepare arrays for ensure_spacing
-            centers = np.stack(sorted_grp["center"].to_numpy())
-            types_idx = sorted_grp["type"].map(type_to_idx).to_numpy(dtype=int)
-            # call external spacing function
+            # Sort by priority
+            sorted_grp = group.sort_values("_priority", ascending=args.highest_priority == "lowest")
+            # Get selected indices
             chosen_indices = scids.functional.dist.ensure_pointcloud_spacing(
-                points=centers,
-                point_types=types_idx,
-                min_spacing=min_spacing,
-                max_count=max_count,
+                points=np.stack(sorted_grp["center"].to_numpy()),
+                point_types=sorted_grp["type"].map(type_to_idx).to_numpy(dtype=int),
+                min_spacing=args.min_distance_asarray,
+                max_count=args.max_features_asarray,
             )
-            # select corresponding rows
+            # Select corresponding rows
             filtered = sorted_grp.iloc[chosen_indices]
             selected_groups.append(filtered)
-        # concatenate results and drop helper column
+        # Concatenate results and drop helper column
         if selected_groups:
             result = pd.concat(selected_groups).drop(columns="_priority")
         else:
@@ -663,6 +615,7 @@ class Pharmacophore:
         show_feature_centers: bool = True,
         show_feature_points: bool = False,
         feature_colors: dict[str, tuple[float, float, float] | tuple[int, int, int]] | None = None,
+        overdide_radius: bool = False,
     ):
         def feature_color(feature_id: str) -> tuple[float, float, float] | tuple[int, int, int]:
             """Get color for a feature type, defaulting to gray if not set."""
@@ -710,9 +663,10 @@ class Pharmacophore:
         # Features
         for _, feature in self.features.iterrows():
             name = f"{feature['instance']}_{feature['type']}_{feature['label']}"
+            radius = feature["radius"]
             nv.add_spheres(
                 coords=feature["center"],
-                radii=feature["radius"] or default_radius,
+                radii=radius if radius and not overdide_radius else default_radius,
                 name=f"{name} Center",
                 colors=feature_color(feature["type"]),
                 representation_params=scishow.nglview.RepresentationParameters(
