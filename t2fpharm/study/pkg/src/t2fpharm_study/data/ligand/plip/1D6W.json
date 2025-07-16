@@ -2,6 +2,50 @@
     {
         "type":"hbond",
         "l_res_name":"NA",
+        "l_res_seq":950,
+        "l_chain_id":"A",
+        "l_serial":4490,
+        "l_type":"N3",
+        "l_position":[
+            18.597,
+            -16.553,
+            38.106
+        ],
+        "r_res_name":"LYS",
+        "r_res_seq":169,
+        "r_chain_id":"A",
+        "r_serial":3162,
+        "r_type":"O2",
+        "r_position":[
+            17.01,
+            -14.675,
+            37.552
+        ],
+        "r_is_d":false,
+        "is_sidechain":false,
+        "h_position":[
+            18.2569990742,
+            -15.694224138,
+            37.6732143841
+        ],
+        "dist_a_h":1.6150905428,
+        "dist_a_d":2.5203906443,
+        "angle":145.1373316301,
+        "w_serial":null,
+        "w_position":null,
+        "w_angle":null,
+        "dist_w_a":null,
+        "dist_w_d":null,
+        "d_angle":null,
+        "l_group":null,
+        "l_serials":null,
+        "r_serials":null,
+        "r_is_cation":null,
+        "dist":null
+    },
+    {
+        "type":"hbond",
+        "l_res_name":"NA",
         "l_res_seq":951,
         "l_chain_id":"A",
         "l_serial":4491,

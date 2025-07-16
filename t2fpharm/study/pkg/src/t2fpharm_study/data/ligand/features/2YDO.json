@@ -1,7 +1,9 @@
 [
     {
+        "instance":0,
         "type":"OA",
-        "position":[
+        "label":1,
+        "center":[
             -29.463,
             6.542,
             -24.256
@@ -9,8 +11,10 @@
         "radius":0
     },
     {
+        "instance":0,
         "type":"HD",
-        "position":[
+        "label":1,
+        "center":[
             -27.283,
             11.892,
             -21.502
@@ -18,8 +22,10 @@
         "radius":0
     },
     {
+        "instance":0,
         "type":"HD",
-        "position":[
+        "label":2,
+        "center":[
             -30.195,
             7.383,
             -16.934
@@ -27,8 +33,10 @@
         "radius":0
     },
     {
+        "instance":0,
         "type":"HD",
-        "position":[
+        "label":3,
+        "center":[
             -30.468,
             9.443,
             -18.982

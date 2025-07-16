@@ -1,7 +1,9 @@
 [
     {
+        "instance":0,
         "type":"OA",
-        "position":[
+        "label":1,
+        "center":[
             15.135,
             -18.64,
             22.687
@@ -9,8 +11,10 @@
         "radius":0
     },
     {
+        "instance":0,
         "type":"OA",
-        "position":[
+        "label":2,
+        "center":[
             16.221,
             -13.988,
             22.478
@@ -18,8 +22,10 @@
         "radius":0
     },
     {
+        "instance":0,
         "type":"HD",
-        "position":[
+        "label":1,
+        "center":[
             10.176,
             -13.474,
             22.403
@@ -27,8 +33,10 @@
         "radius":0
     },
     {
+        "instance":0,
         "type":"HD",
-        "position":[
+        "label":2,
+        "center":[
             9.69,
             -12.043,
             24.183
@@ -36,8 +44,10 @@
         "radius":0
     },
     {
+        "instance":0,
         "type":"HD",
-        "position":[
+        "label":3,
+        "center":[
             14.032,
             -16.541,
             22.709
@@ -45,8 +55,10 @@
         "radius":0
     },
     {
+        "instance":0,
         "type":"e+",
-        "position":[
+        "label":1,
+        "center":[
             11.29,
             -11.755,
             22.778
@@ -54,8 +66,10 @@
         "radius":0
     },
     {
+        "instance":0,
         "type":"C",
-        "position":[
+        "label":1,
+        "center":[
             17.894,
             -14.2,
             18.031
@@ -63,8 +77,10 @@
         "radius":0
     },
     {
+        "instance":0,
         "type":"C",
-        "position":[
+        "label":2,
+        "center":[
             19.283,
             -12.979,
             20.058
@@ -72,8 +88,10 @@
         "radius":0
     },
     {
+        "instance":0,
         "type":"C",
-        "position":[
+        "label":3,
+        "center":[
             20.419,
             -13.211,
             16.412
@@ -81,8 +99,10 @@
         "radius":0
     },
     {
+        "instance":0,
         "type":"C",
-        "position":[
+        "label":4,
+        "center":[
             19.749,
             -16.766,
             20.766
@@ -90,8 +110,10 @@
         "radius":0
     },
     {
+        "instance":0,
         "type":"C",
-        "position":[
+        "label":5,
+        "center":[
             17.966,
             -16.3,
             25.414

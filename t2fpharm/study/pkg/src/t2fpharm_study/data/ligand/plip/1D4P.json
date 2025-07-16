@@ -51,26 +51,26 @@
             -16.407,
             37.997
         ],
-        "r_res_name":"THR",
-        "r_res_seq":213,
+        "r_res_name":"LYS",
+        "r_res_seq":210,
         "r_chain_id":"B",
-        "r_serial":2858,
+        "r_serial":2813,
         "r_type":"O2",
         "r_position":[
-            17.895,
-            -17.061,
-            35.776
+            16.964,
+            -14.495,
+            37.483
         ],
         "r_is_d":false,
         "is_sidechain":false,
         "h_position":[
             18.2409990742,
-            -16.1517109601,
-            37.069839347
+            -15.474794735,
+            37.7607951857
         ],
-        "dist_a_h":1.6188088748,
-        "dist_a_d":2.4147780436,
-        "angle":131.0842183291,
+        "dist_a_h":1.6333690714,
+        "dist_a_d":2.5562920412,
+        "angle":148.0187081316,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,

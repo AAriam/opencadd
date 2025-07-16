@@ -125,26 +125,26 @@
             -23.827,
             71.13
         ],
-        "r_res_name":"TYR",
-        "r_res_seq":188,
+        "r_res_name":"VAL",
+        "r_res_seq":179,
         "r_chain_id":"A",
-        "r_serial":3074,
+        "r_serial":2920,
         "r_type":"O2",
         "r_position":[
-            149.759,
-            -23.387,
-            71.649
+            148.635,
+            -24.03,
+            68.501
         ],
         "r_is_d":false,
         "is_sidechain":false,
         "h_position":[
-            147.5110722849,
-            -24.3768982099,
-            71.6587580541
+            146.824099157,
+            -24.3976239513,
+            70.2846064351
         ],
-        "dist_a_h":2.4562517578,
-        "dist_a_d":3.0030960691,
-        "angle":112.840543829,
+        "dist_a_h":2.5682213978,
+        "dist_a_d":3.1931882187,
+        "angle":119.2540021891,
         "dist":null,
         "l_serials":null,
         "r_serials":null,

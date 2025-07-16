@@ -55,50 +55,6 @@
             29.017,
             11.096
         ],
-        "r_res_name":"LYS",
-        "r_res_seq":33,
-        "r_chain_id":"A",
-        "r_serial":530,
-        "r_type":"N3",
-        "r_position":[
-            -6.719,
-            28.988,
-            10.737
-        ],
-        "r_is_d":true,
-        "is_sidechain":true,
-        "h_position":[
-            -6.148710148,
-            29.4562836549,
-            10.0328125937
-        ],
-        "dist_a_h":2.9649691977,
-        "dist_a_d":3.3225789682,
-        "angle":101.5213091391,
-        "w_serial":null,
-        "w_position":null,
-        "w_angle":null,
-        "dist_w_a":null,
-        "dist_w_d":null,
-        "d_angle":null,
-        "dist":null,
-        "l_serials":null,
-        "r_serials":null,
-        "offset":null,
-        "stack_type":null
-    },
-    {
-        "type":"hbond",
-        "l_res_name":"107",
-        "l_res_seq":501,
-        "l_chain_id":"A",
-        "l_serial":4859,
-        "l_type":"N2",
-        "l_position":[
-            -3.416,
-            29.017,
-            11.096
-        ],
         "r_res_name":"ASP",
         "r_res_seq":145,
         "r_chain_id":"A",
@@ -156,13 +112,13 @@
         "r_is_d":true,
         "is_sidechain":true,
         "h_position":[
-            8.7396947491,
-            21.4107380863,
-            5.6646793714
+            9.755914458,
+            22.6504202958,
+            6.0693463135
         ],
-        "dist_a_h":2.7019808358,
+        "dist_a_h":2.6793833774,
         "dist_a_d":3.1286268553,
-        "angle":105.2216311657,
+        "angle":106.6793691784,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -332,9 +288,9 @@
         "r_is_d":true,
         "is_sidechain":null,
         "h_position":[
-            10.4075990488,
-            25.1812025484,
-            7.4932425214
+            10.4151975523,
+            25.1929596227,
+            7.4658388193
         ],
         "dist_a_h":null,
         "dist_a_d":null,
@@ -345,10 +301,10 @@
             24.723,
             5.493
         ],
-        "w_angle":86.724799274,
+        "w_angle":87.2251151289,
         "dist_w_a":3.1971212051,
         "dist_w_d":2.5884319578,
-        "d_angle":108.2243960715,
+        "d_angle":109.7666420177,
         "dist":null,
         "l_serials":null,
         "r_serials":null,

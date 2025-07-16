@@ -11,26 +11,26 @@
             -16.553,
             38.175
         ],
-        "r_res_name":"THR",
-        "r_res_seq":172,
+        "r_res_name":"LYS",
+        "r_res_seq":169,
         "r_chain_id":"A",
-        "r_serial":3207,
+        "r_serial":3162,
         "r_type":"O2",
         "r_position":[
-            17.935,
-            -17.08,
-            35.709
+            16.968,
+            -14.796,
+            37.531
         ],
         "r_is_d":false,
         "is_sidechain":false,
         "h_position":[
-            18.0429990742,
-            -16.083332941,
-            37.3358264636
+            18.0430037032,
+            -15.5944666026,
+            38.0974355482
         ],
-        "dist_a_h":1.9109090426,
-        "dist_a_d":2.5611694594,
-        "angle":118.6260005363,
+        "dist_a_h":1.453970807,
+        "dist_a_d":2.346062659,
+        "angle":142.3863324376,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -144,13 +144,13 @@
         "r_is_d":false,
         "is_sidechain":true,
         "h_position":[
-            5.0580037032,
-            -14.0370386547,
-            28.193085868
+            5.0579990742,
+            -14.0744323206,
+            28.2087151553
         ],
-        "dist_a_h":3.0968049634,
+        "dist_a_h":3.1095713469,
         "dist_a_d":3.8171216905,
-        "angle":128.5822331148,
+        "angle":127.4873680576,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
