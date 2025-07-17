@@ -14,7 +14,7 @@ import scids
 from t2fpharm.system import System
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
-from t2fpharm.input.pharm.cluster import PharmClusterInput, ClusteringFunction, CenterType, RadiusType
+from t2fpharm.input.pharm.cluster import PharmClusterInput, ClusteringFunction, CenterType, CenterTypeNoFunction, RadiusType
 from t2fpharm.input.pharm.cluster_cnn import PharmClusterCNNInput
 from t2fpharm.input.pharm.features import PharmFeaturesInput
 from t2fpharm.input.pharm.remove_overlaps import RemoveOverlapsInput
@@ -187,7 +187,54 @@ class Pharmacophore:
         highest_priority: Literal["lowest", "highest"] = "lowest",
         max_features: PositiveInt | dict[str, PositiveInt] | None = None,
     ) -> Self:
-        """Remove overlapping features in each pharmacophore instance."""
+        """Remove overlapping features in each pharmacophore instance.
+
+        Parameters
+        ----------
+        min_distance
+            Minimum required distance between feature centers.
+            This can be a single value for all feature types,
+            or a dictionary mapping feature type pairs
+            to their corresponding minimum distance.
+            That is, for n feature types, the dictionary can contain
+            at most n(n + 1) / 2 entries. For example, if there are
+            three feature types "A", "B", and "C",
+            the dictionary can contain the following keys:
+            ("A", "A"), ("A", "B"), ("A", "C"),
+            ("B", "B"), ("B", "C"),
+            ("C", "C").
+            This allows for specifying different minimum distances
+            for different pairs of feature types.
+            Pairs that are not specified are assumed
+            to have no minimum distance constraint.
+        priority
+            Priority of each feature in the pharmacophore.
+            This must be a 1D array-like object
+            with the same length and order as features in `self.features`.
+        highest_priority
+            How to interpret the `priority` values:
+            - "lowest": The lowest value is the highest priority.
+            - "highest": The highest value is the highest priority.
+        max_features
+            Maximum number of features to keep.
+            This can be a single value for all feature types
+            (i.e., to keep at most `max_features` features per each type),
+            or a dictionary mapping each feature type to its maximum number of features.
+
+        Notes
+        -----
+        The algorithm works as follows:
+        For each pharmacophore instance,
+        1. All features (of any type) are sorted by their `priority` from best to worst.
+        2. The first best feature is selected,
+           and all other features within the corresponding `min_distance` are discarded.
+        3. The next best remaining feature is selected,
+           and all other features within the corresponding `min_distance` are discarded.
+           This process is repeated until all features are processed.
+           At any point, if the number of selected features for a feature type
+           reaches `max_features`, all remaining features of that type
+           are discarded for that instance.
+        """
         args = RemoveOverlapsInput(
             min_distance=min_distance,
             priority=priority,
@@ -253,12 +300,14 @@ class Pharmacophore:
     ) -> Self:
         """Cluster pharmacophore features using provided clustering functions.
 
-        The clustering is performed on centers of each feature type;
+        The clustering is performed on center coordinates of each feature type;
         it can be used in one of two ways:
         - **Per instance**: To cluster features of the same type separately for each instance.
           This reduces the number of features per type in each instance.
         - **Across all instances**: To cluster features of the same type across all instances.
           This reduces all pharmacophore instances into one.
+          Note that if the pharmacophore has only one instance,
+          this is equivalent to the per-instance case.
 
         The method also supports different ways
         to compute the center and radius of each cluster,
@@ -269,34 +318,59 @@ class Pharmacophore:
         function
             Either a single clustering function for all feature types,
             or a dictionary mapping each feature type to a clustering function.
-            Each function is called with two positional argumentsmust accept a 2D numpy array of shape `(n_features, 3)`
-            containing the coordinates of feature centers,
-            and return a 1D array/sequence of cluster labels as integers
+            Each function is called with two positional arguments:
+            1. A 2D numpy array of shape `(n_features, 3)`
+               containing the coordinates of feature centers.
+            2. A 1D numpy array of shape `(n_features,)`
+               containing the weights for each feature center
+               (see the `weights` parameter below).
+               Note that while not all clustering algorithms accept/require weights,
+               this parameter is always passed to the function.
+
+            The function must return an object with a `labels` attribute,
+            which must be a 1D array/sequence of cluster labels as integers
             for each feature center in the input array.
-            Labels that are 0 or negative are considered background/noise
+            Negative labels are considered background/noise
             and will not be included in the output pharmacophore.
         weights
             Optional weights for each feature center.
             If provided, it must be a 1D array-like object
             with the same length and order as `self.features`.
-            These are passed to the clustering function,
+            If not provided, a default weight of 1.0 is used for all features centers.
+            Weights are passed to the clustering function,
             and can also be used to compute center and radius of each cluster.
         center_type
             How to compute the center of each cluster:
             - "function": Use the clustering result's `centers` attribute.
-            - "midpoint": Use the midpoint of the feature centers in the cluster.
+            - "midpoint": Use the midpoint (i.e., bounding box center) of feature centers in the cluster.
             - "mean": Use the mean of the feature centers in the cluster.
             - "average": Use the weighted average of the feature centers in the cluster,
               where weights are taken from the `weights` parameter.
         radius_type
             How to compute the radius of each cluster:
-            - "average": Use the average distance from the cluster center to the feature centers in the cluster.
-            - "mean": Use the mean distance from the cluster center to the feature centers in the cluster.
-            - "max": Use the maximum distance from the cluster center to the feature centers in the cluster.
-            - "min": Use the minimum distance from the cluster center to the feature centers in the cluster.
+            - "average": Use the weighted average distance from the cluster center
+              to the feature centers in the cluster,
+              where weights are taken from the `weights` parameter.
+            - "mean": Use the mean distance from the cluster center
+              to the feature centers in the cluster.
+            - "max": Use the maximum distance from the cluster center
+              to the feature centers in the cluster.
+            - "min": Use the minimum distance from the cluster center
+              to the feature centers in the cluster.
         per_instance
-            If `True`, clusters features separately for each instance.
-            If `False`, clusters all features together regardless of instance.
+            `True`: Cluster features separately for each instance.
+            `False`: Cluster all features together regardless of instance.
+
+        Returns
+        -------
+        A new `Pharmacophore` object with clustered features.
+        The `Pharmacophore.features` DataFrame will contain the following columns:
+        - `instance`: Instance identifier (0 if `per_instance` is `False`).
+        - `type`: Feature type.
+        - `label`: Cluster label (taken from the clustering result).
+        - `center`: Center coordinates of the cluster.
+        - `radius`: Radius of the cluster.
+        - `members`: Row indices of the original features that belong to this cluster.
         """
         args = PharmClusterInput(
             function=function,
@@ -409,11 +483,18 @@ class Pharmacophore:
         min_members: PositiveInt | dict[str, PositiveInt] = 1,
         max_members: PositiveInt | dict[str, PositiveInt] | None = None,
         weights: pd.Series | np.ndarray | Sequence[float] | None = None,
-        center_type: Literal["function", "midpoint", "mean", "average"] | dict[str, Literal["function", "midpoint", "mean", "average"]] = "average",
-        radius_type: Literal["average", "mean", "max", "min"] = "average",
+        center_type: CenterTypeNoFunction | dict[str, CenterTypeNoFunction] = "average",
+        radius_type: RadiusType | dict[str, RadiusType] = "average",
         per_instance: bool = True,
     ) -> Self:
         """Cluster pharmacophore features using the Common Nearest Neighbors (CNN) algorithm.
+
+        This method creates the clustering functions from the CNN parameters
+        `max_distance`, `min_neighbors`, `min_members`, and `max_members`,
+        and then calls the `Pharmacophore.cluster` method with these functions,
+        passing the other general clustering parameters as well.
+        The CNN parameters are described below;
+        for other parameters, see the `Pharmacophore.cluster` method documentation.
 
         Parameters
         ----------
