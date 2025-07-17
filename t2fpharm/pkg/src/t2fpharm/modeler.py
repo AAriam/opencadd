@@ -61,6 +61,7 @@ class Modeler:
 
     def cnn(
         self,
+        *,
         max_distance: PositiveFloat | Sequence[PositiveFloat] | dict[str, PositiveFloat | Sequence[PositiveFloat]] | None = None,
         min_neighbors: PositiveInt | Sequence[PositiveInt] | dict[str, PositiveInt | Sequence[PositiveInt]] = tuple(range(6, 100, 4)),
         min_members: PositiveInt | dict[str, PositiveInt] | None = None,
@@ -150,6 +151,7 @@ class Modeler:
 
     def largest_peaks(
         self,
+        *,
         min_distance: PositiveFloat | dict[tuple[str, str], PositiveFloat] = 2,
         priority_factor: dict[str, float] | None = None,
         max_features: PositiveInt | dict[str, PositiveInt] | None = None,
