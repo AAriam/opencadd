@@ -79,79 +79,29 @@ class Modeler:
         filter_extension_constant_value: float | dict[str, float] = 0,
         filter_gaussian_sigma: PositiveFloat | dict[str, PositiveFloat] | None = None,
         filter_percentile: float | dict[str, float] = 50,
-    ):
-        """Perceive pharmacophore features using the CNN algorithm.
+    ) -> Pharmacophore:
+        """Perceive pharmacophore features using the Common Nearest Neighbors (CNN) clustering algorithm.
 
-        This method first selects points from the field tensor
-        that are within the pocket and below a specified `max_value`,
-        then clusters these points using the Common Nearest Neighbor (CNN) algorithm
-        with the specified parameters.
+        This method is equivalent to calling `Modeler.simple`
+        to create an initial pharmacophore,
+        followed by calling `Pharmacophore.cluster_cnn`
+        to cluster the feature centers.
+        For more information on the algorithm and parameters,
+        see the documentation of these methods.
 
         Parameters
         ----------
-        max_value
-            Maximum value for feature types in the field tensor.
-            Points in the field tensor with values greater than this
-            are not considered for clustering.
-            - If a single number is provided, it applies to all feature types.
-            - If a sequence is provided, it must match
-              the order and number of feature types in the field.
         max_distance
-            Maximum distance between two points
-            to consider them as neighbors during clustering.
-            - If a single number is provided,
-              it applies to all feature types and all (re)clustering runs.
-            - If a sequence of numbers is provided,
-              the sequence is applied to all feature types,
-              where the i-th number in the sequence corresponds to the input for the i-th clustering run
-              (see the `max_members` parameter below for more details).
-            - If a sequence of sequences is provided,
-              the outer sequence must match
-              the order and number of feature types in the field.
-            - If `None`, defaults to 2.1 times the grid spacing of the field
-              for all feature types and clustering runs.
-              This ensures that for each grid point, all 26 first neighbors
-              plus 6 orthogonal second neighbors are included in the clustering.
-        min_neighbors
-            Minimum number of common neighbors
-            between two points that belong to the same cluster.
-            Similar to `max_distance`, this can be a single integer,
-            a sequence of integers, or a sequence of sequences.
+            If `None`, defaults to 2.1 times the grid spacing of the field
+            for all feature types and clustering runs.
+            This ensures that for each grid point, all 26 first neighbors
+            plus 6 orthogonal second neighbors are included in the clustering.
         min_members
-            Minimum number of members in a cluster.
-            Cluster with fewer members than this are discarded.
-            - If a single integer is provided, it applies to all feature types.
-            - If a sequence of integers is provided, it must match
-              the order and number of feature types in the field.
-            - If `None`, defaults to the number of grid points with the same
-              volume as half the van der Waals volume of a hydrogen atom.
-            - To disable this filtering, set `min_members` to 1
-              for all or selected feature types.
+            If `None`, defaults to the number of grid points with the same
+            volume as half the van der Waals volume of a hydrogen atom.
         max_members
-            Maximum number of members in a cluster.
-            If specified, clusters with more members than this
-            are reclustered into smaller clusters.
-            For this, either one or both of `max_distance` and `min_neighbors`
-            must be a sequence (or sequence of sequences) of values,
-            where the i-th value corresponds to the i-th clustering step.
-            In each step, clusters from the last step
-            with more members than `max_members`
-            are reclustered until either all clusters
-            have maximum `max_members` members,
-            or the end of the sequence is reached.
-            If only one of `max_distance` or `min_neighbors`
-            is a sequence, the other one is assumed to be constant
-            for all clustering steps.
-            If both are sequences,
-            they must have the same length,
-            and the i-th value of `max_distance` and `min_neighbors`
-            is used for the i-th clustering step.
-            - If a single integer is provided,
-              it applies to all feature types and clustering runs.
-            - If a sequence of integers is provided,
-              it must match the order and number of feature types in the field.
-            - If `None`, defaults to 5 times the `min_members` value
-              for each feature type.
+            If `None`, defaults to 5 times the `min_members` value
+            for each feature type.
         """
         inputs = locals()
         del inputs["self"]
@@ -214,131 +164,27 @@ class Modeler:
         filter_extension_constant_value: float | dict[str, float] = 0,
         filter_gaussian_sigma: PositiveFloat | dict[str, PositiveFloat] | None = None,
         filter_percentile: float | dict[str, float] = 50,
-    ):
-        """Perceive pharmacophore features as largest extrema in the field.
+    ) -> Pharmacophore:
+        """Perceive pharmacophore features as largest extrema in the fields.
 
-        All parameters except `no_overlap` can be specified
-        as a single value for all feature types in the field,
-        or as a sequence of values, one for each feature type.
+        This method is equivalent to calling `Modeler.simple`
+        to create an initial pharmacophore,
+        followed by calling `Pharmacophore.remove_overlaps`
+        to filter the features based on their distance.
+        For more information on the algorithm and parameters,
+        see the documentation of these methods.
 
         Parameters
         ----------
-        peak_type
-            Type of peaks to search for in the field tensor.
-            - "min": Best values are minima.
-            - "max": Best values are maxima.
-        best_per_point
-            If `True`, discard grid points
-            where the field value is not the best value
-            (i.e., lowest for "min" `peak_type` or highest for "max" `peak_type`)
-            among all feature types at that grid point.
-        feature_radii
-            Radius of the sphere around each feature center
-            Minimum distance between two peaks to consider them as separate features.
-            If a value is `None`, no distance filtering is applied,
-            i.e., the minimum distance is the grid spacing.
-        max_features
-            Maximum number of features to return.
-            If a value is `None`, all features are returned.
-        value_threshold
-            Threshold value for the peaks.
-            - When `peak_type` is "min", only minima with values
-              less than this threshold are considered.
-            - When `peak_type` is "max", only maxima with values
-              greater than this threshold are considered.
-            - If a value is `None`, no thresholding is applied.
-        include_equal_threshold
-            Whether to include peaks with values equal to the threshold.
-        filter_function
-            Function to apply to the field values before peak detection.
-            This can be either a generic callable object
-            or one of the predefined filter functions.
-            If a callable is provided, it must accept a single argument,
-            which is a 1D array of field values
-            within a sphere of radius `filter_radius` centered at the grid point.
-            The function must then return a single value
-            as the replacement value for that grid point.
-            For example, passing `numpy.mean` would have the same effect
-            as the predefined "mean" filter function described below.
-            The predefined filter functions are:
-            - "gaussian": Apply a [Gaussian filter](https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.gaussian_filter.html)
-              with `filter_gaussian_sigma` as the standard deviation
-              and `filter_radius` as the radius of the Gaussian kernel.
-              This performs a spherical smoothing of the field values,
-              where the value at each grid point is replaced by the weighted average
-              of its neighbors within the specified radius, with weights
-              determined by the Gaussian function.
-            - "mean": Apply a mean filter with a spherical footprint of `filter_radius`.
-              This is similar to a Gaussian filter but uses a uniform weight for all neighbors.
-            - "percentile": Apply a [percentile filter](https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.percentile_filter.html)
-              with `filter_percentile` as the percentile to compute.
-              This replaces each grid point value with the specified percentile
-              of the values within a sphere of radius `filter_radius`.
-
-        Notes
-        -----
-        The algorithm works as follows:
-        For each feature type in the field,
-        1. If `filter_function` is provided,
-           for each grid point the field value is replaced
-           by the value of the `filter_function`
-           applied to the field values within a sphere
-           of radius `filter_radius` centered at the grid point.
-           This can be used to smooth the field
-           (e.g., using a Gaussian or percentile filter),
-           or to apply a custom transformation to the field values.
-        2. If `best_per_point` is `True`,
-           grid points whose (replaced) field value is not the best
-           (i.e. lowest for "min" peaks or highest for "max" peaks)
-           among all feature type field values at that grid point are discarded.
-           This prevents selecting multiple feature types at the exact same grid point.
-        3. If `value_threshold` is provided,
-           grid points whose (replaced) field values
-           do not meet the threshold are discarded.
-           Along with `max_features`,
-           this is useful to filter out noise
-           and reduce the number of features.
-        4. If the modeler has a pocket defined,
-           grid points outside the pocket are discarded.
-           This ensures that only features
-           within the pocket are considered.
-        5. The remaining grid points are sorted by their field value from best to worst
-           (i.e. lowest to highest for "min" peaks or highest to lowest for "max" peaks).
-        6. The first best point is selected as the center of the first feature,
-           and all other points within its `2 * feature_radii` (if specified) are discarded.
-        7. The next best remaining point is selected as the center of the next feature,
-           and all other points within its `2 * feature_radii` (if specified) are discarded.
-           This process is repeated until either all points are processed
-           or `max_features` is reached.
-           Therefore, setting `feature_radii` ensures that no two features of the same type
-           overlap, i.e., the distance between their centers
-           is greater than `2 * feature_radii`.
-
-        Finally, if `no_overlap` is `True`,
-        the algorithm ensures that for each pharmacophore instance
-        no two features of any type overlap.
-        This is done as follows:
-        For each pharmacophore instance,
-        1. All features are sorted by their center's field value from best to worst.
-        2. If `overlap_priority_factor` is provided, the field values are multiplied
-           by the corresponding `overlap_priority_factor` for each feature type
-           and then sorted.
-           This allows prioritizing features of certain types over others
-           when removing overlapping features, and is especially useful
-           when the field values of different feature types are either very similar
-           or very different.
-        3. Each feature is perceived as a sphere
-           with radius `overlap_feature_radii` (if specified)
-           or `feature_radii` for that feature type.
-           Providing a different `overlap_feature_radii` for each feature type
-           allows for more flexibility in defining the overlap criteria
-           for intra-feature-type vs. inter-feature-type cases.
-        4. Similar to steps 6 and 7 above, the algorithm checks for overlaps
-           between the features and discards overlapping features with the lower priority.
-
-        Note that this global overlap filtering can also be done
-        after the pharmacophore has been generated,
-        by calling its `remove_overlaps` method.
+        priority_factor
+            Optional dictionary mapping feature types to their priority factors.
+            If provided, the field values of each feature type
+            are multiplied by the corresponding factor
+            to create the `priority` parameter of `Pharmacophore.remove_overlaps`.
+            The factors must be chosen such that the highest priority is the lowest value.
+            This is useful when the field values of different feature types
+            do not all have the same scale/sign, or when you want to add bias
+            to the feature selection process to favor certain types over others.
         """
         kwargs = locals()
         del kwargs["self"]
@@ -372,17 +218,127 @@ class Modeler:
 
     def simple(
         self,
-        peak_type: Literal["min", "max"] | dict[str, Literal["min", "max"]] = "min",
-        best_per_point: bool | dict[str, bool] = False,
-        threshold_value: float | dict[str, float] | None = None,
-        threshold_include_equal: bool | dict[str, bool] = True,
+        *,
         filter_function: FilterFunction | dict[str, FilterFunction] | None = None,
         filter_radius: PositiveFloat | dict[str, PositiveFloat] | None = None,
         filter_extension_mode: FilterExtensionMode | dict[str, FilterExtensionMode] = "constant",
         filter_extension_constant_value: float | dict[str, float] = 0,
         filter_gaussian_sigma: PositiveFloat | dict[str, PositiveFloat] | None = None,
         filter_percentile: float | dict[str, float] = 50,
+        peak_type: Literal["min", "max"] | dict[str, Literal["min", "max"]] = "min",
+        best_per_point: bool | dict[str, bool] = True,
+        threshold_value: float | dict[str, float] | None = None,
+        threshold_include_equal: bool | dict[str, bool] = True,
     ) -> Pharmacophore:
+        """Perceive pharmacophore features from the field tensor.
+
+        All parameters can be specified as a single value for all feature types,
+        or as a dictionary mapping feature types to their respective values.
+
+        Parameters
+        ----------
+        filter_function
+            Optional filter function to apply to the field values
+            before perceiving pharmacophore features.
+            The function can be either a generic callable object
+            or the name of one of the predefined filter functions.
+            If a callable is provided, it must accept a single argument,
+            which is a 1D array of field values
+            within a sphere of radius `filter_radius` centered at each grid point.
+            The function must then return a single value
+            as the replacement value for that grid point.
+            For example, passing `numpy.mean` would have the same effect
+            as the predefined "mean" filter function described below.
+            The predefined filter functions are:
+            - "gaussian": Apply a [Gaussian filter](https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.gaussian_filter.html)
+              with `filter_gaussian_sigma` as the standard deviation
+              and `filter_radius` as the radius of the Gaussian kernel.
+              This performs a spherical smoothing of the field values,
+              where the value at each grid point is replaced by the weighted average
+              of its neighbors within the specified radius, with weights
+              determined by the Gaussian function.
+            - "mean": Apply a mean filter with a spherical footprint of radius `filter_radius`.
+              This is similar to a Gaussian filter but uses a uniform weight for all neighbors.
+            - "percentile": Apply a [percentile filter](https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.percentile_filter.html)
+              with `filter_percentile` as the percentile to compute.
+              This replaces each grid point value with the specified percentile
+              of the values within a sphere of radius `filter_radius`.
+        filter_radius
+            Radius of the spherical footprint/kernel
+            for the filter function.
+            This must be defined for each feature type
+            that has a `filter_function` defined.
+        filter_extension_mode
+            Mode for extending the field tensor
+            for when the filter overlaps a border.
+            Available modes are:
+            - "constant": Fields are extended by filling all values beyond the borders
+              with the same constant value defined by the parameter
+              `filter_extension_constant_value` (k k k k | a b c d | k k k k).
+            - "nearest": Fields are extended by repeating the nearest border value (a a a a | a b c d | d d d d).
+            - "mirror": Fields are extended by mirroring the values at the borders,
+               with the mirror plane placed at the border value (d c b | a b c d | c b a).
+            - "reflect": Fields are extended by mirroring the values at the borders,
+              with the mirror plane placed after the border value (d c b a | a b c d | d c b a)
+            - "wrap": Fields are extended by wrapping the values around the opposite border (a b c d | a b c d | a b c d).
+        filter_extension_constant_value
+            Constant value to use when `filter_extension_mode` is "constant".
+            This value is used to fill the extended borders of the field tensor.
+        filter_gaussian_sigma
+            Standard deviation of the Gaussian kernel to use
+            when `filter_function` is "gaussian".
+        filter_percentile
+            Percentile to compute when `filter_function` is "percentile".
+            This value must be between 0 and 100.
+        peak_type
+            Type of peaks to search for in the field tensor.
+            - "min": Best values are minima.
+            - "max": Best values are maxima.
+        best_per_point
+            If `True`, discard grid points
+            where the field value is not the best value
+            (i.e., lowest for "min" `peak_type` or highest for "max" `peak_type`)
+            among all feature types at that grid point.
+        threshold_value
+            Threshold value for the peaks.
+            - When `peak_type` is "min", only minima with values
+              less than (or equal to) this threshold are considered.
+            - When `peak_type` is "max", only maxima with values
+              greater than (or equal to) this threshold are considered.
+            - If a value is `None`, no thresholding is applied.
+        threshold_include_equal
+            Whether to include peaks with values equal to the threshold.
+
+        Notes
+        -----
+        The algorithm works as follows:
+        For each feature type in the field,
+        1. If `filter_function` is provided,
+           for each grid point the field value is replaced
+           by the value of the `filter_function`
+           applied to the field values within a sphere
+           of radius `filter_radius` centered at the grid point.
+           This can be used to smooth the field
+           (e.g., using a Gaussian or percentile filter),
+           or to apply a custom transformation to the field values.
+        2. If `best_per_point` is `True`,
+           grid points whose (replaced) field value is not the best
+           (i.e. lowest for "min" peaks or highest for "max" peaks)
+           among all feature type field values at that grid point are discarded.
+           This prevents selecting multiple feature types at the exact same grid point.
+        3. If `threshold_value` is provided,
+           grid points whose field values
+           (after applying the filter function, if any)
+           do not meet the threshold are discarded.
+           This is useful to filter out noise
+           and reduce the number of features.
+        4. If the modeler has a pocket defined,
+           grid points outside the pocket are discarded.
+           This ensures that only features
+           within the pocket are considered.
+        5. The remaining grid points are taken as pharmacophore feature centers
+           and used to create a `Pharmacophore` object.
+        """
         kwargs = locals()
         del kwargs["self"]
         args = ModelerSimpleInput(
