@@ -31,6 +31,7 @@ class ClusteringResult(Protocol):
 
 ClusteringFunction: TypeAlias = Callable[[np.ndarray, np.ndarray], ClusteringResult]
 CenterType: TypeAlias = Literal["average", "mean", "midpoint", "function"]
+CenterTypeNoFunction: TypeAlias = Literal["average", "mean", "midpoint"]
 RadiusType: TypeAlias = Literal["average", "mean", "max", "min"]
 
 
