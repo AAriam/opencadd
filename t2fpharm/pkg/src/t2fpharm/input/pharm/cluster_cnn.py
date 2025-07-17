@@ -7,7 +7,7 @@ from pydantic import model_validator
 import scids
 
 from t2fpharm.input import validator
-from t2fpharm.input.pharm.cluster import PharmClusterInput, ClusteringFunction, ClusteringResult
+from t2fpharm.input.pharm.cluster import PharmClusterInput, ClusteringFunction, ClusteringResult, CenterTypeNoFunction
 from t2fpharm.typing import (
     PositiveInt, PositiveFloat, PositiveIntTuple, PositiveFloatTuple
 )
@@ -19,6 +19,7 @@ class PharmClusterCNNInput(PharmClusterInput):
     min_members: dict[str, PositiveInt]
     max_members: dict[str, PositiveInt | None]
     function: dict[str, ClusteringFunction]
+    center_type: dict[str, CenterTypeNoFunction]
 
     @model_validator(mode="before")
     def _cluster_cnn_input(cls, values: dict[str, object]) -> dict[str, object]:
@@ -71,4 +72,8 @@ def cnn_function(
         min_members=min_members,
         max_members=max_members,
     )
+    if np.any(labels < 0):
+        raise RuntimeError("CNN clustering returned negative labels.")
+    # Adjust labels to start from 0, with -1 indicating noise
+    labels -= 1
     return CNNResult(labels=labels)
