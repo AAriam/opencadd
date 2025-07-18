@@ -53,7 +53,7 @@ class DataSet:
                         f"but got {self._batch_ndim}D batch for {self._data.ndim}D data."
             )
         self._batch_shape = self._data.shape[:self._batch_ndim]
-        self._batch_size = np.prod(self._batch_shape)
+        self._batch_size = int(np.prod(self._batch_shape))
         self._batch_instance_labels = {}
         if batch_is_int:
             self._batch_dim_labels = np.arange(1, self._batch_ndim + 1).astype(str)
@@ -92,13 +92,14 @@ class DataSet:
     @property
     def batch_shape(self) -> np.ndarray:
         """Shape of the batch dimensions."""
-        return np.array(self._batch_shape)
+        return np.array(self._batch_shape, dtype=int)
 
     @property
     def batch_size(self) -> int:
         """Size of the batch dimensions.
 
-        This represents the total number of instances.
+        This represents the total number of instances,
+        i.e., it is equal to 1 if there are no batch dimensions.
         """
         return self._batch_size
 
