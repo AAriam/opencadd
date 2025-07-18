@@ -28,7 +28,7 @@ def isoperimetric_quotient(points: np.ndarray) -> float:
     (i.e., perimeter in 2D, surface area in 3D, hypersurface volume in higher dimensions)
     against the optimal ratio achieved by a perfect d-ball:
 
-        Ψ = (d * ω * V)^{(d-1)/d} / A
+        Ψ = (d * ω**(1/d) * V**((d-1)/d)) / A,
 
     where
     - d is the point dimension (i.e., `self.point_dim`),
@@ -52,5 +52,5 @@ def isoperimetric_quotient(points: np.ndarray) -> float:
     V = hull.volume  # d-dimensional volume
     A = hull.area    # (d-1)-dim boundary measure
     omega = np.pi**(d/2) / gamma(d/2 + 1)  # volume of unit d-ball
-    psi = (d * omega * V)**((d - 1) / d) / A  # isoperimetric quotient
+    psi = (d * omega**(1/d) * V**((d - 1) / d)) / A  # isoperimetric quotient
     return float(psi)
