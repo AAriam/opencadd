@@ -29,16 +29,17 @@ class ModelerSimpleInput(BaseModel):
         """Preprocess and validate the input values."""
         feature_types = values["feature_types"]
         for argname, fill_value, value_validator, none_allowed in (
-            ("peak_type", "min", None, False),
-            ("best_per_point", False, None, False),
-            ("threshold_value", None, None, True),
-            ("threshold_include_equal", True, None, False),
             ("filter_function", None, _validator_function, True),
             ("filter_radius", None, validator.is_positive_number, True),
             ("filter_extension_mode", None, _validator_extension_mode, False),
             ("filter_extension_constant_value", None, validator.is_real_number, False),
             ("filter_gaussian_sigma", None, validator.is_positive_number, True),
             ("filter_percentile", None, _validator_percentile, False),
+            ("peak_type", "min", None, False),
+            ("best_per_point", False, None, False),
+            ("threshold_value", None, None, True),
+            ("threshold_percentile", None, _validator_percentile, True),
+            ("threshold_include_equal", True, None, False),
         ):
             values[argname] = validator.validate_input_dict(
                 name=argname,
