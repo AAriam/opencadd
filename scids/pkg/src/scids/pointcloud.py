@@ -14,6 +14,7 @@ from scids import dataset, exception
 from scids.volume import AxisAlignedRectangularCuboid
 from scids.grid import Grid
 from scids.field import Field
+from scids.functional import geometry
 from scids.typing import (
     atypecheck, Array, JAXArray, Num, Shaped, Is,
     Annotated, PositiveInt, PositiveFloat, PositiveInts1D, NonNegativeFloat, PathLike
@@ -602,6 +603,55 @@ class PointCloud(dataset.DataSet):
                 workers=-1,
             )
         return distances, indices
+
+    def isoperimetric_quotient(self) -> np.ndarray | float:
+        """Calculate the normalized isoperimetric quotient of the point cloud's convex hull.
+
+        The isoperimetric quotient is the reciprocal of the
+        [isoperimetric ratio](https://en.wikipedia.org/wiki/Isoperimetric_ratio);
+        it measures the "ball-likeness" (i.e., circle-likeness in 2D, sphere-likeness in 3D, etc.)
+        of the point cloud's convex hull.
+
+        Returns
+        -------
+        A 1D array of floats (or a single float when `self.batch_ndim == 0`),
+        containing the normalized isoperimetric quotients for each instance.
+        Each value is in the range (0, 1], where 1 indicates a perfect d-ball and
+        lower values indicate greater deviation from ball-likeness (i.e., wasting surface area),
+        either by having indentations, protrusions, or elongations,
+        relative to how much volume the convex hull encloses.
+
+        Notes
+        -----
+        The isoperimetric quotient `Ψ` measures how efficiently a given shape
+        "packs" volume into surface area, relative to an ideal `d`-dimensional ball.
+        It compares the `d`-dimensional volume `V`
+        to the `(d-1)`-dimensional boundary measure `A`
+        (i.e., perimeter in 2D, surface area in 3D, hypersurface volume in higher dimensions)
+        against the optimal ratio achieved by a perfect d-ball:
+
+            Ψ = (d * ω * V)^{(d-1)/d} / A
+
+        where
+        - d is the point dimension (i.e., `self.point_dim`),
+        - ω = π^{d/2} / Γ(d/2 + 1) is the d-dimensional volume of the unit d-ball,
+        - V is the d-dimensional volume of the convex hull,
+        - A is the (d-1)-dimensional surface measure of the convex hull boundary.
+
+        Because Ψ is purely global, it is insensitive to interior point distributions:
+        whether you have a thin shell of points on the surface or a full volumetric fill,
+        only the outer shape matters.
+        """
+        d = self.point_dim
+        if self.point_count <= d:
+            raise ValueError("Need more points than dimensions to form a convex hull")
+
+        if self.batch_ndim == 0:
+            return geometry.isoperimetric_quotient(self.points)
+        out = np.empty(shape=self.batch_shape, dtype=float)
+        for idx in np.ndindex(*self.batch_shape):
+            out[idx] = geometry.isoperimetric_quotient(self.points[idx])
+        return out
 
     def cluster_cnn(
         self,
