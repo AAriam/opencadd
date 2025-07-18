@@ -230,6 +230,7 @@ class Modeler:
         peak_type: Literal["min", "max"] | dict[str, Literal["min", "max"]] = "min",
         best_per_point: bool | dict[str, bool] = True,
         threshold_value: float | dict[str, float] | None = None,
+        threshold_percentile: float | dict[str, float] | None = None,
         threshold_include_equal: bool | dict[str, bool] = True,
     ) -> Pharmacophore:
         """Perceive pharmacophore features from the field tensor.
@@ -308,6 +309,10 @@ class Modeler:
             - When `peak_type` is "max", only maxima with values
               greater than (or equal to) this threshold are considered.
             - If a value is `None`, no thresholding is applied.
+        threshold_percentile
+            If provided, only the best `threshold_percentile` percent
+            of the remaining grid points after applying the `filter_function`,
+            `best_per_point`, `threshold_value`, and pocket mask are kept.
         threshold_include_equal
             Whether to include peaks with values equal to the threshold.
 
@@ -324,8 +329,8 @@ class Modeler:
            (e.g., using a Gaussian or percentile filter),
            or to apply a custom transformation to the field values.
         2. If `best_per_point` is `True`,
-           grid points whose (replaced) field value is not the best
-           (i.e. lowest for "min" peaks or highest for "max" peaks)
+           grid points whose field value (after applying the filter function, if any)
+           is not the best (i.e. lowest for "min" peaks or highest for "max" peaks)
            among all feature type field values at that grid point are discarded.
            This prevents selecting multiple feature types at the exact same grid point.
         3. If `threshold_value` is provided,
@@ -338,7 +343,11 @@ class Modeler:
            grid points outside the pocket are discarded.
            This ensures that only features
            within the pocket are considered.
-        5. The remaining grid points are taken as pharmacophore feature centers
+        5. If `threshold_percentile` is provided,
+           only the best `threshold_percentile` percent
+           of the remaining grid points
+           are kept for each feature type.
+        6. The remaining grid points are taken as pharmacophore feature centers
            and used to create a `Pharmacophore` object.
         """
         kwargs = locals()
@@ -354,6 +363,7 @@ class Modeler:
             peak_type=args.peak_type,
             best_per_point=args.best_per_point,
             threshold_value=args.threshold_value,
+            threshold_percentile=args.threshold_percentile,
             threshold_include_equal=args.threshold_include_equal,
         )
         feature_radius = {
@@ -389,6 +399,7 @@ class Modeler:
         peak_type: dict[str, Literal["min", "max"]],
         best_per_point: dict[str, bool],
         threshold_value: dict[str, float | None],
+        threshold_percentile: dict[str, float | None],
         threshold_include_equal: dict[str, bool],
     ):
         mask = self._mask_best_per_point(
@@ -396,15 +407,16 @@ class Modeler:
             peak_type=peak_type,
             best_per_point=best_per_point,
         )
+        if self.pocket is not None:
+            mask = np.logical_and(mask, self.pocket.tensor)
         mask = self._mask_threshold(
             tensor=tensor,
             mask=mask,
             peak_type=peak_type,
             threshold_value=threshold_value,
+            threshold_percentile=threshold_percentile,
             threshold_include_equal=threshold_include_equal,
         )
-        if self.pocket is not None:
-            mask = np.logical_and(mask, self.pocket.tensor)
         return mask
 
     def _mask_threshold(
@@ -413,6 +425,7 @@ class Modeler:
         mask: np.ndarray,
         peak_type: dict[str, Literal["min", "max"]],
         threshold_value: dict[str, float | None],
+        threshold_percentile: dict[str, float | None],
         threshold_include_equal: dict[str, bool],
     ):
         comparison_function = {
@@ -423,15 +436,26 @@ class Modeler:
         }
         for feature_idx in range(mask.shape[0]):
             feature_type = self._feature_type(feature_idx)
-            if threshold_value[feature_type] is None:
-                continue
             comp_func = comparison_function[
-                (peak_type[feature_type], threshold_include_equal[feature_type])
-            ]
-            mask[feature_idx] = np.logical_and(
-                mask[feature_idx],
-                comp_func(tensor[feature_idx], threshold_value[feature_type])
-            )
+                    (peak_type[feature_type], threshold_include_equal[feature_type])
+                ]
+            if threshold_value[feature_type] is not None:
+                mask[feature_idx] = np.logical_and(
+                    mask[feature_idx],
+                    comp_func(tensor[feature_idx], threshold_value[feature_type])
+                )
+            if threshold_percentile[feature_type] is not None:
+                percentile = threshold_percentile[feature_type]
+                if peak_type[feature_type] == "max":
+                    percentile = 100 - percentile
+                threshold = np.percentile(
+                    tensor[feature_idx][mask[feature_idx]],
+                    percentile
+                )
+                mask[feature_idx] = np.logical_and(
+                    mask[feature_idx],
+                    comp_func(tensor[feature_idx], threshold)
+                )
         return mask
 
     def _mask_best_per_point(
