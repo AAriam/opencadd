@@ -51,7 +51,7 @@ def _cnn(
                 min_members_all = {
                     feature_type: np.floor(
                         np.linspace(start=1, stop=max_members * min_members_fraction, num=min_members_count)
-                    ).astype(int)
+                    ).astype(int).tolist()
                     for feature_type, max_members in max_members_scaled.items()
                 }
                 for min_members_idx in range(min_members_count):
@@ -236,7 +236,7 @@ def _cnn_clustering_params(
     max_distances = {}
     min_neighbors = {}
     for feature_type, radius in feature_radius.items():
-        feature_max_distances = np.sort(grid_unique_distances[grid_unique_distances <= radius])[::-1]
+        feature_max_distances = np.sort(grid_unique_distances[grid_unique_distances <= radius])[::-1].tolist()
         for feature_max_distance in feature_max_distances:
             max_common_neighbors = _cnn_max_common_neighbors(
                 distance=feature_max_distance,
