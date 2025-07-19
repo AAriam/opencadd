@@ -87,7 +87,7 @@ class Pharmacophore:
         self,
         features: DataFrameLike,
         feature_types: set[str] | None = None,
-        inputs: dict[str, Any] | None = None,
+        inputs: Sequence[dict[str, Any]] | None = None,
         name: str = "Pharmacophore",
         system: System | None = None,
         pocket: Pocket | None = None,
@@ -107,7 +107,7 @@ class Pharmacophore:
                 raise ValueError(f"Found types not in feature_types: {missing}")
             self._feature_types = feature_types
 
-        self._inputs = inputs or {}
+        self._inputs = list(inputs) if inputs is not None else []
         self._name = name
         self._system = system
         self._pocket = pocket
@@ -151,7 +151,7 @@ class Pharmacophore:
         return self._feature_types
 
     @property
-    def inputs(self) -> dict[str, Any]:
+    def inputs(self) -> list[dict[str, Any]]:
         """Inputs used to create the pharmacophore."""
         return self._inputs
 
@@ -282,7 +282,7 @@ class Pharmacophore:
         return Pharmacophore(
             features=result,
             feature_types=self.feature_types,
-            inputs=self.inputs,
+            inputs=self.inputs + [args.model_dump()],
             name=self.name,
             system=self.system,
             pocket=self.pocket,
@@ -430,7 +430,7 @@ class Pharmacophore:
                     "center_mean": np.mean(cluster_points, axis=0),
                     "center_average": np.average(cluster_points, weights=cluster_weight, axis=0)
                 }
-                if hasattr(clustering_result, 'centers'):
+                if clustering_result.centers is not None:
                     cluster_centers["center_function"] = clustering_result.centers[label]
 
                 # Calculate center values
@@ -470,7 +470,7 @@ class Pharmacophore:
         return Pharmacophore(
             features=pd.DataFrame(new_features) if new_features else self.features.iloc[0:0].copy(),
             feature_types=self.feature_types,
-            inputs=self.inputs,
+            inputs=self.inputs + [args.model_dump()],
             name=self.name,
             system=self.system,
             pocket=self.pocket,
