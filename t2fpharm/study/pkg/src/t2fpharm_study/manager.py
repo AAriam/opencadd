@@ -617,7 +617,7 @@ class Manager:
             )
         subdir = path / filetype
         subdir.mkdir(parents=True, exist_ok=True)
-        return subdir / f"{pdb_id}_{job_idx}.yaml"
+        return subdir / f"{pdb_id}_{job_idx}.parquet"
 
     def group_id(self, pdb_id: str) -> str:
         """Get the group ID for a given PDB ID."""
@@ -906,8 +906,13 @@ def _run_job(
 
     # Save target pharmacophore
     if filepath_features:
-        features_json = target_pharm.features.to_json(orient="records", indent=4)
-        Path(filepath_features).write_text(features_json)
+        target_pharm.features.to_parquet(
+            path=Path(filepath_features),
+            engine="pyarrow",
+            compression="zstd",
+            compression_level=3,
+            index=False,
+        )
 
     # Generate target pharmacophore summary
     target_pharm_summary = {
@@ -918,7 +923,6 @@ def _run_job(
     # Calculate matches with ligand pharmacophores
     matches = _calculate_matches(
         target_pharm=target_pharm,
-        target_pdb_id=target_pdb_id,
         ligand_pharms=ligand_pharms,
         filepath_matches=filepath_matches,
     )
@@ -940,45 +944,44 @@ def _run_job(
 def _calculate_target_pharm_summary(target_pharm: t2fpharm.Pharmacophore, method: str):
     features = target_pharm.features
     out = {"n_total": len(features)} | {
-        f"n_{feature_type}": features["type"].eq(feature_type).sum()
+        f"n_{feature_type}": int(features["type"].eq(feature_type).sum())
         for feature_type in target_pharm.feature_types
     }
     if method == "largest_peaks":
         values = features["value"]
-        out["value_min"] = values.min()
-        out["value_max"] = values.max()
-        out["value_mean"] = values.mean()
+        out["value_min"] = float(values.min())
+        out["value_max"] = float(values.max())
+        out["value_mean"] = float(values.mean())
         for feature_type in target_pharm.feature_types:
             values = features[features["type"] == feature_type]["value"]
-            out[f"value_{feature_type}_min"] = values.min()
-            out[f"value_{feature_type}_max"] = values.max()
-            out[f"value_{feature_type}_mean"] = values.mean()
+            out[f"value_{feature_type}_min"] = float(values.min())
+            out[f"value_{feature_type}_max"] = float(values.max())
+            out[f"value_{feature_type}_mean"] = float(values.mean())
         return out
     for mode in ("midpoint", "mean", "average"):
         values = features[f"value_{mode}"]
         radii = features[f"radius_{mode}_max"]
-        out[f"value_{mode}_min"] = values.min()
-        out[f"value_{mode}_max"] = values.max()
-        out[f"value_{mode}_mean"] = values.mean()
-        out[f"radius_{mode}_min"] = radii.min()
-        out[f"radius_{mode}_max"] = radii.max()
-        out[f"radius_{mode}_mean"] = radii.mean()
+        out[f"value_{mode}_min"] = float(values.min())
+        out[f"value_{mode}_max"] = float(values.max())
+        out[f"value_{mode}_mean"] = float(values.mean())
+        out[f"radius_{mode}_min"] = float(radii.min())
+        out[f"radius_{mode}_max"] = float(radii.max())
+        out[f"radius_{mode}_mean"] = float(radii.mean())
         for feature_type in target_pharm.feature_types:
             type_mask = features["type"] == feature_type
             type_values = values[type_mask]
             type_radii = radii[type_mask]
-            out[f"value_{feature_type}_{mode}_min"] = type_values.min()
-            out[f"value_{feature_type}_{mode}_max"] = type_values.max()
-            out[f"value_{feature_type}_{mode}_mean"] = type_values.mean()
-            out[f"radius_{feature_type}_{mode}_min"] = type_radii.min()
-            out[f"radius_{feature_type}_{mode}_max"] = type_radii.max()
-            out[f"radius_{feature_type}_{mode}_mean"] = type_radii.mean()
+            out[f"value_{feature_type}_{mode}_min"] = float(type_values.min())
+            out[f"value_{feature_type}_{mode}_max"] = float(type_values.max())
+            out[f"value_{feature_type}_{mode}_mean"] = float(type_values.mean())
+            out[f"radius_{feature_type}_{mode}_min"] = float(type_radii.min())
+            out[f"radius_{feature_type}_{mode}_max"] = float(type_radii.max())
+            out[f"radius_{feature_type}_{mode}_mean"] = float(type_radii.mean())
     return out
 
 
 def _calculate_matches(
     target_pharm: t2fpharm.Pharmacophore,
-    target_pdb_id: str,
     ligand_pharms: dict[PDBID, t2fpharm.Pharmacophore],
     filepath_matches: Path | str | None = None,
 ) -> pd.DataFrame:
@@ -996,8 +999,13 @@ def _calculate_matches(
     matches_df = pd.concat(matches_dfs, ignore_index=True)
 
     if filepath_matches:
-        matches_json = matches_df.to_json(orient="records", indent=4)
-        Path(filepath_matches).write_text(matches_json)
+        matches_df.to_parquet(
+            path=Path(filepath_matches),
+            engine="pyarrow",
+            compression="zstd",
+            compression_level=3,
+            index=False,
+        )
     return matches_df
 
 
@@ -1029,14 +1037,14 @@ def _calculate_feature_match_summary(
     n_ligand_features = len(matches)
     out = {
         f"match_{feature_type}_count": n_ligand_features,
-        f"match_{feature_type}_dist_min": matches["distance"].min(),
-        f"match_{feature_type}_dist_max": matches["distance"].max(),
-        f"match_{feature_type}_dist_mean": matches["distance"].mean(),
-        f"match_{feature_type}_dist_median": matches["distance"].median(),
-        f"match_{feature_type}_dist_inf": matches["distance"].isna().sum() / n_ligand_features,
-        f"match_{feature_type}_dist_lt1": (matches["distance"] < 1.0).sum() / n_ligand_features,
-        f"match_{feature_type}_dist_lt2": (matches["distance"] < 2.0).sum() / n_ligand_features,
-        f"match_{feature_type}_dist_lt3": (matches["distance"] < 3.0).sum() / n_ligand_features,
+        f"match_{feature_type}_dist_min": float(matches["distance"].min()),
+        f"match_{feature_type}_dist_max": float(matches["distance"].max()),
+        f"match_{feature_type}_dist_mean": float(matches["distance"].mean()),
+        f"match_{feature_type}_dist_median": float(matches["distance"].median()),
+        f"match_{feature_type}_dist_inf": float(matches["distance"].isna().sum()) / n_ligand_features,
+        f"match_{feature_type}_dist_lt1": float((matches["distance"] < 1.0).sum()) / n_ligand_features,
+        f"match_{feature_type}_dist_lt2": float((matches["distance"] < 2.0).sum()) / n_ligand_features,
+        f"match_{feature_type}_dist_lt3": float((matches["distance"] < 3.0).sum()) / n_ligand_features,
     }
     return out
 
