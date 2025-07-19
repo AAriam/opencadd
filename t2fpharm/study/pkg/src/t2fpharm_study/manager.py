@@ -936,17 +936,21 @@ def _run_job(
     # Calculate matches with ligand pharmacophores
     matches = _calculate_matches(
         target_pharm=target_pharm,
+        target_pdb_id=target_pdb_id,
         ligand_pharms=ligand_pharms,
         filepath_matches=filepath_matches,
     )
+    matches["target_pdb_id"] = target_pdb_id
+    matches_summary = _calculate_matches_summary(matches)
+
+    summary = target_pharm_summary | matches_summary
 
     # Prepare output
-    output = [target_pharm_summary]
+    output = [summary]
     if return_pharm:
         output.append(target_pharm)
     if return_matches:
         matches["job_idx"] = job_idx
-        matches["target_pdb_id"] = target_pdb_id
         output.append(matches)
     return tuple(output)
 
@@ -992,6 +996,7 @@ def _calculate_target_pharm_summary(target_pharm: t2fpharm.Pharmacophore, method
 
 def _calculate_matches(
     target_pharm: t2fpharm.Pharmacophore,
+    target_pdb_id: str,
     ligand_pharms: dict[PDBID, t2fpharm.Pharmacophore],
     filepath_matches: Path | str | None = None,
 ) -> pd.DataFrame:
@@ -1012,6 +1017,46 @@ def _calculate_matches(
         matches_json = matches_df.to_json(orient="records", indent=4)
         Path(filepath_matches).write_text(matches_json)
     return matches_df
+
+
+def _calculate_matches_summary(matches: pd.DataFrame) -> dict[str, Any]:
+    matches_total = _calculate_match_summary(matches)
+    matches_self = _calculate_match_summary(
+        matches[matches["ligand_pdb_id"] == matches["target_pdb_id"]],
+        with_self=True
+    )
+    return matches_total | matches_self
+
+
+def _calculate_match_summary(
+    matches: pd.DataFrame,
+    with_self: bool = False,
+) -> dict[str, Any]:
+    out = _calculate_feature_match_summary(matches, feature_type="all")
+    for feature_type in matches["type"].unique():
+        out.update(_calculate_feature_match_summary(matches, feature_type=feature_type))
+    if with_self:
+        return {f"{key}_self": value for key, value in out.items()}
+    return out
+
+
+def _calculate_feature_match_summary(
+    matches: pd.DataFrame,
+    feature_type: str | None = None,
+) -> dict[str, Any]:
+    n_ligand_features = len(matches)
+    out = {
+        f"match_{feature_type}_count": n_ligand_features,
+        f"match_{feature_type}_dist_min": matches["distance"].min(),
+        f"match_{feature_type}_dist_max": matches["distance"].max(),
+        f"match_{feature_type}_dist_mean": matches["distance"].mean(),
+        f"match_{feature_type}_dist_median": matches["distance"].median(),
+        f"match_{feature_type}_dist_inf": matches["distance"].isna().sum() / n_ligand_features,
+        f"match_{feature_type}_dist_lt1": (matches["distance"] < 1.0).sum() / n_ligand_features,
+        f"match_{feature_type}_dist_lt2": (matches["distance"] < 2.0).sum() / n_ligand_features,
+        f"match_{feature_type}_dist_lt3": (matches["distance"] < 3.0).sum() / n_ligand_features,
+    }
+    return out
 
 
 _run_job_remote = ray.remote(_run_job)
