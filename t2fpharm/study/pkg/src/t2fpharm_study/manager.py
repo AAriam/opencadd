@@ -19,6 +19,8 @@ import caddpy
 
 import t2fpharm
 
+from t2fpharm_study.job_gen import create_job_inputs
+
 
 PDBID: TypeAlias = str
 
@@ -29,6 +31,7 @@ class Manager:
         dataset: pd.DataFrame,
         pocket_inputs: dict,
         field_inputs: dict,
+        job_inputs: dict[str, dict[str, Any]],
         group_color: dict[str, dict[str, str]],
         dirpath_data: Path,
         dirpath_pdb_raw: Path | str = "structure/1-pdb-raw",
@@ -47,6 +50,7 @@ class Manager:
         self._data = dataset
         self.pocket_params = pocket_inputs
         self.field_params = field_inputs
+        self.job_params = job_inputs
         self._group_color = group_color
         self.dirpath_data = Path(dirpath_data)
         self._path = {
@@ -61,6 +65,9 @@ class Manager:
             "field": dirpath_field,
             "ligand_plip": dirpath_ligand_plip,
             "ligand_features": dirpath_ligand_features,
+
+            "results": dirpath_results,
+
             "results_job_inputs": f"{dirpath_results}/jobs",
             "results_summary": f"{dirpath_results}/summary",
             "results_pharm": f"{dirpath_results}/pharmacophore",
@@ -220,7 +227,22 @@ class Manager:
             self._cache = {}
         return
 
-    def run(self, jobs: Sequence[dict[str, Any]]):
+    def run(self, job_name: str):
+        job_spec = self.job_params.get(job_name)
+        if job_spec is None:
+            raise ValueError(f"Job '{job_name}' not found in job parameters.")
+        if "cnn" in job_spec:
+            job_spec["cnn"]["grid_spacing"] = self.pocket_params["grid_spacing"]
+            job_spec["cnn"]["grid_unique_distances"] = self.field(pdb_id=self.dataset["pdb_id"].iloc[0]).grid.unique_distances
+
+        jobs = create_job_inputs(**job_spec)
+        pyserials.write.to_json_file(
+            data=jobs,
+            path=self.path_results(job_name=job_name, filetype="inputs"),
+            indent=4,
+            sort_keys=True,
+        )
+
         # Enable caching to avoid recomputing heavy objects during modeler creation
         caching_was_enabled = self._cache_enabled
         self.caching(enabled=True)
@@ -243,13 +265,14 @@ class Manager:
                         self._cache = {}
                     for job_idx, job in enumerate(jobs):
                         remote_job = _run_job_remote.remote(
-                            **job,
                             modeler=modeler,
                             ligand_pharms=ligand_pharms,
                             target_pdb_id=pdb_id,
                             job_idx=job_idx,
-                            filepath_features=str(self.path("results_pharm", pdb_id=pdb_id, job_idx=job_idx)),
-                            filepath_matches=str(self.path("results_matches", pdb_id=pdb_id, job_idx=job_idx)),
+                            method=job["method"],
+                            kwargs=job["kwargs"],
+                            filepath_features=str(self.path_results("pharm", pdb_id=pdb_id, job_idx=job_idx)),
+                            filepath_matches=str(self.path_results("matches", pdb_id=pdb_id, job_idx=job_idx)),
                             return_pharm=False,
                             return_matches=False,
                         )
@@ -485,8 +508,8 @@ class Manager:
         filepath_ligand_plip = self.path("ligand_plip", pdb_id)
         filepath_ligand_features = self.path("ligand_features", pdb_id)
         if filepath_ligand_plip.is_file() and filepath_ligand_features.is_file():
-            plip_data = pyserials.read.json_from_file(filepath_ligand_plip)
-            features_data = pyserials.read.json_from_file(filepath_ligand_features)
+            plip_data = pyserials.read.from_file(filepath_ligand_plip, toml_as_dict=True)
+            features_data = pyserials.read.from_file(filepath_ligand_features, toml_as_dict=True)
             plip_df = pd.DataFrame(plip_data)
             ligand_pharm = t2fpharm.pharm.Pharmacophore(
                 features=features_data,
@@ -587,6 +610,32 @@ class Manager:
                 )
             return path / f"{pdb_id}_{job_idx}.{file_ext}"
         return path / f"{pdb_id}.{file_ext}"
+
+    def path_results(
+        self,
+        job_name: str,
+        filetype: Literal[
+            "inputs",
+            "summary",
+            "pharm",
+            "matches",
+        ],
+        pdb_id: str | None = None,
+        job_idx: int | None = None,
+    ) -> Path:
+        path = self.dirpath_data / self._path["results"] / job_name
+        path.mkdir(parents=True, exist_ok=True)
+        if filetype == "inputs":
+            return path / "inputs.yaml"
+        if filetype == "summary":
+            return path / "summary.yaml"
+        if pdb_id is None or job_idx is None:
+            raise ValueError(
+                "For results files, both `pdb_id` and `job_idx` must be provided."
+            )
+        subdir = path / filetype
+        subdir.mkdir(parents=True, exist_ok=True)
+        return subdir / f"{pdb_id}_{job_idx}.yaml"
 
     def group_id(self, pdb_id: str) -> str:
         """Get the group ID for a given PDB ID."""
@@ -761,6 +810,7 @@ def load(
         dataset=df,
         pocket_inputs=inputs["pocket"],
         field_inputs=inputs["field"],
+        job_inputs=inputs["job"],
         group_color=group_color,
         dirpath_data=dirpath_data,
         dirpath_pdb_raw=dirpath_pdb_raw,
@@ -881,7 +931,7 @@ def _run_job(
     target_pharm_summary = {
         "pdb_id": target_pdb_id,
         "job_idx": job_idx,
-    } | _calculate_target_pharm_summary(target_pharm)
+    } | _calculate_target_pharm_summary(target_pharm, method)
 
     # Calculate matches with ligand pharmacophores
     matches = _calculate_matches(
@@ -891,7 +941,7 @@ def _run_job(
     )
 
     # Prepare output
-    output = [target_pharm_summary, target_pharm.inputs]
+    output = [target_pharm_summary]
     if return_pharm:
         output.append(target_pharm)
     if return_matches:
@@ -901,12 +951,43 @@ def _run_job(
     return tuple(output)
 
 
-def _calculate_target_pharm_summary(target_pharm: t2fpharm.Pharmacophore):
+def _calculate_target_pharm_summary(target_pharm: t2fpharm.Pharmacophore, method: str):
     features = target_pharm.features
-    return {"n_total": len(features)} | {
+    out = {"n_total": len(features)} | {
         f"n_{feature_type}": features["type"].eq(feature_type).sum()
-        for feature_type in target_pharm.field.batch_instance_labels["feature"]
+        for feature_type in target_pharm.feature_types
     }
+    if method == "largest_peaks":
+        values = features["value"]
+        out["value_min"] = values.min()
+        out["value_max"] = values.max()
+        out["value_mean"] = values.mean()
+        for feature_type in target_pharm.feature_types:
+            values = features[features["type"] == feature_type]["value"]
+            out[f"value_{feature_type}_min"] = values.min()
+            out[f"value_{feature_type}_max"] = values.max()
+            out[f"value_{feature_type}_mean"] = values.mean()
+        return out
+    for mode in ("midpoint", "mean", "average"):
+        values = features[f"value_{mode}"]
+        radii = features[f"radius_{mode}_max"]
+        out[f"value_{mode}_min"] = values.min()
+        out[f"value_{mode}_max"] = values.max()
+        out[f"value_{mode}_mean"] = values.mean()
+        out[f"radius_{mode}_min"] = radii.min()
+        out[f"radius_{mode}_max"] = radii.max()
+        out[f"radius_{mode}_mean"] = radii.mean()
+        for feature_type in target_pharm.feature_types:
+            type_mask = features["type"] == feature_type
+            type_values = values[type_mask]
+            type_radii = radii[type_mask]
+            out[f"value_{feature_type}_{mode}_min"] = type_values.min()
+            out[f"value_{feature_type}_{mode}_max"] = type_values.max()
+            out[f"value_{feature_type}_{mode}_mean"] = type_values.mean()
+            out[f"radius_{feature_type}_{mode}_min"] = type_radii.min()
+            out[f"radius_{feature_type}_{mode}_max"] = type_radii.max()
+            out[f"radius_{feature_type}_{mode}_mean"] = type_radii.mean()
+    return out
 
 
 def _calculate_matches(
