@@ -36,6 +36,8 @@ RadiusType: TypeAlias = Literal["average", "mean", "max", "min"]
 
 
 class PharmClusterInput(BaseModel):
+    method: Literal["Pharmacophore.cluster"] = "Pharmacophore.cluster"
+
     function: dict[str, ClusteringFunction]
     weights: NDArray[np.float64]
     center_type: dict[str, CenterType]
