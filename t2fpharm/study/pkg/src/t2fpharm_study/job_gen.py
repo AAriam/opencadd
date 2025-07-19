@@ -3,15 +3,13 @@ import math
 
 import numpy as np
 
-from t2fpharm.grid import Grid
-
 
 def create_job_inputs(
     feature_radius: dict[str, float],
     filter: dict[str, Any] | None = None,
     largest_peaks: dict[str, Any] | None = None,
     cnn: dict[str, Any] | None = None,
-):
+) -> list[dict[str, str | dict[str, Any]]]:
     if cnn is None and largest_peaks is None:
         raise ValueError("At least one of `cnn` or `largest_peaks` must be provided.")
     filters = _filter(
@@ -35,7 +33,7 @@ def _cnn(
     max_members_factors: Sequence[float],
     min_members_fraction: float,
     min_members_count: int,
-):
+) -> list[dict[str, str | dict[str, Any]]]:
     max_members = _cnn_max_members(feature_radius, grid_spacing)
     out = []
     max_distance, min_neighbors = _cnn_clustering_params(
