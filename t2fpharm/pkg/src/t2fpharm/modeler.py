@@ -66,20 +66,21 @@ class Modeler:
         min_neighbors: PositiveInt | Sequence[PositiveInt] | dict[str, PositiveInt | Sequence[PositiveInt]] = tuple(range(6, 100, 4)),
         min_members: PositiveInt | dict[str, PositiveInt] | None = None,
         max_members: PositiveInt | dict[str, PositiveInt] | None = None,
+        weight_factor: dict[str, float] | None = None,
         center_type: Literal["function", "midpoint", "mean", "average"] | dict[str, Literal["function", "midpoint", "mean", "average"]] = "average",
         radius_type: Literal["average", "mean", "max", "min"] = "average",
         # Parameters for `self.simple`
-        peak_type: Literal["min", "max"] | dict[str, Literal["min", "max"]] = "min",
-        best_per_point: bool | dict[str, bool] = False,
-        threshold_value: float | dict[str, float] | None = None,
-        threshold_percentile: float | dict[str, float] | None = None,
-        threshold_include_equal: bool | dict[str, bool] = True,
         filter_function: FilterFunction | dict[str, FilterFunction] | None = None,
         filter_radius: PositiveFloat | dict[str, PositiveFloat] | None = None,
         filter_extension_mode: FilterExtensionMode | dict[str, FilterExtensionMode] = "constant",
         filter_extension_constant_value: float | dict[str, float] = 0,
         filter_gaussian_sigma: PositiveFloat | dict[str, PositiveFloat] | None = None,
         filter_percentile: float | dict[str, float] = 50,
+        peak_type: Literal["min", "max"] | dict[str, Literal["min", "max"]] = "min",
+        best_per_point: bool | dict[str, bool] = False,
+        threshold_value: float | dict[str, float] | None = None,
+        threshold_percentile: float | dict[str, float] | None = None,
+        threshold_include_equal: bool | dict[str, bool] = True,
     ) -> Pharmacophore:
         """Perceive pharmacophore features using the Common Nearest Neighbors (CNN) clustering algorithm.
 
@@ -104,49 +105,50 @@ class Modeler:
             If `None`, defaults to 5 times the `min_members` value
             for each feature type.
         """
-        inputs = locals()
-        del inputs["self"]
+        pharm = self.simple(
+            filter_function=filter_function,
+            filter_radius=filter_radius,
+            filter_extension_mode=filter_extension_mode,
+            filter_extension_constant_value=filter_extension_constant_value,
+            filter_gaussian_sigma=filter_gaussian_sigma,
+            filter_percentile=filter_percentile,
+            peak_type=peak_type,
+            best_per_point=best_per_point,
+            threshold_value=threshold_value,
+            threshold_percentile=threshold_percentile,
+            threshold_include_equal=threshold_include_equal,
+        )
+
         if max_distance is None:
             # As default, include all 26 neighbors in a 3D grid
             # plus orthogonal second neighbors (i.e., 26 + 6 = 32 neighbors)
-            inputs["max_distance"] = self.field.grid.spacings[0] * 2.1
+            max_distance = self.field.grid.spacings[0] * 2.1
         if min_members is None:
             hydrogen_radius = 1.2
             hydrogen_volume = (4/3) * np.pi * hydrogen_radius**3
             half_hydrogen_volume = hydrogen_volume / 2
             voxel_volume = self.field.grid.point_volume
-            min_members = inputs["min_members"] = int(np.ceil(half_hydrogen_volume / voxel_volume))
+            min_members = int(np.ceil(half_hydrogen_volume / voxel_volume))
         if max_members is None:
-            inputs["max_members"] = min_members * 5 if isinstance(min_members, int) else [
+            max_members = min_members * 5 if isinstance(min_members, int) else [
                 min_member * 5 for min_member in min_members
             ]
-        args = ModelerCNNInput(
-            **inputs,
+        weight_factor = ModelerCNNInput(
+            weight_factor=weight_factor,
             feature_types=self.field.batch_instance_labels["feature"],
-        )
-
-        pharm = self.simple(
-            filter_function=args.filter_function,
-            filter_radius=args.filter_radius,
-            filter_extension_mode=args.filter_extension_mode,
-            filter_extension_constant_value=args.filter_extension_constant_value,
-            filter_gaussian_sigma=args.filter_gaussian_sigma,
-            filter_percentile=args.filter_percentile,
-            peak_type=args.peak_type,
-            best_per_point=args.best_per_point,
-            threshold_value=args.threshold_value,
-            threshold_percentile=args.threshold_percentile,
-            threshold_include_equal=args.threshold_include_equal,
-        )
-        pharm._inputs = args.model_dump()
+        ).weight_factor
+        weights = pharm.features["value"].copy()
+        for feature_type, factor in weight_factor.items():
+            if factor is not None:
+                weights.loc[pharm.features["type"] == feature_type] *= factor
         return pharm.cluster_cnn(
-            max_distance=args.max_distance,
-            min_neighbors=args.min_neighbors,
-            min_members=args.min_members,
-            max_members=args.max_members,
-            weights=pharm.features["value"],
-            center_type=args.center_type,
-            radius_type=args.radius_type,
+            max_distance=max_distance,
+            min_neighbors=min_neighbors,
+            min_members=min_members,
+            max_members=max_members,
+            weights=weights,
+            center_type=center_type,
+            radius_type=radius_type,
             per_instance=True,
         )
 
@@ -157,17 +159,17 @@ class Modeler:
         priority_factor: dict[str, float] | None = None,
         max_features: PositiveInt | dict[str, PositiveInt] | None = None,
         # Parameters for `self.simple`
-        peak_type: Literal["min", "max"] | dict[str, Literal["min", "max"]] = "min",
-        best_per_point: bool | dict[str, bool] = False,
-        threshold_value: float | dict[str, float] | None = None,
-        threshold_percentile: float | dict[str, float] | None = None,
-        threshold_include_equal: bool | dict[str, bool] = True,
         filter_function: FilterFunction | dict[str, FilterFunction] | None = None,
         filter_radius: PositiveFloat | dict[str, PositiveFloat] | None = None,
         filter_extension_mode: FilterExtensionMode | dict[str, FilterExtensionMode] = "constant",
         filter_extension_constant_value: float | dict[str, float] = 0,
         filter_gaussian_sigma: PositiveFloat | dict[str, PositiveFloat] | None = None,
         filter_percentile: float | dict[str, float] = 50,
+        peak_type: Literal["min", "max"] | dict[str, Literal["min", "max"]] = "min",
+        best_per_point: bool | dict[str, bool] = False,
+        threshold_value: float | dict[str, float] | None = None,
+        threshold_percentile: float | dict[str, float] | None = None,
+        threshold_include_equal: bool | dict[str, bool] = True,
     ) -> Pharmacophore:
         """Perceive pharmacophore features as largest extrema in the fields.
 
@@ -190,35 +192,33 @@ class Modeler:
             do not all have the same scale/sign, or when you want to add bias
             to the feature selection process to favor certain types over others.
         """
-        kwargs = locals()
-        del kwargs["self"]
-        args = ModelerLargestPeaksInput(
-            **kwargs,
-            feature_types=self.field.batch_instance_labels["feature"],
-            grid=self.field.grid,
-        )
         pharm = self.simple(
-            peak_type=args.peak_type,
-            best_per_point=args.best_per_point,
-            threshold_value=args.threshold_value,
-            threshold_percentile=args.threshold_percentile,
-            threshold_include_equal=args.threshold_include_equal,
-            filter_function=args.filter_function,
-            filter_radius=args.filter_radius,
-            filter_extension_mode=args.filter_extension_mode,
-            filter_extension_constant_value=args.filter_extension_constant_value,
-            filter_gaussian_sigma=args.filter_gaussian_sigma,
-            filter_percentile=args.filter_percentile,
+            filter_function=filter_function,
+            filter_radius=filter_radius,
+            filter_extension_mode=filter_extension_mode,
+            filter_extension_constant_value=filter_extension_constant_value,
+            filter_gaussian_sigma=filter_gaussian_sigma,
+            filter_percentile=filter_percentile,
+            peak_type=peak_type,
+            best_per_point=best_per_point,
+            threshold_value=threshold_value,
+            threshold_percentile=threshold_percentile,
+            threshold_include_equal=threshold_include_equal,
         )
-        pharm._inputs = args.model_dump()
+
+        priority_factor = ModelerLargestPeaksInput(
+            priority_factor=priority_factor,
+            feature_types=self.field.batch_instance_labels["feature"],
+        ).priority_factor
         priority = pharm.features["value"].copy()
-        for feature_type, factor in args.priority_factor.items():
+        for feature_type, factor in priority_factor.items():
             if factor is not None:
                 priority.loc[pharm.features["type"] == feature_type] *= factor
         return pharm.remove_overlaps(
-            min_distance=args.min_distance,
+            min_distance=min_distance,
             priority=priority,
             highest_priority="lowest",
+            max_features=max_features,
         )
 
     def simple(
@@ -231,7 +231,7 @@ class Modeler:
         filter_gaussian_sigma: PositiveFloat | dict[str, PositiveFloat] | None = None,
         filter_percentile: float | dict[str, float] = 50,
         peak_type: Literal["min", "max"] | dict[str, Literal["min", "max"]] = "min",
-        best_per_point: bool | dict[str, bool] = True,
+        best_per_point: bool | dict[str, bool] = False,
         threshold_value: float | dict[str, float] | None = None,
         threshold_percentile: float | dict[str, float] | None = None,
         threshold_include_equal: bool | dict[str, bool] = True,
@@ -551,7 +551,7 @@ class Modeler:
         pharm = Pharmacophore(
             features=features,
             feature_types=set(self.field.batch_instance_labels["feature"]),
-            inputs=args.model_dump(),
+            inputs=[args.model_dump()],
             system=self.receptor,
             pocket=self.pocket,
             field=self.field,
