@@ -555,6 +555,7 @@ class Modeler:
             system=self.receptor,
             pocket=self.pocket,
             field=self.field,
+            extra={"mask": mask},
         )
         return pharm
 
