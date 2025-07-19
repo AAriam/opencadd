@@ -425,44 +425,46 @@ class Pharmacophore:
                 cluster_weight = weights[label_mask]
 
                 # Calculate cluster center
-                if feature_center_type == "function":
-                    cluster_center = clustering_result.centers[label]
-                elif feature_center_type == "midpoint":
-                    cluster_center = (cluster_points.min(axis=0) + cluster_points.max(axis=0)) / 2
-                elif feature_center_type == "mean":
-                    cluster_center = np.mean(cluster_points, axis=0)
-                elif feature_center_type == "average":
-                    cluster_center = np.average(cluster_points, weights=cluster_weight, axis=0)
-                else:
-                    raise ValueError(
-                        f"Invalid center_type '{feature_center_type}' for feature type '{feature_type}'. "
-                        "Must be one of 'function', 'midpoint', or 'average'."
-                    )
+                cluster_centers = {
+                    "center_midpoint": (cluster_points.min(axis=0) + cluster_points.max(axis=0)) / 2,
+                    "center_mean": np.mean(cluster_points, axis=0),
+                    "center_average": np.average(cluster_points, weights=cluster_weight, axis=0)
+                }
+                if hasattr(clustering_result, 'centers'):
+                    cluster_centers["center_function"] = clustering_result.centers[label]
+
+                # Calculate center values
+                values = {}
+                for center_key, center_value in cluster_centers.items():
+                    dist_to_points = np.linalg.norm(centers - center_value, axis=1)
+                    shortest_dist_idx = np.argmin(dist_to_points)
+                    values[f"value_{center_key.removeprefix('center_')}"] = group["value"].iloc[shortest_dist_idx]
 
                 # Calculate cluster radius
-                dist_to_center = np.linalg.norm(cluster_points - cluster_center, axis=1) + group["radius"][label_mask].to_numpy(dtype=np.float64)
-                if feature_radius_type == "average":
-                    radius = np.average(dist_to_center, weights=cluster_weight)
-                elif feature_radius_type == "mean":
-                    radius = np.mean(dist_to_center)
-                elif feature_radius_type == "max":
-                    radius = np.max(dist_to_center)
-                elif feature_radius_type == "min":
-                    radius = np.min(dist_to_center)
-                else:
-                    raise ValueError(
-                        f"Invalid radius_type '{feature_radius_type}' for feature type '{feature_type}'. "
-                        "Must be one of 'average', 'mean', 'max', or 'min'."
-                    )
+                cluster_radii = {}
+                member_radii = group["radius"][label_mask].to_numpy(dtype=np.float64)
+                for center_key, center_value in cluster_centers.items():
+                    center_key = center_key.removeprefix("center_")
+                    dist_to_center = np.linalg.norm(cluster_points - center_value, axis=1) + member_radii
+                    cluster_radii |= {
+                        f"radius_{center_key}_average": np.average(dist_to_center, weights=cluster_weight),
+                        f"radius_{center_key}_mean": np.mean(dist_to_center),
+                        f"radius_{center_key}_max": np.max(dist_to_center),
+                        f"radius_{center_key}_min": np.min(dist_to_center)
+                    }
 
                 new_features.append(
                     {
                         "instance": instance,
                         "type": feature_type,
                         "label": label,
-                        "center": cluster_center,
-                        "radius": radius,
-                        "members": group.index[label_mask].to_numpy()
+                        "center": cluster_centers[f"center_{feature_center_type}"],
+                        "radius": cluster_radii[f"radius_{feature_center_type}_{feature_radius_type}"],
+                        "value": values[f"value_{feature_center_type}"],
+                        "members": group.index[label_mask].to_numpy(),
+                        **cluster_centers,
+                        **values,
+                        **cluster_radii,
                     }
                 )
         return Pharmacophore(
