@@ -13,6 +13,8 @@ PriorityType: TypeAlias = Literal["lowest", "highest"]
 
 
 class RemoveOverlapsInput(BaseModel):
+    method: Literal["Pharmacophore.remove_overlaps"] = "Pharmacophore.remove_overlaps"
+
     min_distance: dict[tuple[str, str], PositiveFloat]
     priority: NDArray[np.float64]
     highest_priority: PriorityType
@@ -32,6 +34,12 @@ class RemoveOverlapsInput(BaseModel):
             if validator.is_real_number(min_distance):
                 if not validator.is_positive_number(min_distance):
                     raise ValueError(f"Minimum distance must be positive, got {min_distance}")
+                min_distance_dict = {}
+                for type_idx_1 in range(len(feature_types)):
+                    for type_idx_2 in range(type_idx_1, len(feature_types)):
+                        type_pair = (feature_types[type_idx_1], feature_types[type_idx_2])
+                        min_distance_dict[type_pair] = min_distance
+                values["min_distance"] = min_distance_dict
                 return np.full((n_types, n_types), min_distance, dtype=np.float64)
             if not isinstance(min_distance, dict):
                 raise ValueError(
