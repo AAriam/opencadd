@@ -1,6 +1,7 @@
 from pathlib import Path
 import shutil
 from typing import Any, Sequence, Literal, TypeAlias
+import copy
 
 import arrayer
 import pandas as pd
@@ -236,8 +237,12 @@ class Manager:
             job_spec["cnn"]["grid_unique_distances"] = self.field(pdb_id=self.dataset["pdb_id"].iloc[0]).grid.unique_distances
 
         jobs = create_job_inputs(**job_spec)
+        jobs_serialized = copy.deepcopy(jobs)
+        for job in jobs_serialized:
+            if "min_distance" in job["kwargs"]:
+                job["kwargs"]["min_distance"] = {f"{k[0]}__{k[1]}":v for k, v in job["kwargs"]["min_distance"].items()}
         pyserials.write.to_yaml_file(
-            data=jobs,
+            data=jobs_serialized,
             path=self.path_results(job_name=job_name, filetype="inputs"),
         )
 
@@ -269,8 +274,8 @@ class Manager:
                             job_idx=job_idx,
                             method=job["method"],
                             kwargs=job["kwargs"],
-                            filepath_features=str(self.path_results("pharm", pdb_id=pdb_id, job_idx=job_idx)),
-                            filepath_matches=str(self.path_results("matches", pdb_id=pdb_id, job_idx=job_idx)),
+                            filepath_features=str(self.path_results(job_name=job_name, filetype="pharm", pdb_id=pdb_id, job_idx=job_idx)),
+                            filepath_matches=str(self.path_results(job_name=job_name, filetype="matches", pdb_id=pdb_id, job_idx=job_idx)),
                             return_pharm=False,
                             return_matches=False,
                         )
