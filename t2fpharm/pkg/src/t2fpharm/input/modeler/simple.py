@@ -11,19 +11,19 @@ from t2fpharm.grid import Grid
 
 
 class ModelerSimpleInput(BaseModel):
-    method: Literal["simple"] = "simple"
+    method: Literal["Modeler.simple"] = "Modeler.simple"
 
-    peak_type: dict[str, Literal["min", "max"]]
-    best_per_point: dict[str, bool]
-    threshold_value: dict[str, float | None]
-    threshold_percentile: dict[str, float | None]
-    threshold_include_equal: dict[str, bool]
     filter_function: dict[str, Callable | None]
     filter_radius: dict[str, PositiveFloat | None]
     filter_extension_mode: dict[str, Literal["constant", "nearest", "wrap", "reflect"]]
     filter_extension_constant_value: dict[str, float]
     filter_gaussian_sigma: dict[str, PositiveFloat | None]
     filter_percentile: dict[str, PositiveFloat | None]
+    peak_type: dict[str, Literal["min", "max"]]
+    best_per_point: dict[str, bool]
+    threshold_value: dict[str, float | None]
+    threshold_percentile: dict[str, float | None]
+    threshold_include_equal: dict[str, bool]
 
     @model_validator(mode="before")
     def _validate_modeler_simple_input(cls, values: dict[str, object]) -> dict[str, object]:
