@@ -1,7 +1,9 @@
+import os
 from pathlib import Path
 import shutil
 from typing import Any, Sequence, Literal, TypeAlias
 import copy
+import json
 
 import arrayer
 import pandas as pd
@@ -285,32 +287,42 @@ class Manager:
         # Restore caching state
         self.caching(enabled=caching_was_enabled)
         summary_path = self.path_results(job_name=job_name, filetype="summary")
+        summary_path.write_text("")
         # Gather job results
-        summaries: list[dict[str, str | int | float]] = []
+        write_batch_size = 100
+        count = 0
         remaining_futures = futures[:]
-        with tqdm(total=len(futures), desc="Running jobs", unit="job") as pbar:
+        with summary_path.open("a") as f, tqdm(total=len(futures), desc="Running jobs", unit="job") as pbar:
             while remaining_futures:
                 done_futures, remaining_futures = ray.wait(remaining_futures, num_returns=1)
                 summary = ray.get(done_futures[0])[0]
                 pdb_id = summary["pdb_id"]
                 job_index = summary["job_idx"]
                 group_id = self.group_id(pdb_id)
-                summary["group_id"] = group_id
-                summary |= jobs[job_index]["identifier"]
-                summaries.append(summary)
-                summary_path.write_text(pyserials.write.to_yaml_string(summaries))
+                summary.update(
+                    {
+                        "group_id": group_id,
+                        "method": jobs[job_index]["method"],
+                        **jobs[job_index]["identifier"],
+                    }
+                )
+                f.write(json.dumps(summary, separators=(",", ":")) + "\n")
+                count += 1
+                if count == write_batch_size:
+                    f.flush()
+                    os.fsync(f.fileno())
+                    count = 0
                 pbar.update(1)
 
         # Combine matches into a single DataFrame
-        return self._create_summary_df(summaries)
+        return self._create_summary_df(summary_path)
 
-    def _create_summary_df(self, summaries: list[dict[str, Any]]) -> pd.DataFrame:
-        df = pd.DataFrame(summaries).convert_dtypes()
-        main_cols = ["group_id", "pdb_id", "job_idx", "n_total"]
+    def _create_summary_df(self, path: Path) -> pd.DataFrame:
+        df = pd.read_json(path, lines=True).convert_dtypes()
+        main_cols = ["group_id", "pdb_id", "job_idx", "method", "n_total"]
         extra_cols = [col for col in df.columns if col not in main_cols]
         all_cols = main_cols + extra_cols
         df_final = df[all_cols].sort_values(["group_id", "pdb_id", "job_idx"]).reset_index(drop=True)
-        self.path("results_summary").write_text(df_final.to_json(orient="records", indent=4))
         return df_final
 
     def pdb_raw(self, pdb_id: str) -> scifile.pdb.PDBFile:
