@@ -66,7 +66,6 @@ class Modeler:
         min_neighbors: PositiveInt | Sequence[PositiveInt] | dict[str, PositiveInt | Sequence[PositiveInt]] = tuple(range(6, 100, 4)),
         min_members: PositiveInt | dict[str, PositiveInt] | None = None,
         max_members: PositiveInt | dict[str, PositiveInt] | None = None,
-        weights: pd.Series | np.ndarray | Sequence[float] | None = None,
         center_type: Literal["function", "midpoint", "mean", "average"] | dict[str, Literal["function", "midpoint", "mean", "average"]] = "average",
         radius_type: Literal["average", "mean", "max", "min"] = "average",
         # Parameters for `self.simple`
@@ -143,7 +142,7 @@ class Modeler:
             min_neighbors=args.min_neighbors,
             min_members=args.min_members,
             max_members=args.max_members,
-            weights=args.weights,
+            weights=pharm.features["value"],
             center_type=args.center_type,
             radius_type=args.radius_type,
             per_instance=True,
