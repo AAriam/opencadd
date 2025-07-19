@@ -16,6 +16,7 @@ class ModelerSimpleInput(BaseModel):
     peak_type: dict[str, Literal["min", "max"]]
     best_per_point: dict[str, bool]
     threshold_value: dict[str, float | None]
+    threshold_percentile: dict[str, float | None]
     threshold_include_equal: dict[str, bool]
     filter_function: dict[str, Callable | None]
     filter_radius: dict[str, PositiveFloat | None]
