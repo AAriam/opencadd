@@ -72,6 +72,7 @@ class Modeler:
         peak_type: Literal["min", "max"] | dict[str, Literal["min", "max"]] = "min",
         best_per_point: bool | dict[str, bool] = False,
         threshold_value: float | dict[str, float] | None = None,
+        threshold_percentile: float | dict[str, float] | None = None,
         threshold_include_equal: bool | dict[str, bool] = True,
         filter_function: FilterFunction | dict[str, FilterFunction] | None = None,
         filter_radius: PositiveFloat | dict[str, PositiveFloat] | None = None,
@@ -125,16 +126,17 @@ class Modeler:
         )
 
         pharm = self.simple(
-            peak_type=args.peak_type,
-            best_per_point=args.best_per_point,
-            threshold_value=args.threshold_value,
-            threshold_include_equal=args.threshold_include_equal,
             filter_function=args.filter_function,
             filter_radius=args.filter_radius,
             filter_extension_mode=args.filter_extension_mode,
             filter_extension_constant_value=args.filter_extension_constant_value,
             filter_gaussian_sigma=args.filter_gaussian_sigma,
             filter_percentile=args.filter_percentile,
+            peak_type=args.peak_type,
+            best_per_point=args.best_per_point,
+            threshold_value=args.threshold_value,
+            threshold_percentile=args.threshold_percentile,
+            threshold_include_equal=args.threshold_include_equal,
         )
         pharm._inputs = args.model_dump()
         return pharm.cluster_cnn(
@@ -158,6 +160,7 @@ class Modeler:
         peak_type: Literal["min", "max"] | dict[str, Literal["min", "max"]] = "min",
         best_per_point: bool | dict[str, bool] = False,
         threshold_value: float | dict[str, float] | None = None,
+        threshold_percentile: float | dict[str, float] | None = None,
         threshold_include_equal: bool | dict[str, bool] = True,
         filter_function: FilterFunction | dict[str, FilterFunction] | None = None,
         filter_radius: PositiveFloat | dict[str, PositiveFloat] | None = None,
@@ -198,6 +201,7 @@ class Modeler:
             peak_type=args.peak_type,
             best_per_point=args.best_per_point,
             threshold_value=args.threshold_value,
+            threshold_percentile=args.threshold_percentile,
             threshold_include_equal=args.threshold_include_equal,
             filter_function=args.filter_function,
             filter_radius=args.filter_radius,
