@@ -1,4 +1,4 @@
-from typing import Sequence, NamedTuple
+from typing import Sequence, NamedTuple, Literal
 from functools import partial
 
 import numpy as np
@@ -14,6 +14,8 @@ from t2fpharm.typing import (
 
 
 class PharmClusterCNNInput(PharmClusterInput):
+    method: Literal["Pharmacophore.cluster_cnn"] = "Pharmacophore.cluster_cnn"
+
     max_distance: dict[str, PositiveFloat | PositiveFloatTuple]
     min_neighbors: dict[str, PositiveFloat | PositiveIntTuple]
     min_members: dict[str, PositiveInt]
