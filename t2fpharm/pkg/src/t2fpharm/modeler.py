@@ -360,9 +360,8 @@ class Modeler:
             feature_types=self.field.batch_instance_labels["feature"],
             grid=self.field.grid,
         )
-        tensor = self._filter(args.filter_function)
         mask = self._mask(
-            tensor=tensor,
+            tensor=self._filter(args.filter_function),
             peak_type=args.peak_type,
             best_per_point=args.best_per_point,
             threshold_value=args.threshold_value,
@@ -374,7 +373,6 @@ class Modeler:
             for feature_type, radius in args.filter_radius.items()
         }
         return self._pharmacophore(
-            tensor=tensor,
             mask=mask,
             feature_radius=feature_radius,
             args=args
@@ -524,7 +522,6 @@ class Modeler:
 
     def _pharmacophore(
         self,
-        tensor: np.ndarray,
         mask: np.ndarray,
         args: BaseModel,
         feature_radius: dict[str, PositiveFloat | None],
@@ -548,7 +545,7 @@ class Modeler:
                 "label":list(map(tuple, grid_indices.tolist())),
                 "center": list(coordinates),
                 "radius": radii,
-                "value": tensor[mask],
+                "value": self.field.tensor[mask],
             }
         )
         pharm = Pharmacophore(
