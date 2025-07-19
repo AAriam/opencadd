@@ -236,11 +236,9 @@ class Manager:
             job_spec["cnn"]["grid_unique_distances"] = self.field(pdb_id=self.dataset["pdb_id"].iloc[0]).grid.unique_distances
 
         jobs = create_job_inputs(**job_spec)
-        pyserials.write.to_json_file(
+        pyserials.write.to_yaml_file(
             data=jobs,
             path=self.path_results(job_name=job_name, filetype="inputs"),
-            indent=4,
-            sort_keys=True,
         )
 
         # Enable caching to avoid recomputing heavy objects during modeler creation
@@ -281,40 +279,25 @@ class Manager:
 
         # Restore caching state
         self.caching(enabled=caching_was_enabled)
-
+        summary_path = self.path_results(job_name=job_name, filetype="summary")
         # Gather job results
         summaries: list[dict[str, str | int | float]] = []
-        job_args: dict[int, dict[str, Any]] = {}
-        match_dfs: list[pd.DataFrame] = []
         remaining_futures = futures[:]
         with tqdm(total=len(futures), desc="Running jobs", unit="job") as pbar:
             while remaining_futures:
                 done_futures, remaining_futures = ray.wait(remaining_futures, num_returns=1)
-                summary, full_args = ray.get(done_futures[0])
+                summary = ray.get(done_futures[0])[0]
                 pdb_id = summary["pdb_id"]
                 job_index = summary["job_idx"]
                 group_id = self.group_id(pdb_id)
                 summary["group_id"] = group_id
+                summary |= jobs[job_index]["identifier"]
                 summaries.append(summary)
-                if job_index in job_args:
-                    assert job_args[job_index] == full_args, (
-                        f"Job arguments for job index {job_index} do not match previous ones."
-                    )
-                else:
-                    job_args[job_index] = full_args
-                match_df = pd.read_json(
-                    self.path("results_matches", pdb_id=pdb_id, job_idx=job_index),
-                )
-                match_df["group_id"] = group_id
-                match_df["target_pdb_id"] = pdb_id
-                match_df["job_idx"] = job_index
-                match_dfs.append(match_df)
+                summary_path.write_text(pyserials.write.to_yaml_string(summaries))
                 pbar.update(1)
 
         # Combine matches into a single DataFrame
-        summary_df = self._create_summary_df(summaries)
-        matches_df = self._create_matches_df(match_dfs)
-        return summary_df, matches_df, job_args
+        return self._create_summary_df(summaries)
 
     def _create_summary_df(self, summaries: list[dict[str, Any]]) -> pd.DataFrame:
         df = pd.DataFrame(summaries).convert_dtypes()
@@ -324,12 +307,6 @@ class Manager:
         df_final = df[all_cols].sort_values(["group_id", "pdb_id", "job_idx"]).reset_index(drop=True)
         self.path("results_summary").write_text(df_final.to_json(orient="records", indent=4))
         return df_final
-
-    def _create_matches_df(self, matches: list[pd.DataFrame]) -> pd.DataFrame:
-        df = pd.concat(matches, ignore_index=True).convert_dtypes()
-        sort_cols = ["group_id", "target_pdb_id", "job_idx", "ligand_pdb_id", "type", "distance"]
-        all_cols = sort_cols + ["radius_sum", "ligand_label", "target_label"]
-        df_final = df[all_cols].sort_values(sort_cols).reset_index(drop=True)
 
     def pdb_raw(self, pdb_id: str) -> scifile.pdb.PDBFile:
         cached = self._cache.get(pdb_id, {}).get("pdb_raw")
