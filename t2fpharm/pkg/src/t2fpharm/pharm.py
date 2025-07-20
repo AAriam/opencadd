@@ -610,6 +610,7 @@ class Pharmacophore:
         - `type`: Feature type.
         - `label`: Query feature label.
         - `target_instance`: Feature instance in self.
+           If no match is found, this will be `NaN`.
         - `target_label`: Label of the matching feature in self.
            If no match is found, this will be `NaN`.
         - `distance`: Distance between the matched query and target feature centers.
@@ -627,6 +628,17 @@ class Pharmacophore:
 
         # Put query row indices in a column for later reference
         query = query.reset_index().rename(columns={'index': 'query_idx'})
+
+        # if there are no target features at all, just return the queries with NaNs
+        if self._features_for_match.empty:
+            df = query[['instance', 'type', 'label']].copy()
+            df['target_instance'] = np.nan
+            df['target_label']    = np.nan
+            df['distance']        = np.nan
+            df['radius_sum']      = np.nan
+            if max_distance is not None:
+                df['match'] = False
+            return df.reset_index(drop=True)
 
         # Cross-join ligand × instance
         # This creates a DataFrame with all combinations of query features and target instances
