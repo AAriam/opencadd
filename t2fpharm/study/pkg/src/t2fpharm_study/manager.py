@@ -924,52 +924,50 @@ def _run_job(
     return_pharm: bool = True,
     return_matches: bool = True,
 ):
-
-    if filepath_features and Path(filepath_features).is_file():
-        features = pd.read_parquet(filepath_features, engine="pyarrow")
-        target_pharm = t2fpharm.Pharmacophore(
-            features=features,
-            feature_types=feature_types
-        )
-    else:
-        # Calculate target pharmacophore
-        try:
+    try:
+        if filepath_features and Path(filepath_features).is_file():
+            features = pd.read_parquet(filepath_features, engine="pyarrow")
+            target_pharm = t2fpharm.Pharmacophore(
+                features=features,
+                feature_types=feature_types
+            )
+        else:
+            # Calculate target pharmacophore
             func = getattr(modeler, method)
             target_pharm = func(**kwargs)
-        except Exception as e:
-            raise RuntimeError(
-                f"Error running job {job_idx} for PDB ID {target_pdb_id} with method {method}: {e}"
-            ) from e
-        features = target_pharm.features
+            features = target_pharm.features
+            # Save target pharmacophore
+            if filepath_features:
+                features.to_parquet(
+                    path=Path(filepath_features),
+                    engine="pyarrow",
+                    compression="zstd",
+                    compression_level=3,
+                    index=False,
+                )
 
-        # Save target pharmacophore
-        if filepath_features:
-            features.to_parquet(
-                path=Path(filepath_features),
-                engine="pyarrow",
-                compression="zstd",
-                compression_level=3,
-                index=False,
-            )
+        # Generate target pharmacophore summary
+        target_pharm_summary = {
+            "pdb_id": target_pdb_id,
+            "job_idx": job_idx,
+        } | _calculate_target_pharm_summary(
+            features=features,
+            feature_types=feature_types,
+            method=method
+        )
 
-    # Generate target pharmacophore summary
-    target_pharm_summary = {
-        "pdb_id": target_pdb_id,
-        "job_idx": job_idx,
-    } | _calculate_target_pharm_summary(
-        features=features,
-        feature_types=feature_types,
-        method=method
-    )
-
-    # Calculate matches with ligand pharmacophores
-    matches = _calculate_matches(
-        target_pharm=target_pharm,
-        ligand_pharms=ligand_pharms,
-        filepath_matches=filepath_matches,
-    )
-    matches["target_pdb_id"] = target_pdb_id
-    matches_summary = _calculate_matches_summary(matches)
+        # Calculate matches with ligand pharmacophores
+        matches = _calculate_matches(
+            target_pharm=target_pharm,
+            ligand_pharms=ligand_pharms,
+            filepath_matches=filepath_matches,
+        )
+        matches["target_pdb_id"] = target_pdb_id
+        matches_summary = _calculate_matches_summary(matches)
+    except Exception as e:
+        raise RuntimeError(
+            f"Error running job {job_idx} for PDB ID {target_pdb_id} with method {method}: {e}"
+        ) from e
 
     summary = target_pharm_summary | matches_summary
 
@@ -1034,9 +1032,6 @@ def _calculate_matches(
     filepath_matches: Path | str | None = None,
 ) -> pd.DataFrame:
     """Calculate matches between receptor and ligand pharmacophores."""
-    if filepath_matches and Path(filepath_matches).is_file():
-        matches_df = pd.read_parquet(filepath_matches, engine="pyarrow")
-        return matches_df
     matches_dfs = []
     for ligand_pdb_id, ligand_pharm in ligand_pharms.items():
         matches = (
@@ -1083,19 +1078,20 @@ def _calculate_match_summary(
 
 def _calculate_feature_match_summary(
     matches: pd.DataFrame,
-    feature_type: str | None = None,
+    feature_type: str,
 ) -> dict[str, Any]:
     n_ligand_features = len(matches)
+    dists = matches["distance"]
     out = {
         f"match_{feature_type}_count": n_ligand_features,
-        f"match_{feature_type}_dist_min": float(matches["distance"].min()),
-        f"match_{feature_type}_dist_max": float(matches["distance"].max()),
-        f"match_{feature_type}_dist_mean": float(matches["distance"].mean()),
-        f"match_{feature_type}_dist_median": float(matches["distance"].median()),
-        f"match_{feature_type}_dist_inf": float(matches["distance"].isna().sum()) / n_ligand_features,
-        f"match_{feature_type}_dist_lt1": float((matches["distance"] < 1.0).sum()) / n_ligand_features,
-        f"match_{feature_type}_dist_lt2": float((matches["distance"] < 2.0).sum()) / n_ligand_features,
-        f"match_{feature_type}_dist_lt3": float((matches["distance"] < 3.0).sum()) / n_ligand_features,
+        f"match_{feature_type}_dist_min": float(dists.min()),
+        f"match_{feature_type}_dist_max": float(dists.max()),
+        f"match_{feature_type}_dist_mean": float(dists.mean()) if dists.notna().any() else float("nan"),
+        f"match_{feature_type}_dist_median": float(dists.median()),
+        f"match_{feature_type}_dist_inf": float(dists.isna().sum()) / n_ligand_features,
+        f"match_{feature_type}_dist_lt1": float((dists < 1.0).sum()) / n_ligand_features,
+        f"match_{feature_type}_dist_lt2": float((dists < 2.0).sum()) / n_ligand_features,
+        f"match_{feature_type}_dist_lt3": float((dists < 3.0).sum()) / n_ligand_features,
     }
     return out
 
