@@ -248,6 +248,11 @@ class Manager:
             path=self.path_results(job_name=job_name, filetype="inputs"),
         )
 
+        try:
+            summary_df = self.job_summary(job_name=job_name)
+        except FileNotFoundError:
+            summary_df = pd.DataFrame(columns=["pdb_id", "job_idx"])
+
         # Enable caching to avoid recomputing heavy objects during modeler creation
         caching_was_enabled = self._cache_enabled
         self.caching(enabled=True)
@@ -269,6 +274,9 @@ class Manager:
                     if not caching_was_enabled:
                         self._cache = {}
                     for job_idx, job in enumerate(jobs):
+                        if (summary_df["pdb_id"].eq(pdb_id) & summary_df["job_idx"].eq(job_idx)).any():
+                            pbar.update(1)
+                            continue
                         remote_job = _run_job_remote.remote(
                             modeler=modeler,
                             ligand_pharms=ligand_pharms,
@@ -276,6 +284,7 @@ class Manager:
                             job_idx=job_idx,
                             method=job["method"],
                             kwargs=job["kwargs"],
+                            feature_types=self.field_params["ligand_types"],
                             filepath_features=str(self.path_results(job_name=job_name, filetype="pharm", pdb_id=pdb_id, job_idx=job_idx)),
                             filepath_matches=str(self.path_results(job_name=job_name, filetype="matches", pdb_id=pdb_id, job_idx=job_idx)),
                             return_pharm=False,
@@ -286,8 +295,12 @@ class Manager:
 
         # Restore caching state
         self.caching(enabled=caching_was_enabled)
+
+        # Create summary file if it does not exist
         summary_path = self.path_results(job_name=job_name, filetype="summary")
-        summary_path.write_text("")
+        if not summary_path.is_file():
+            summary_path.write_text("")
+
         # Gather job results
         write_batch_size = 100
         count = 0
@@ -313,11 +326,14 @@ class Manager:
                     os.fsync(f.fileno())
                     count = 0
                 pbar.update(1)
+            f.flush()
+            os.fsync(f.fileno())
+        return self.job_summary(job_name=job_name)
 
-        # Combine matches into a single DataFrame
-        return self._create_summary_df(summary_path)
-
-    def _create_summary_df(self, path: Path) -> pd.DataFrame:
+    def job_summary(self, job_name: str) -> pd.DataFrame:
+        path = self.path_results(job_name=job_name, filetype="summary")
+        if not path.is_file():
+            raise FileNotFoundError(f"Summary file not found: {path}")
         df = pd.read_json(path, lines=True).convert_dtypes()
         main_cols = ["group_id", "pdb_id", "job_idx", "method", "n_total"]
         extra_cols = [col for col in df.columns if col not in main_cols]
@@ -902,35 +918,49 @@ def _run_job(
     job_idx: int,
     method: str,
     kwargs: dict[str, Any],
+    feature_types: list[str],
     filepath_features: Path | str | None = None,
     filepath_matches: Path | str | None = None,
     return_pharm: bool = True,
     return_matches: bool = True,
 ):
-    # Calculate target pharmacophore
-    try:
-        func = getattr(modeler, method)
-        target_pharm = func(**kwargs)
-    except Exception as e:
-        raise RuntimeError(
-            f"Error running job {job_idx} for PDB ID {target_pdb_id} with method {method}: {e}"
-        ) from e
 
-    # Save target pharmacophore
-    if filepath_features:
-        target_pharm.features.to_parquet(
-            path=Path(filepath_features),
-            engine="pyarrow",
-            compression="zstd",
-            compression_level=3,
-            index=False,
+    if filepath_features and Path(filepath_features).is_file():
+        features = pd.read_parquet(filepath_features, engine="pyarrow")
+        target_pharm = t2fpharm.Pharmacophore(
+            features=features,
+            feature_types=feature_types
         )
+    else:
+        # Calculate target pharmacophore
+        try:
+            func = getattr(modeler, method)
+            target_pharm = func(**kwargs)
+        except Exception as e:
+            raise RuntimeError(
+                f"Error running job {job_idx} for PDB ID {target_pdb_id} with method {method}: {e}"
+            ) from e
+        features = target_pharm.features
+
+        # Save target pharmacophore
+        if filepath_features:
+            features.to_parquet(
+                path=Path(filepath_features),
+                engine="pyarrow",
+                compression="zstd",
+                compression_level=3,
+                index=False,
+            )
 
     # Generate target pharmacophore summary
     target_pharm_summary = {
         "pdb_id": target_pdb_id,
         "job_idx": job_idx,
-    } | _calculate_target_pharm_summary(target_pharm, method)
+    } | _calculate_target_pharm_summary(
+        features=features,
+        feature_types=feature_types,
+        method=method
+    )
 
     # Calculate matches with ligand pharmacophores
     matches = _calculate_matches(
@@ -953,18 +983,24 @@ def _run_job(
     return tuple(output)
 
 
-def _calculate_target_pharm_summary(target_pharm: t2fpharm.Pharmacophore, method: str):
-    features = target_pharm.features
+def _calculate_target_pharm_summary(
+    features: pd.DataFrame,
+    feature_types: list[str],
+    method: str,
+):
     out = {"n_total": len(features)} | {
         f"n_{feature_type}": int(features["type"].eq(feature_type).sum())
-        for feature_type in target_pharm.feature_types
+        for feature_type in feature_types
     }
+    if len(features) == 0:
+        return out
+    available_feature_types = features["type"].unique()
     if method == "largest_peaks":
         values = features["value"]
         out["value_min"] = float(values.min())
         out["value_max"] = float(values.max())
         out["value_mean"] = float(values.mean())
-        for feature_type in target_pharm.feature_types:
+        for feature_type in available_feature_types:
             values = features[features["type"] == feature_type]["value"]
             out[f"value_{feature_type}_min"] = float(values.min())
             out[f"value_{feature_type}_max"] = float(values.max())
@@ -979,7 +1015,7 @@ def _calculate_target_pharm_summary(target_pharm: t2fpharm.Pharmacophore, method
         out[f"radius_{mode}_min"] = float(radii.min())
         out[f"radius_{mode}_max"] = float(radii.max())
         out[f"radius_{mode}_mean"] = float(radii.mean())
-        for feature_type in target_pharm.feature_types:
+        for feature_type in available_feature_types:
             type_mask = features["type"] == feature_type
             type_values = values[type_mask]
             type_radii = radii[type_mask]
@@ -998,6 +1034,9 @@ def _calculate_matches(
     filepath_matches: Path | str | None = None,
 ) -> pd.DataFrame:
     """Calculate matches between receptor and ligand pharmacophores."""
+    if filepath_matches and Path(filepath_matches).is_file():
+        matches_df = pd.read_parquet(filepath_matches, engine="pyarrow")
+        return matches_df
     matches_dfs = []
     for ligand_pdb_id, ligand_pharm in ligand_pharms.items():
         matches = (
