@@ -927,6 +927,8 @@ def _run_job(
     try:
         if filepath_features and Path(filepath_features).is_file():
             features = pd.read_parquet(filepath_features, engine="pyarrow")
+            if features['label'].dtype == object:
+                features['label'] = features['label'].apply(tuple)
             target_pharm = t2fpharm.Pharmacophore(
                 features=features,
                 feature_types=feature_types
@@ -1087,7 +1089,7 @@ def _calculate_feature_match_summary(
         f"match_{feature_type}_dist_min": float(dists.min()),
         f"match_{feature_type}_dist_max": float(dists.max()),
         f"match_{feature_type}_dist_mean": float(dists.mean()) if dists.notna().any() else float("nan"),
-        f"match_{feature_type}_dist_median": float(dists.median()),
+        f"match_{feature_type}_dist_median": float(dists.median()) if dists.notna().any() else float("nan"),
         f"match_{feature_type}_dist_inf": float(dists.isna().sum()) / n_ligand_features,
         f"match_{feature_type}_dist_lt1": float((dists < 1.0).sum()) / n_ligand_features,
         f"match_{feature_type}_dist_lt2": float((dists < 2.0).sum()) / n_ligand_features,
