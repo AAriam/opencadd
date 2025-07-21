@@ -230,38 +230,29 @@ class Manager:
             self._cache = {}
         return
 
-    def run(self, job_name: str):
-        job_spec = self.job_params.get(job_name)
-        if job_spec is None:
-            raise ValueError(f"Job '{job_name}' not found in job parameters.")
-        if "cnn" in job_spec:
-            job_spec["cnn"]["grid_spacing"] = self.pocket_params["grid_spacing"]
-            job_spec["cnn"]["grid_unique_distances"] = self.field(pdb_id=self.dataset["pdb_id"].iloc[0]).grid.unique_distances
+    def run(self, job_name: str, ref_only: bool = False):
+        # Enable caching to avoid recomputing heavy objects during modeler creation
+        caching_was_enabled = self._cache_enabled
+        self.caching(enabled=True)
 
-        jobs = create_job_inputs(**job_spec)
-        jobs_serialized = copy.deepcopy(jobs)
-        for job in jobs_serialized:
-            if "min_distance" in job["kwargs"]:
-                job["kwargs"]["min_distance"] = {f"{k[0]}__{k[1]}":v for k, v in job["kwargs"]["min_distance"].items()}
-        pyserials.write.to_yaml_file(
-            data=jobs_serialized,
-            path=self.path_results(job_name=job_name, filetype="inputs"),
-        )
-
+        # Load summary to skip already completed jobs
         try:
             summary_df = self.job_summary(job_name=job_name)
         except FileNotFoundError:
             summary_df = pd.DataFrame(columns=["pdb_id", "job_idx"])
 
-        # Enable caching to avoid recomputing heavy objects during modeler creation
-        caching_was_enabled = self._cache_enabled
-        self.caching(enabled=True)
+        # Get job inputs
+        jobs = self.job_inputs(job_name=job_name)
 
         # Prepare jobs
         ligand_pharms: dict[PDBID, t2fpharm.pharm_ligand.LigandPharmacophore] = {}
         futures = []
         ray.init(ignore_reinit_error=True)
-        with tqdm(total=len(self.dataset) * len(jobs), desc="Creating jobs", unit="job") as pbar:
+        with tqdm(
+            total=(self.dataset["is_ref"].sum() if ref_only else len(self.dataset)) * len(jobs),
+            desc="Creating jobs",
+            unit="job"
+        ) as pbar:
             for _, group in self.dataset.groupby("group_id"):
                 ligand_pharms = ray.put(
                     {
@@ -270,6 +261,8 @@ class Manager:
                     }
                 )
                 for pdb_id in group["pdb_id"]:
+                    if ref_only and not self.is_ref(pdb_id):
+                        continue
                     modeler = ray.put(self.modeler(pdb_id))
                     if not caching_was_enabled:
                         self._cache = {}
@@ -340,6 +333,62 @@ class Manager:
         all_cols = main_cols + extra_cols
         df_final = df[all_cols].sort_values(["group_id", "pdb_id", "job_idx"]).reset_index(drop=True)
         return df_final
+
+    def job_inputs(self, job_name: str) -> list[dict[str, Any]]:
+        """Get the inputs for a given job."""
+        path = self.path_results(job_name=job_name, filetype="inputs")
+        if path.is_file():
+            jobs = pyserials.read.yaml_from_file(path)
+            for job in jobs:
+                if "min_distance" in job["kwargs"]:
+                    job["kwargs"]["min_distance"] = {
+                        tuple(k.split("__")): v
+                        for k, v in job["kwargs"]["min_distance"].items()
+                    }
+            return jobs
+
+        job_spec = self.job_params.get(job_name)
+        if job_spec is None:
+            raise ValueError(f"Job '{job_name}' not found in job parameters.")
+        if "cnn" in job_spec:
+            job_spec["cnn"]["grid_spacing"] = self.pocket_params["grid_spacing"]
+            job_spec["cnn"]["grid_unique_distances"] = self.field(pdb_id=self.dataset["pdb_id"].iloc[0]).grid.unique_distances
+        jobs = create_job_inputs(**job_spec)
+        jobs_serialized = copy.deepcopy(jobs)
+        for job in jobs_serialized:
+            if "min_distance" in job["kwargs"]:
+                job["kwargs"]["min_distance"] = {f"{k[0]}__{k[1]}":v for k, v in job["kwargs"]["min_distance"].items()}
+        pyserials.write.to_yaml_file(
+            data=jobs_serialized,
+            path=path,
+        )
+        return jobs
+
+    def job_pharmacophore(self, job_name: str, pdb_id: str, job_idx: int) -> t2fpharm.Pharmacophore:
+        """Get the pharmacophore for a given job and PDB ID."""
+        filepath = self.path_results(job_name=job_name, filetype="pharm", pdb_id=pdb_id, job_idx=job_idx)
+        if not filepath.is_file():
+            raise FileNotFoundError(f"Pharmacophore file not found: {filepath}")
+        features = pd.read_parquet(filepath, engine="pyarrow")
+        if features['label'].dtype == object:
+            features['label'] = features['label'].apply(tuple)
+        return t2fpharm.Pharmacophore(
+            features=features,
+            feature_types=self.field_params["ligand_types"],
+            system=self.complex(pdb_id),
+            pocket=self.pocket(pdb_id),
+            field=self.field(pdb_id),
+        )
+
+    def job_matches(self, job_name: str, pdb_id: str, job_idx: int) -> pd.DataFrame:
+        """Get the matches for a given job and PDB ID."""
+        filepath = self.path_results(job_name=job_name, filetype="matches", pdb_id=pdb_id, job_idx=job_idx)
+        if not filepath.is_file():
+            raise FileNotFoundError(f"Matches file not found: {filepath}")
+        matches = pd.read_parquet(filepath, engine="pyarrow")
+        if matches['target_label'].dtype == object:
+            matches['target_label'] = matches['target_label'].apply(tuple)
+        return matches
 
     def pdb_raw(self, pdb_id: str) -> scifile.pdb.PDBFile:
         cached = self._cache.get(pdb_id, {}).get("pdb_raw")
@@ -575,15 +624,6 @@ class Manager:
             weighted_average = np.average(values, weights=weights)
             out[affinity_type] = weighted_average
         return out
-
-    def receptor_pharmacophore(self, pdb_id: str, job_idx: int) -> t2fpharm.Pharmacophore:
-        """Get the receptor pharmacophore for a given PDB ID and job index."""
-        filepath_pharm = self.path("results_pharm", pdb_id)
-        pharm_features = pd.read_json(filepath_pharm)
-
-    def job_inputs(self, job_idx: int):
-        """Get the job inputs for a given job index."""
-        return
 
     def path(
         self,
