@@ -414,6 +414,9 @@ class Manager:
         if filepath_pdb_aligned.is_file():
             pdb_aligned_str = filepath_pdb_aligned.read_text()
         else:
+            filepath_pdb_raw = self.path("pdb_raw", pdb_id)
+            if not filepath_pdb_raw.is_file():
+                self.pdb_raw(pdb_id)
             (
                 pdb_fixed_str,
                 missing_residues,
@@ -421,7 +424,7 @@ class Manager:
                 missing_atoms,
                 missing_terminals
             ) = caddpy.chemsys.fix_pdb(
-                file=self.path("pdb_raw", pdb_id),
+                file=filepath_pdb_raw,
                 keep_chain_ids=self.dataset.loc[pdb_id, "chain_id"],
                 add_missing_residues=True,
                 replace_nonstandard_residues=False,
@@ -518,8 +521,9 @@ class Manager:
                 system=rcomplex,
                 ligand_mask=ligand_mask,
                 ligand_radii=None,
-                grid=self.pocket_params["grid_spacing"],
                 ligand_radii_offset=self.pocket_params["ligand_radii_offset"],
+                erosion_radius=self.pocket_params.get("erosion_radius", 0),
+                grid=self.pocket_params["grid_spacing"],
             )
             pocket.to_npz(filepath=filepath_pocket)
         if self._cache_enabled:
@@ -575,6 +579,7 @@ class Manager:
                 features=features_data,
                 extra={"plip": caddpy.interaction.ProteinLigandInteractions(plip_df)},
                 system=self.complex(pdb_id),
+                pocket=self.pocket(pdb_id),
             )
         else:
             ligand_pharm = t2fpharm.pharm.from_complex(
