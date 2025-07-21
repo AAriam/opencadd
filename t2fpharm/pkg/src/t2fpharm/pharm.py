@@ -464,7 +464,7 @@ class Pharmacophore:
                         if weights_sum_to_zero else
                         np.average(dist_to_center, weights=cluster_weight)
                     )
-
+                member_indices = group.index[label_mask].to_numpy()
                 new_features.append(
                     {
                         "instance": instance,
@@ -473,14 +473,42 @@ class Pharmacophore:
                         "center": cluster_centers[f"center_{feature_center_type}"],
                         "radius": cluster_radii[f"radius_{feature_center_type}_{feature_radius_type}"],
                         "value": values[f"value_{feature_center_type}"],
-                        "members": group.index[label_mask].to_numpy(),
+                        "n_members": len(member_indices),
+                        "members": member_indices,
                         **cluster_centers,
                         **values,
                         **cluster_radii,
                     }
                 )
         return Pharmacophore(
-            features=pd.DataFrame(new_features) if new_features else self.features.iloc[0:0].copy(),
+            features=pd.DataFrame(
+                new_features,
+                columns=[
+                    "instance",
+                    "type",
+                    "label",
+                    "center",
+                    "radius",
+                    "value",
+                    "n_members",
+                    "members",
+                    "center_average",
+                    "center_mean",
+                    "center_midpoint",
+                    "radius_average_max",
+                    "radius_average_mean",
+                    "radius_average_min",
+                    "radius_mean_max",
+                    "radius_mean_mean",
+                    "radius_mean_min",
+                    "radius_midpoint_max",
+                    "radius_midpoint_mean",
+                    "radius_midpoint_min",
+                    "value_average",
+                    "value_mean",
+                    "value_midpoint",
+                ]
+            ),
             feature_types=self.feature_types,
             inputs=self.inputs + [args.model_dump()],
             name=self.name,
