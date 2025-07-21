@@ -93,6 +93,16 @@ class Modeler:
 
         Parameters
         ----------
+        weight_factor
+            Optional dictionary mapping feature types to their weight factors.
+            If provided, the field values of each feature type
+            are multiplied by the corresponding factor
+            to create the `weights` parameter of `Pharmacophore.cluster_cnn`.
+            Note that if after applying the weight factor,
+            the field values of a feature type are not all positive or all negative,
+            depending on the `peak_type` of that feature type,
+            violating weights (i.e., weights > 0 for "min" peaks or weights < 0 for "max" peaks)
+            will be set to zero.
         max_distance
             If `None`, defaults to 2.1 times the grid spacing of the field
             for all feature types and clustering runs.
@@ -139,8 +149,17 @@ class Modeler:
         ).weight_factor
         weights = pharm.features["value"].copy()
         for feature_type, factor in weight_factor.items():
+            type_mask = pharm.features["type"] == feature_type
             if factor is not None:
-                weights.loc[pharm.features["type"] == feature_type] *= factor
+                weights.loc[type_mask] *= factor
+            # Make sure all weights are either >= 0 or <= 0
+            feature_weights = weights[type_mask]
+            ge0 = feature_weights.ge(0)
+            le0 = feature_weights.le(0)
+            if not (ge0.all() or le0.all()):
+                feature_peak_type = pharm.inputs[0]["peak_type"][feature_type]
+                indices = ge0[ge0].index if feature_peak_type == "min" else le0[le0].index
+                weights.loc[indices] = 0
         return pharm.cluster_cnn(
             max_distance=max_distance,
             min_neighbors=min_neighbors,
