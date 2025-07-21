@@ -127,6 +127,8 @@ def from_ligand(
     ligand_radii: ArrayLike | None = None,
     ligand_radii_offset: float | Sequence[float] = 2.5,
     erosion_radius: float = 0,
+    opening_radius: float = 0,
+    morphology_order: tuple[Literal["opening", "erosion"], Literal["opening", "erosion"]] = ("opening", "erosion"),
     grid: float | Sequence[float] | Grid = 0.3,
 ) -> Pocket:
     """Create a pocket from a ligand."""
@@ -140,6 +142,17 @@ def from_ligand(
         receptor_atoms = receptor.composition.atoms.iloc[receptor_atom_indices]
         return receptor_atoms["serial"].to_numpy(dtype=jnp.int32)
 
+    if (
+        len(morphology_order) != 2
+        or not all(op in ("opening", "erosion") for op in morphology_order)
+        or morphology_order[0] == morphology_order[1]
+    ):
+        raise ValueError(
+            "morphology_order must be a tuple of two distinct operations, "
+            "either ('opening', 'erosion') or ('erosion', 'opening'), "
+            f"but got {morphology_order}."
+        )
+
     ligand = system.select(selection=ligand_mask)
     ligand_radii = ligand.composition.vdw_radius if ligand_radii is None else jnp.asarray(ligand_radii)
     ligand_volume = ligand.toxelate(
@@ -151,12 +164,19 @@ def from_ligand(
     empty_voxels = jnp.logical_not(receptor_volume.tensor)
     ligand_voxels = ligand_volume.tensor
     pocket_voxels = jnp.logical_and(ligand_voxels, empty_voxels)
-    if erosion_radius > 0:
-        pocket_voxels = sp.ndimage.binary_erosion(
-            pocket_voxels,
-            structure=ligand_volume.grid.footprint_spherical(radius=erosion_radius),
-            border_value=0,
-        )
+    for morphology_operation in morphology_order:
+        if morphology_operation == "opening":
+            morphology_radius = opening_radius
+            morphology_func = sp.ndimage.binary_opening
+        else:
+            morphology_radius = erosion_radius
+            morphology_func = sp.ndimage.binary_erosion
+        if morphology_radius > 0:
+            pocket_voxels = morphology_func(
+                pocket_voxels,
+                structure=ligand_volume.grid.footprint_spherical(radius=morphology_radius),
+                border_value=0,
+            )
     labels, _ = sp.ndimage.label(pocket_voxels)
     label_set = jnp.unique(labels)
     num_points_per_label = jnp.bincount(labels.ravel())
