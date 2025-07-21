@@ -5,22 +5,18 @@ import numpy as np
 
 
 def create_job_inputs(
-    feature_radius: dict[str, float],
     filter: dict[str, Any] | None = None,
     largest_peaks: dict[str, Any] | None = None,
     cnn: dict[str, Any] | None = None,
 ) -> list[dict[str, str | dict[str, Any]]]:
     if cnn is None and largest_peaks is None:
         raise ValueError("At least one of `cnn` or `largest_peaks` must be provided.")
-    filters = _filter(
-        radius_base=feature_radius,
-        **(filter or {})
-    )
+    filters = _filter(**(filter or {}))
     out = []
     if largest_peaks is not None:
         out.extend(_largest_peaks(filters=filters, **largest_peaks))
     if cnn is not None:
-        out.extend(_cnn(filters=filters, feature_radius=feature_radius, **cnn))
+        out.extend(_cnn(filters=filters, **cnn))
     return out
 
 
@@ -29,10 +25,11 @@ def _cnn(
     feature_radius: dict[str, float],
     grid_spacing: float,
     grid_unique_distances: np.ndarray,
-    threshold_percentiles: Sequence[float],
-    max_members_factors: Sequence[float],
-    min_members_fraction: float,
-    min_members_count: int,
+    best_per_points: Sequence[bool] = (False,),
+    threshold_values: Sequence[float | dict[str, float] | None] = (None,),
+    threshold_percentiles: Sequence[float | dict[str, float] | None] = (None,),
+    max_members_factors: Sequence[float] = (1.0,),
+    min_members_percents: Sequence[float] | None = None,
 ) -> list[dict[str, str | dict[str, Any]]]:
     max_members = _cnn_max_members(feature_radius, grid_spacing)
     out = []
@@ -41,44 +38,34 @@ def _cnn(
         grid_spacing=grid_spacing,
         grid_unique_distances=grid_unique_distances,
     )
-    for filter_ in filters:
-        for threshold_percentile in threshold_percentiles:
-            for max_member_factor in max_members_factors:
-                max_members_scaled = {
-                    feature_type: int(np.ceil(max_member_factor * max_member))
-                    for feature_type, max_member in max_members.items()
-                }
-                min_members_all = {
-                    feature_type: np.floor(
-                        np.linspace(start=1, stop=max_members * min_members_fraction, num=min_members_count)
-                    ).astype(int).tolist()
-                    for feature_type, max_members in max_members_scaled.items()
-                }
-                for min_members_idx in range(min_members_count):
-                    min_members = {
-                        feature_type: min_members_all[feature_type][min_members_idx]
-                        for feature_type in min_members_all
-                    }
-                    for best_per_point in (True, False):
+    for max_member_factor_idx, max_members_factor in enumerate(max_members_factors):
+        max_members_scaled = {
+            feature_type: int(np.ceil(max_members_factor * max_member))
+            for feature_type, max_member in max_members.items()
+        }
+        for filter_ in filters:
+            for threshold_value_idx, threshold_value in enumerate(threshold_values):
+                for threshold_percentile_idx, threshold_percentile in enumerate(threshold_percentiles):
+                    for best_per_point in best_per_points:
                         out.append(
                             {
                                 "method": "cnn",
                                 "identifier": filter_["identifier"] | {
-                                    "min_members_idx": min_members_idx,
-                                    "max_members_factor": max_member_factor,
+                                    "max_members_factor_idx": max_member_factor_idx,
                                     "best_per_point": best_per_point,
-                                    "threshold_percentile": threshold_percentile,
+                                    "threshold_value_idx": threshold_value_idx,
+                                    "threshold_percentile_idx": threshold_percentile_idx,
                                 },
                                 "kwargs": filter_["kwargs"] | {
                                     "max_distance": max_distance,
                                     "min_neighbors": min_neighbors,
-                                    "min_members": min_members,
+                                    "min_members_percents": min_members_percents,
                                     "max_members": max_members_scaled,
                                     "center_type": "midpoint",
                                     "radius_type": "max",
                                     "peak_type": "min",
                                     "best_per_point": best_per_point,
-                                    "threshold_value": 0,
+                                    "threshold_value": threshold_value,
                                     "threshold_percentile": threshold_percentile,
                                     "threshold_include_equal": False,
                                 }
@@ -90,24 +77,24 @@ def _cnn(
 def _largest_peaks(
     filters: Sequence[dict[str, dict[str, Any]]],
     min_distance: dict[tuple[str, str], float],
-    min_distance_factors: Sequence[float],
     max_features: dict[str, int],
-    max_features_factors: Sequence[int],
-    priority_factors: Sequence[dict[str, float]],
+    min_distance_factors: Sequence[float] = (1.0,),
+    max_features_factors: Sequence[int] = (1,),
+    priority_factors: Sequence[dict[str, float] | None] = (None,),
 ) -> list[dict[str, str | dict[str, Any]]]:
     out = []
     for filter_ in filters:
-        for min_distance_factor in min_distance_factors:
+        for min_distance_factor_idx, min_distance_factor in enumerate(min_distance_factors):
             min_distance_ = {k: v * min_distance_factor for k, v in min_distance.items()}
-            for max_feature_factor in max_features_factors:
+            for max_feature_factor_idx, max_feature_factor in enumerate(max_features_factors):
                 max_features_ = {k: v * max_feature_factor for k, v in max_features.items()}
                 for priority_factor_idx, priority_factor in enumerate(priority_factors):
                     out.append(
                         {
                             "method": "largest_peaks",
                             "identifier": filter_["identifier"] | {
-                                "min_distance_factor": min_distance_factor,
-                                "max_feature_factor": max_feature_factor,
+                                "min_distance_factor_idx": min_distance_factor_idx,
+                                "max_feature_factor_idx": max_feature_factor_idx,
                                 "priority_factor_idx": priority_factor_idx,
                             },
                             "kwargs": filter_["kwargs"] | {
@@ -121,8 +108,9 @@ def _largest_peaks(
 
 
 def _filter(
-    radius_base: dict[str, float],
+    radius: dict[str, float] | None = None,
     radius_factors: Sequence[float] | None = None,
+    mean: bool = False,
     percentiles: Sequence[float] | None = None,
     sigma_factors: Sequence[float] | None = None,
 ) -> list[dict[str, dict[str, Any]]]:
@@ -159,27 +147,32 @@ def _filter(
             "kwargs": {"filter_function": None},
         }
     ]
-    for filter_radius_factor in (radius_factors or []):
-        filter_radius = {k: v * filter_radius_factor for k, v in radius_base.items()}
-        out.append(
-            {
-                "identifier": {
-                    "filter_function": "mean",
-                    "filter_radius_factor": filter_radius_factor
-                },
-                "kwargs": {
-                    "filter_function": "mean",
-                    "filter_radius": filter_radius
-                }
-            }
+    if (mean or percentiles or sigma_factors) and radius is None:
+        raise ValueError(
+            "`radius_base` must be provided if `mean`, `percentiles`, or `sigma_factors` are used."
         )
-        for percentile in (percentiles or []):
+    for filter_radius_factor_idx, filter_radius_factor in enumerate(radius_factors or []):
+        filter_radius = {k: v * filter_radius_factor for k, v in radius.items()}
+        if mean:
+            out.append(
+                {
+                    "identifier": {
+                        "filter_function": "mean",
+                        "filter_radius_factor_idx": filter_radius_factor_idx
+                    },
+                    "kwargs": {
+                        "filter_function": "mean",
+                        "filter_radius": filter_radius
+                    }
+                }
+            )
+        for percentile_idx, percentile in enumerate(percentiles or []):
             out.append(
                 {
                     "identifier": {
                         "filter_function": "percentile",
-                        "filter_radius_factor": filter_radius_factor,
-                        "filter_percentile": percentile
+                        "filter_radius_factor_idx": filter_radius_factor_idx,
+                        "filter_percentile_idx": percentile_idx
                     },
                     "kwargs": {
                         "filter_function": "percentile",
@@ -188,14 +181,14 @@ def _filter(
                     }
                 }
             )
-        for sigma_factor in (sigma_factors or []):
+        for sigma_factor_idx, sigma_factor in enumerate(sigma_factors or []):
             sigma = {k: v * sigma_factor for k, v in filter_radius.items()}
             out.append(
                 {
                     "identifier": {
                         "filter_function": "gaussian",
-                        "filter_radius_factor": filter_radius_factor,
-                        "filter_sigma_factor": sigma_factor
+                        "filter_radius_factor_idx": filter_radius_factor_idx,
+                        "filter_sigma_factor_idx": sigma_factor_idx
                     },
                     "kwargs": {
                         "filter_function": "gaussian",
@@ -364,11 +357,7 @@ def _cnn_min_neighbors(start: int, end: int, count: int) -> list[int]:
         If start > end, returns []; if count ≤ 1, returns [end];
         if start == end, returns [start].
     """
-    if start > end:
-        return [start]
-    if count <= 1:
-        return [end]
-    if start == end:
+    if start > end or count <= 1 or start == end:
         return [start]
 
     # Try lengths from n down to 2
