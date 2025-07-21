@@ -1002,6 +1002,7 @@ def _run_job(
         matches = _calculate_matches(
             target_pharm=target_pharm,
             ligand_pharms=ligand_pharms,
+            method=method,
             filepath_matches=filepath_matches,
         )
         matches["target_pdb_id"] = target_pdb_id
@@ -1071,16 +1072,41 @@ def _calculate_target_pharm_summary(
 def _calculate_matches(
     target_pharm: t2fpharm.Pharmacophore,
     ligand_pharms: dict[PDBID, t2fpharm.Pharmacophore],
+    method: str,
     filepath_matches: Path | str | None = None,
 ) -> pd.DataFrame:
     """Calculate matches between receptor and ligand pharmacophores."""
-    matches_dfs = []
-    for ligand_pdb_id, ligand_pharm in ligand_pharms.items():
-        matches = (
+    def calculate(
+        target_pharm: t2fpharm.Pharmacophore,
+        ligand_pharm: t2fpharm.Pharmacophore
+    ) -> pd.DataFrame:
+        return (
             target_pharm.match(ligand_pharm, max_distance=None)
-            .drop(columns=["instance", "target_instance"])
+            .drop(columns=["instance", "target_instance", "radius_sum"])
             .rename(columns={"label": "ligand_label"})
         )
+
+    matches_dfs = []
+    for ligand_pdb_id, ligand_pharm in ligand_pharms.items():
+        if method == "largest_peaks":
+            matches = calculate(target_pharm=target_pharm, ligand_pharm=ligand_pharm)
+        else:
+            center_type_matches_df = []
+            target_features = target_pharm.features.copy()
+            for center_type in ("midpoint", "mean", "average"):
+                target_features["center"] = target_features[f"center_{center_type}"]
+                target_pharm_center = t2fpharm.Pharmacophore(
+                    features=target_features,
+                    feature_types=target_pharm.feature_types,
+                )
+                matches_center = calculate(
+                    target_pharm=target_pharm_center,
+                    ligand_pharm=ligand_pharm
+                )
+                matches_center["center_type"] = center_type
+                center_type_matches_df.append(matches_center)
+            matches = pd.concat(center_type_matches_df, ignore_index=True)
+
         matches["ligand_pdb_id"] = ligand_pdb_id
         matches_dfs.append(matches)
 
@@ -1098,42 +1124,79 @@ def _calculate_matches(
 
 
 def _calculate_matches_summary(matches: pd.DataFrame) -> dict[str, Any]:
-    matches_total = _calculate_match_summary(matches)
+    matches_total = _calculate_match_summary(matches, ligand_type="all_ligands")
     matches_self = _calculate_match_summary(
         matches[matches["ligand_pdb_id"] == matches["target_pdb_id"]],
-        with_self=True
+        ligand_type="self_ligand"
     )
     return matches_total | matches_self
 
 
 def _calculate_match_summary(
     matches: pd.DataFrame,
-    with_self: bool = False,
+    ligand_type: str,
 ) -> dict[str, Any]:
-    out = _calculate_feature_match_summary(matches, feature_type="all")
+    out = _calculate_feature_match_summary(
+        matches,
+        ligand_type=ligand_type,
+        feature_type="all_types"
+    )
     for feature_type in matches["type"].unique():
-        out.update(_calculate_feature_match_summary(matches, feature_type=feature_type))
-    if with_self:
-        return {f"{key}_self": value for key, value in out.items()}
+        out_type = _calculate_feature_match_summary(
+            matches,
+            ligand_type=ligand_type,
+            feature_type=feature_type
+        )
+        out.update(out_type)
     return out
 
 
 def _calculate_feature_match_summary(
     matches: pd.DataFrame,
+    ligand_type: str,
     feature_type: str,
 ) -> dict[str, Any]:
     n_ligand_features = len(matches)
+    out = {f"match-{ligand_type}-{feature_type}-count": n_ligand_features}
+    if "center_type" in matches:
+        for center_type in matches["center_type"].unique():
+            summary = _calculate_ligand_feature_center_match_summary(
+                matches[matches["center_type"] == center_type],
+                ligand_type=ligand_type,
+                feature_type=feature_type,
+                center_type=f"{center_type}_center"
+            )
+            out.update(summary)
+    else:
+        summary = _calculate_ligand_feature_center_match_summary(
+            matches=matches,
+            ligand_type=ligand_type,
+            feature_type=feature_type,
+            center_type="center"
+        )
+        out.update(summary)
+    return out
+
+
+def _calculate_ligand_feature_center_match_summary(
+    matches: pd.DataFrame,
+    ligand_type: str,
+    feature_type: str,
+    center_type: str,
+) -> dict[str, Any]:
+    def name(dist_type: str) -> str:
+        return f"match-{ligand_type}-{feature_type}-{center_type}-dist-{dist_type}"
+    n_ligand_features = len(matches)
     dists = matches["distance"]
     out = {
-        f"match_{feature_type}_count": n_ligand_features,
-        f"match_{feature_type}_dist_min": float(dists.min()),
-        f"match_{feature_type}_dist_max": float(dists.max()),
-        f"match_{feature_type}_dist_mean": float(dists.mean()) if dists.notna().any() else float("nan"),
-        f"match_{feature_type}_dist_median": float(dists.median()) if dists.notna().any() else float("nan"),
-        f"match_{feature_type}_dist_inf": float(dists.isna().sum()) / n_ligand_features,
-        f"match_{feature_type}_dist_lt1": float((dists < 1.0).sum()) / n_ligand_features,
-        f"match_{feature_type}_dist_lt2": float((dists < 2.0).sum()) / n_ligand_features,
-        f"match_{feature_type}_dist_lt3": float((dists < 3.0).sum()) / n_ligand_features,
+        name("min"): float(dists.min()),
+        name("max"): float(dists.max()),
+        name("mean"): float(dists.mean()) if dists.notna().any() else float("nan"),
+        name("median"): float(dists.median()) if dists.notna().any() else float("nan"),
+        name("inf"): float(dists.isna().sum()) / n_ligand_features,
+        name("lt1"): float((dists < 1.0).sum()) / n_ligand_features,
+        name("lt2"): float((dists < 2.0).sum()) / n_ligand_features,
+        name("lt3"): float((dists < 3.0).sum()) / n_ligand_features,
     }
     return out
 
