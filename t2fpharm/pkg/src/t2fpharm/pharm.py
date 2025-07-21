@@ -339,6 +339,9 @@ class Pharmacophore:
             If not provided, a default weight of 1.0 is used for all features centers.
             Weights are passed to the clustering function,
             and can also be used to compute center and radius of each cluster.
+            For calculating the center and radius,
+            if the weights sum to zero for a cluster,
+            the mean is used instead of the weighted average.
         center_type
             How to compute the center of each cluster:
             - "function": Use the clustering result's `centers` attribute.
@@ -423,13 +426,18 @@ class Pharmacophore:
                 label_mask = labels == label
                 cluster_points = centers[label_mask]
                 cluster_weight = weights[label_mask]
+                weights_sum_to_zero = np.sum(cluster_weight) == 0
 
                 # Calculate cluster center
                 cluster_centers = {
                     "center_midpoint": (cluster_points.min(axis=0) + cluster_points.max(axis=0)) / 2,
                     "center_mean": np.mean(cluster_points, axis=0),
-                    "center_average": np.average(cluster_points, weights=cluster_weight, axis=0)
                 }
+                cluster_centers["center_average"] = (
+                    cluster_centers["center_mean"]
+                    if weights_sum_to_zero else
+                    np.average(cluster_points, weights=cluster_weight, axis=0)
+                )
                 if clustering_result.centers is not None:
                     cluster_centers["center_function"] = clustering_result.centers[label]
 
@@ -447,11 +455,15 @@ class Pharmacophore:
                     center_key = center_key.removeprefix("center_")
                     dist_to_center = np.linalg.norm(cluster_points - center_value, axis=1) + member_radii
                     cluster_radii |= {
-                        f"radius_{center_key}_average": np.average(dist_to_center, weights=cluster_weight),
                         f"radius_{center_key}_mean": np.mean(dist_to_center),
                         f"radius_{center_key}_max": np.max(dist_to_center),
                         f"radius_{center_key}_min": np.min(dist_to_center)
                     }
+                    cluster_radii[f"radius_{center_key}_average"] = (
+                        cluster_radii[f"radius_{center_key}_mean"]
+                        if weights_sum_to_zero else
+                        np.average(dist_to_center, weights=cluster_weight)
+                    )
 
                 new_features.append(
                     {
