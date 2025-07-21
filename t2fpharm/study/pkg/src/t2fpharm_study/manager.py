@@ -14,7 +14,6 @@ from tqdm.auto import tqdm
 import ray
 
 import pyserials
-import pkgdata
 
 import sciapi
 import scifile
@@ -23,9 +22,11 @@ import caddpy
 import t2fpharm
 
 from t2fpharm_study.job_gen import create_job_inputs
+from t2fpharm_study.job_runner import run
+from t2fpharm_study.typing import PDBID
 
 
-PDBID: TypeAlias = str
+_remote_job_runner = ray.remote(run)
 
 
 class Manager:
@@ -270,7 +271,7 @@ class Manager:
                         if (summary_df["pdb_id"].eq(pdb_id) & summary_df["job_idx"].eq(job_idx)).any():
                             pbar.update(1)
                             continue
-                        remote_job = _run_job_remote.remote(
+                        remote_job = _remote_job_runner.remote(
                             modeler=modeler,
                             ligand_pharms=ligand_pharms,
                             target_pdb_id=pdb_id,
@@ -303,13 +304,13 @@ class Manager:
                 done_futures, remaining_futures = ray.wait(remaining_futures, num_returns=1)
                 summary = ray.get(done_futures[0])[0]
                 pdb_id = summary["pdb_id"]
-                job_index = summary["job_idx"]
+                job_index = summary["job-idx"]
                 group_id = self.group_id(pdb_id)
                 summary.update(
                     {
                         "group_id": group_id,
-                        "method": jobs[job_index]["method"],
-                        **jobs[job_index]["identifier"],
+                        "job-method": jobs[job_index]["method"],
+                        **{f"job-{k}": v for k, v in jobs[job_index]["identifier"].items()},
                     }
                 )
                 f.write(json.dumps(summary, separators=(",", ":")) + "\n")
@@ -328,10 +329,10 @@ class Manager:
         if not path.is_file():
             raise FileNotFoundError(f"Summary file not found: {path}")
         df = pd.read_json(path, lines=True).convert_dtypes()
-        main_cols = ["group_id", "pdb_id", "job_idx", "method", "n_total"]
-        extra_cols = [col for col in df.columns if col not in main_cols]
+        main_cols = ["job-method", "job-idx", "group_id", "pdb_id"]
+        extra_cols = sorted([col for col in df.columns if col not in main_cols])
         all_cols = main_cols + extra_cols
-        df_final = df[all_cols].sort_values(["group_id", "pdb_id", "job_idx"]).reset_index(drop=True)
+        df_final = df[all_cols].sort_values(["job-method", "job-idx", "group_id", "pdb_id"]).reset_index(drop=True)
         return df_final
 
     def job_inputs(self, job_name: str) -> list[dict[str, Any]]:
@@ -790,110 +791,6 @@ class Manager:
         return
 
 
-def load(
-    dirpath_data: Path | str | None = None,
-    *,
-    filepath_inputs: Path | str  = "inputs.yaml",
-    dirpath_pdb_raw: Path | str = "structure/1-pdb-raw",
-    dirpath_pdb_fixed: Path | str = "structure/2-pdb-fixed",
-    dirpath_pdb_aligned: Path | str = "structure/3-pdb-aligned",
-    dirpath_pdb_apo: Path | str = "structure/4-pdb-apo",
-    dirpath_pdbqt: Path | str = "structure/5-pdbqt",
-    dirpath_affinity: Path | str = "affinity",
-    dirpath_pocket: Path | str = "pocket",
-    dirpath_autogrid: Path | str = "autogrid",
-    dirpath_field: Path | str = "field",
-    dirpath_ligand_plip: Path | str = "ligand/plip",
-    dirpath_ligand_features: Path | str = "ligand/features",
-    dirpath_results: Path | str = "results",
-) -> Manager:
-    """Load the manager.
-
-    Parameters
-    ----------
-    dirpath_data
-        Path to the data directory.
-        If not provided, the default data directory is used.
-    filepath_inputs
-        Path to the inputs file (JSON, YAML, or TOML)
-        relative to `dirpath`.
-    """
-    dirpath_data = (
-        Path(dirpath_data) if dirpath_data else
-        pkgdata.get_package_path_from_caller(top_level=True) / "data"
-    )
-    input_data = pyserials.read.from_file(
-        path=dirpath_data / filepath_inputs,
-        json_strict=True,
-        yaml_safe=True,
-        toml_as_dict=True,
-    )
-    inputs = input_data["data"]
-    rows = []
-    group_color = {}
-    for group_data in inputs["receptor_groups"]:
-        group_color[group_data["id"]] = {
-            "bg": group_data.get("color_bg"),
-            "text": group_data.get("color_text"),
-        }
-        group = {
-            "group_id": group_data["id"],
-            "group_name": group_data["name"],
-            "uniprot_id": group_data.get("uniprot_id"),
-        }
-        row = _make_structure(
-            group=group,
-            structure=group_data["ref_structure"],
-            is_ref=True
-        )
-        rows.append(row)
-        for structure_data in group_data.get("structures", []):
-            row = _make_structure(
-                group=group,
-                structure=structure_data,
-                is_ref=False
-            )
-            rows.append(row)
-    df = pd.DataFrame(rows).convert_dtypes()
-    df.set_index("pdb_id", inplace=True, drop=False)
-    return Manager(
-        dataset=df,
-        pocket_inputs=inputs["pocket"],
-        field_inputs=inputs["field"],
-        job_inputs=inputs["job"],
-        group_color=group_color,
-        dirpath_data=dirpath_data,
-        dirpath_pdb_raw=dirpath_pdb_raw,
-        dirpath_pdb_fixed=dirpath_pdb_fixed,
-        dirpath_pdb_aligned=dirpath_pdb_aligned,
-        dirpath_pdb_apo=dirpath_pdb_apo,
-        dirpath_pdbqt=dirpath_pdbqt,
-        dirpath_affinity=dirpath_affinity,
-        dirpath_pocket=dirpath_pocket,
-        dirpath_autogrid=dirpath_autogrid,
-        dirpath_field=dirpath_field,
-        dirpath_ligand_plip=dirpath_ligand_plip,
-        dirpath_ligand_features=dirpath_ligand_features,
-        dirpath_results=dirpath_results,
-    )
-
-
-def _make_structure(
-    group: dict,
-    structure: dict,
-    is_ref: bool = False
-):
-    structure_full = group | {
-        "pdb_id": structure["pdb_id"].upper(),
-        "is_ref": is_ref,
-        "chain_id": structure.get("chain_id"),
-        "ligand_res_name": structure.get("ref_ligand", {}).get("res_name"),
-        "ligand_chain_id": structure.get("ref_ligand", {}).get("chain_id"),
-        "ligand_res_seq": structure.get("ref_ligand", {}).get("res_seq"),
-    }
-    return structure_full
-
-
 def _align_query_to_ref(
     ref: t2fpharm.system.System,
     query: t2fpharm.system.System,
@@ -949,256 +846,3 @@ def _align_query_to_ref(
     rotation, translation, rmsd = arrayer.kabsch.kabsch_unweighted(ref_selection_coordinates, query_selection_coordinates)
     query_complex_aligned = query.new(trajectory=query.trajectory.points @ rotation + translation)
     return query_complex_aligned
-
-
-def _run_job(
-    modeler: t2fpharm.Modeler,
-    ligand_pharms: dict[PDBID, t2fpharm.Pharmacophore],
-    target_pdb_id: str,
-    job_idx: int,
-    method: str,
-    kwargs: dict[str, Any],
-    feature_types: list[str],
-    filepath_features: Path | str | None = None,
-    filepath_matches: Path | str | None = None,
-    return_pharm: bool = True,
-    return_matches: bool = True,
-):
-    try:
-        if filepath_features and Path(filepath_features).is_file():
-            features = pd.read_parquet(filepath_features, engine="pyarrow")
-            if features['label'].dtype == object:
-                features['label'] = features['label'].apply(tuple)
-            target_pharm = t2fpharm.Pharmacophore(
-                features=features,
-                feature_types=feature_types
-            )
-        else:
-            # Calculate target pharmacophore
-            func = getattr(modeler, method)
-            target_pharm = func(**kwargs)
-            features = target_pharm.features
-            # Save target pharmacophore
-            if filepath_features:
-                features.to_parquet(
-                    path=Path(filepath_features),
-                    engine="pyarrow",
-                    compression="zstd",
-                    compression_level=3,
-                    index=False,
-                )
-
-        # Generate target pharmacophore summary
-        target_pharm_summary = {
-            "pdb_id": target_pdb_id,
-            "job_idx": job_idx,
-        } | _calculate_target_pharm_summary(
-            features=features,
-            feature_types=feature_types,
-            method=method
-        )
-
-        # Calculate matches with ligand pharmacophores
-        matches = _calculate_matches(
-            target_pharm=target_pharm,
-            ligand_pharms=ligand_pharms,
-            method=method,
-            filepath_matches=filepath_matches,
-        )
-        matches["target_pdb_id"] = target_pdb_id
-        matches_summary = _calculate_matches_summary(matches)
-    except Exception as e:
-        raise RuntimeError(
-            f"Error running job {job_idx} for PDB ID {target_pdb_id} with method {method}: {e}"
-        ) from e
-
-    summary = target_pharm_summary | matches_summary
-
-    # Prepare output
-    output = [summary]
-    if return_pharm:
-        output.append(target_pharm)
-    if return_matches:
-        matches["job_idx"] = job_idx
-        output.append(matches)
-    return tuple(output)
-
-
-def _calculate_target_pharm_summary(
-    features: pd.DataFrame,
-    feature_types: list[str],
-    method: str,
-):
-    out = {"n_total": len(features)} | {
-        f"n_{feature_type}": int(features["type"].eq(feature_type).sum())
-        for feature_type in feature_types
-    }
-    if len(features) == 0:
-        return out
-    available_feature_types = features["type"].unique()
-    if method == "largest_peaks":
-        values = features["value"]
-        out["value_min"] = float(values.min())
-        out["value_max"] = float(values.max())
-        out["value_mean"] = float(values.mean())
-        for feature_type in available_feature_types:
-            values = features[features["type"] == feature_type]["value"]
-            out[f"value_{feature_type}_min"] = float(values.min())
-            out[f"value_{feature_type}_max"] = float(values.max())
-            out[f"value_{feature_type}_mean"] = float(values.mean())
-        return out
-    for mode in ("midpoint", "mean", "average"):
-        values = features[f"value_{mode}"]
-        radii = features[f"radius_{mode}_max"]
-        out[f"value_{mode}_min"] = float(values.min())
-        out[f"value_{mode}_max"] = float(values.max())
-        out[f"value_{mode}_mean"] = float(values.mean())
-        out[f"radius_{mode}_min"] = float(radii.min())
-        out[f"radius_{mode}_max"] = float(radii.max())
-        out[f"radius_{mode}_mean"] = float(radii.mean())
-        for feature_type in available_feature_types:
-            type_mask = features["type"] == feature_type
-            type_values = values[type_mask]
-            type_radii = radii[type_mask]
-            out[f"value_{feature_type}_{mode}_min"] = float(type_values.min())
-            out[f"value_{feature_type}_{mode}_max"] = float(type_values.max())
-            out[f"value_{feature_type}_{mode}_mean"] = float(type_values.mean())
-            out[f"radius_{feature_type}_{mode}_min"] = float(type_radii.min())
-            out[f"radius_{feature_type}_{mode}_max"] = float(type_radii.max())
-            out[f"radius_{feature_type}_{mode}_mean"] = float(type_radii.mean())
-    return out
-
-
-def _calculate_matches(
-    target_pharm: t2fpharm.Pharmacophore,
-    ligand_pharms: dict[PDBID, t2fpharm.Pharmacophore],
-    method: str,
-    filepath_matches: Path | str | None = None,
-) -> pd.DataFrame:
-    """Calculate matches between receptor and ligand pharmacophores."""
-    def calculate(
-        target_pharm: t2fpharm.Pharmacophore,
-        ligand_pharm: t2fpharm.Pharmacophore
-    ) -> pd.DataFrame:
-        return (
-            target_pharm.match(ligand_pharm, max_distance=None)
-            .drop(columns=["instance", "target_instance", "radius_sum"])
-            .rename(columns={"label": "ligand_label"})
-        )
-
-    matches_dfs = []
-    for ligand_pdb_id, ligand_pharm in ligand_pharms.items():
-        if method == "largest_peaks":
-            matches = calculate(target_pharm=target_pharm, ligand_pharm=ligand_pharm)
-        else:
-            center_type_matches_df = []
-            target_features = target_pharm.features.copy()
-            for center_type in ("midpoint", "mean", "average"):
-                target_features["center"] = target_features[f"center_{center_type}"]
-                target_pharm_center = t2fpharm.Pharmacophore(
-                    features=target_features,
-                    feature_types=target_pharm.feature_types,
-                )
-                matches_center = calculate(
-                    target_pharm=target_pharm_center,
-                    ligand_pharm=ligand_pharm
-                )
-                matches_center["center_type"] = center_type
-                center_type_matches_df.append(matches_center)
-            matches = pd.concat(center_type_matches_df, ignore_index=True)
-
-        matches["ligand_pdb_id"] = ligand_pdb_id
-        matches_dfs.append(matches)
-
-    matches_df = pd.concat(matches_dfs, ignore_index=True)
-
-    if filepath_matches:
-        matches_df.to_parquet(
-            path=Path(filepath_matches),
-            engine="pyarrow",
-            compression="zstd",
-            compression_level=3,
-            index=False,
-        )
-    return matches_df
-
-
-def _calculate_matches_summary(matches: pd.DataFrame) -> dict[str, Any]:
-    matches_total = _calculate_match_summary(matches, ligand_type="all_ligands")
-    matches_self = _calculate_match_summary(
-        matches[matches["ligand_pdb_id"] == matches["target_pdb_id"]],
-        ligand_type="self_ligand"
-    )
-    return matches_total | matches_self
-
-
-def _calculate_match_summary(
-    matches: pd.DataFrame,
-    ligand_type: str,
-) -> dict[str, Any]:
-    out = _calculate_feature_match_summary(
-        matches,
-        ligand_type=ligand_type,
-        feature_type="all_types"
-    )
-    for feature_type in matches["type"].unique():
-        out_type = _calculate_feature_match_summary(
-            matches,
-            ligand_type=ligand_type,
-            feature_type=feature_type
-        )
-        out.update(out_type)
-    return out
-
-
-def _calculate_feature_match_summary(
-    matches: pd.DataFrame,
-    ligand_type: str,
-    feature_type: str,
-) -> dict[str, Any]:
-    n_ligand_features = len(matches)
-    out = {f"match-{ligand_type}-{feature_type}-count": n_ligand_features}
-    if "center_type" in matches:
-        for center_type in matches["center_type"].unique():
-            summary = _calculate_ligand_feature_center_match_summary(
-                matches[matches["center_type"] == center_type],
-                ligand_type=ligand_type,
-                feature_type=feature_type,
-                center_type=f"{center_type}_center"
-            )
-            out.update(summary)
-    else:
-        summary = _calculate_ligand_feature_center_match_summary(
-            matches=matches,
-            ligand_type=ligand_type,
-            feature_type=feature_type,
-            center_type="center"
-        )
-        out.update(summary)
-    return out
-
-
-def _calculate_ligand_feature_center_match_summary(
-    matches: pd.DataFrame,
-    ligand_type: str,
-    feature_type: str,
-    center_type: str,
-) -> dict[str, Any]:
-    def name(dist_type: str) -> str:
-        return f"match-{ligand_type}-{feature_type}-{center_type}-dist-{dist_type}"
-    n_ligand_features = len(matches)
-    dists = matches["distance"]
-    out = {
-        name("min"): float(dists.min()),
-        name("max"): float(dists.max()),
-        name("mean"): float(dists.mean()) if dists.notna().any() else float("nan"),
-        name("median"): float(dists.median()) if dists.notna().any() else float("nan"),
-        name("inf"): float(dists.isna().sum()) / n_ligand_features,
-        name("lt1"): float((dists < 1.0).sum()) / n_ligand_features,
-        name("lt2"): float((dists < 2.0).sum()) / n_ligand_features,
-        name("lt3"): float((dists < 3.0).sum()) / n_ligand_features,
-    }
-    return out
-
-
-_run_job_remote = ray.remote(_run_job)
