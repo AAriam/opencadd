@@ -315,6 +315,138 @@ class Grid:
             dimensions = np.arange(1, self.dimension + 1)
         return self._direction_vectors[np.isin(self._direction_vectors_dimension, dimensions)]
 
+    def common_neighbors_count(
+        self,
+        neighborhood_radius: float,
+        point1: Sequence[int],
+        point2: Sequence[int] | None = None,
+    ) -> int:
+        """Calculate the number of common neighbors for two grid points.
+
+        This method calculates the number of grid points that lie
+        within `neighborhood_radius` of both of two grid points
+        at indices `point1` and `point2`.
+
+        Parameters
+        ----------
+        neighborhood_radius
+            Maximum radius for a point to be considered a neighbor.
+        point1
+            Grid index of the first point.
+        point2
+            Grid index of the second point.
+            If not provided, the grid is assumed to be infinite,
+            with `point1` being the index offset from the first grid point to the second.
+            That is, the number of common neighbors is calculated
+            for two grid points at indices `(i, j, k, ...)` and
+            `(i + point1[0], j + point1[1], k + point1[2], ...)`.
+            If `point2` is provided, `point1` and `point2` must
+            be valid grid indices, and the number of common neighbors
+            is calculated on the finite grid.
+
+        Returns
+        -------
+        Number of grid points (excluding the two seed points) whose Euclidean distance
+        to both seeds is less than or equal to `neighborhood_radius`.
+
+        Raises
+        ------
+        ValueError
+            If `neighborhood_radius` is negative,
+            any spacing is non-positive,
+            lengths of `spacing` and `offset` differ,
+            or `offset` is all zeros.
+        """
+        if neighborhood_radius < 0:
+            raise ValueError(f"`neighborhood_radius` must be non-negative, but got {neighborhood_radius}.")
+
+        dim = self.dimension
+        spacings = self.spacings
+
+        p1 = np.asarray(point1)
+        if p1.ndim != 1 or p1.size != dim or p1.dtype.kind not in "iu":
+            raise ValueError(
+                f"`point1` must be a 1D integer array of length {dim}, "
+                f"but got {p1} with shape {p1.shape} and dtype {p1.dtype}."
+            )
+
+        # Figure out offset and whether we clip to a finite grid
+        if point2 is None:
+            # infinite grid: point1 is the offset
+            offset = p1.copy()
+            clip_min = None
+            clip_max = None
+        else:
+            p2 = np.asarray(point2)
+            if p2.ndim != 1 or p2.size != dim or p2.dtype.kind not in "iu":
+                raise ValueError(
+                    f"When provided, `point2` must be a 1D integer array of length {dim}, "
+                    f"but got {p2} with shape {p2.shape} and dtype {p2.dtype}."
+                )
+            shape = self.shape
+            # both seeds must lie inside the grid
+            if np.any(p1 < 0) or np.any(p1 >= shape):
+                raise ValueError(f"`point1` {tuple(p1)} out of bounds for grid shape {tuple(shape)}.")
+            if np.any(p2 < 0) or np.any(p2 >= shape):
+                raise ValueError(f"`point2` {tuple(p2)} out of bounds for grid shape {tuple(shape)}.")
+            offset = p2 - p1
+            # To keep grid‐offsets k so that (p1 + k) stays in [0..shape-1]:
+            clip_min = -p1
+            clip_max = shape - 1 - p1
+
+        if np.all(offset == 0):
+            raise ValueError("Seed points must not coincide (offset ≠ 0).")
+
+        # Calculate per-axis discrete distance bounds.
+        # These are the maximum grid‑index offsets
+        # along each axis needed to reach the radius when moved only along that axis.
+        # We'll use these to enumerate integer grid offsets
+        # inside each sphere’s bounding hypercube.
+        r_discrete = np.floor(neighborhood_radius / spacings).astype(int)
+
+        # Determine bounding box indices for each dimension
+        # to fully enclose both hyperspheres.
+        lower_bounds = np.minimum(-r_discrete, offset - r_discrete)
+        upper_bounds = np.maximum(r_discrete, offset + r_discrete)
+
+        # If finite, clip to grid boundaries
+        if clip_min is not None:
+            lower_bounds = np.maximum(lower_bounds, clip_min)
+            upper_bounds = np.minimum(upper_bounds, clip_max)
+
+        # Generate all integer grid indices within the bounding box.
+        # For each axis, grid_point_idx_ranges[i] is all integer indices
+        # from lower_bounds[i] to upper_bounds[i].
+        grid_point_idx_ranges = [
+            np.arange(low, high + 1) for low, high in zip(lower_bounds, upper_bounds)
+        ]
+
+        # Generate one n-dimensional array per axis,
+        # where each array holds the coordinate along that axis
+        # for every point in the hyper-rectangle.
+        grid_point_indices_per_axis = np.meshgrid(*grid_point_idx_ranges, indexing='ij')
+        # Stack these arrays along a new last axis
+        # to get a single array of shape (n_points, n_dimensions).
+        grid_point_indices = np.stack([g.flatten() for g in grid_point_indices_per_axis], axis=-1)
+
+        # Compute squared distances to both seeds
+        dist1_squared = np.sum((grid_point_indices * spacings) ** 2, axis=1)
+        dist2_squared = np.sum(((grid_point_indices - offset) * spacings) ** 2, axis=1)
+
+        # Calculate squared distance to avoid computing square roots
+        r_squared = neighborhood_radius ** 2
+        # Boolean mask for points within both spheres
+        mask = (dist1_squared <= r_squared) & (dist2_squared <= r_squared)
+        n_points = int(np.count_nonzero(mask))
+
+        # Both seed points (at indices all‐zeros and at offset)
+        # always satisfy the distance test, so they’re in the mask.
+        # We subtract 2 to exclude them,
+        # and use max(0, ...) to guard against negative counts
+        # if, for example, the offset is farther apart than distance
+        # (in which case only one or zero seeds lie in the intersection).
+        return max(0, n_points - 2)
+
     def footprint_spherical(self, radius: float) -> np.ndarray:
         """Create a spherical footprint (a.k.a. structuring element).
 
