@@ -64,7 +64,7 @@ class Modeler:
         *,
         max_distance: PositiveFloat | Sequence[PositiveFloat] | dict[str, PositiveFloat | Sequence[PositiveFloat]] | None = None,
         min_neighbors: PositiveInt | Sequence[PositiveInt] | dict[str, PositiveInt | Sequence[PositiveInt]] = tuple(range(6, 100, 4)),
-        min_members: PositiveInt | dict[str, PositiveInt] | None = None,
+        min_members: PositiveInt | dict[str, PositiveInt] = 1,
         max_members: PositiveInt | dict[str, PositiveInt] | None = None,
         weight_factor: dict[str, float] | None = None,
         center_type: Literal["function", "midpoint", "mean", "average"] | dict[str, Literal["function", "midpoint", "mean", "average"]] = "average",
@@ -129,20 +129,20 @@ class Modeler:
             threshold_include_equal=threshold_include_equal,
         )
 
-        if max_distance is None:
-            # As default, include all 26 neighbors in a 3D grid
-            # plus orthogonal second neighbors (i.e., 26 + 6 = 32 neighbors)
-            max_distance = self.field.grid.spacings[0] * 2.1
-        if min_members is None:
-            hydrogen_radius = 1.2
-            hydrogen_volume = (4/3) * np.pi * hydrogen_radius**3
-            half_hydrogen_volume = hydrogen_volume / 2
-            voxel_volume = self.field.grid.point_volume
-            min_members = int(np.ceil(half_hydrogen_volume / voxel_volume))
-        if max_members is None:
-            max_members = min_members * 5 if isinstance(min_members, int) else [
-                min_member * 5 for min_member in min_members
-            ]
+        # if max_distance is None:
+        #     # As default, include all 26 neighbors in a 3D grid
+        #     # plus orthogonal second neighbors (i.e., 26 + 6 = 32 neighbors)
+        #     max_distance = self.field.grid.spacings[0] * 2.1
+        # if min_members is None:
+        #     hydrogen_radius = 1.2
+        #     hydrogen_volume = (4/3) * np.pi * hydrogen_radius**3
+        #     half_hydrogen_volume = hydrogen_volume / 2
+        #     voxel_volume = self.field.grid.point_volume
+        #     min_members = int(np.ceil(half_hydrogen_volume / voxel_volume))
+        # if max_members is None:
+        #     max_members = min_members * 5 if isinstance(min_members, int) else [
+        #         min_member * 5 for min_member in min_members
+        #     ]
         weight_factor = ModelerCNNInput(
             weight_factor=weight_factor,
             feature_types=self.field.batch_instance_labels["feature"],
