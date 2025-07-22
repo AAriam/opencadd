@@ -62,11 +62,10 @@ class Modeler:
     def cnn(
         self,
         *,
-        max_distance: PositiveFloat | Sequence[PositiveFloat] | dict[str, PositiveFloat | Sequence[PositiveFloat]] | None = None,
-        min_neighbors: PositiveInt | Sequence[PositiveInt] | dict[str, PositiveInt | Sequence[PositiveInt]] = tuple(range(6, 100, 4)),
+        max_distance: PositiveFloat | Sequence[PositiveFloat] | dict[str, PositiveFloat | Sequence[PositiveFloat]],
+        min_neighbors: PositiveInt | Sequence[PositiveInt] | dict[str, PositiveInt | Sequence[PositiveInt]],
         min_members: PositiveInt | dict[str, PositiveInt] = 1,
         max_members: PositiveInt | dict[str, PositiveInt] | None = None,
-        weight_factor: dict[str, float] | None = None,
         center_type: Literal["function", "midpoint", "mean", "average"] | dict[str, Literal["function", "midpoint", "mean", "average"]] = "average",
         radius_type: Literal["average", "mean", "max", "min"] = "average",
         # Parameters for `self.simple`
@@ -80,7 +79,7 @@ class Modeler:
         best_per_point: bool | dict[str, bool] = False,
         threshold_value: float | dict[str, float] | None = None,
         threshold_percentile: float | dict[str, float] | None = None,
-        threshold_include_equal: bool | dict[str, bool] = True,
+        threshold_include_equal: bool | dict[str, bool] = False,
     ) -> Pharmacophore:
         """Perceive pharmacophore features using the Common Nearest Neighbors (CNN) clustering algorithm.
 
@@ -143,16 +142,11 @@ class Modeler:
         #     max_members = min_members * 5 if isinstance(min_members, int) else [
         #         min_member * 5 for min_member in min_members
         #     ]
-        weight_factor = ModelerCNNInput(
-            weight_factor=weight_factor,
-            feature_types=self.field.batch_instance_labels["feature"],
-        ).weight_factor
+
         weights = pharm.features["value"].copy()
-        for feature_type, factor in weight_factor.items():
+        # Make sure all weights are either >= 0 or <= 0
+        for feature_type in pharm.features["type"].unique()
             type_mask = pharm.features["type"] == feature_type
-            if factor is not None:
-                weights.loc[type_mask] *= factor
-            # Make sure all weights are either >= 0 or <= 0
             feature_weights = weights[type_mask]
             ge0 = feature_weights.ge(0)
             le0 = feature_weights.le(0)
@@ -188,7 +182,7 @@ class Modeler:
         best_per_point: bool | dict[str, bool] = False,
         threshold_value: float | dict[str, float] | None = None,
         threshold_percentile: float | dict[str, float] | None = None,
-        threshold_include_equal: bool | dict[str, bool] = True,
+        threshold_include_equal: bool | dict[str, bool] = False,
     ) -> Pharmacophore:
         """Perceive pharmacophore features as largest extrema in the fields.
 
