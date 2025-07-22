@@ -81,6 +81,7 @@ def _largest_peaks(
     min_distance_factors: Sequence[float] = (1.0,),
     max_features_factors: Sequence[int] = (1,),
     priority_factors: Sequence[dict[str, float] | None] = (None,),
+    threshold_values: Sequence[float | dict[str, float] | None] = (None,),
 ) -> list[dict[str, str | dict[str, Any]]]:
     out = []
     for filter_ in filters:
@@ -89,21 +90,24 @@ def _largest_peaks(
             for max_feature_factor_idx, max_feature_factor in enumerate(max_features_factors):
                 max_features_ = {k: v * max_feature_factor for k, v in max_features.items()}
                 for priority_factor_idx, priority_factor in enumerate(priority_factors):
-                    out.append(
-                        {
-                            "method": "largest_peaks",
-                            "identifier": filter_["identifier"] | {
-                                "min_distance_factor_idx": min_distance_factor_idx,
-                                "max_feature_factor_idx": max_feature_factor_idx,
-                                "priority_factor_idx": priority_factor_idx,
-                            },
-                            "kwargs": filter_["kwargs"] | {
-                                "min_distance": min_distance_,
-                                "max_features": max_features_,
-                                "priority_factor": priority_factor,
+                    for threshold_value_idx, threshold_value in enumerate(threshold_values):
+                        out.append(
+                            {
+                                "method": "largest_peaks",
+                                "identifier": filter_["identifier"] | {
+                                    "min_distance_factor_idx": min_distance_factor_idx,
+                                    "max_feature_factor_idx": max_feature_factor_idx,
+                                    "priority_factor_idx": priority_factor_idx,
+                                    "threshold_value_idx": threshold_value_idx,
+                                },
+                                "kwargs": filter_["kwargs"] | {
+                                    "min_distance": min_distance_,
+                                    "max_features": max_features_,
+                                    "priority_factor": priority_factor,
+                                    "threshold_value": threshold_value,
+                                }
                             }
-                        }
-                    )
+                        )
     return out
 
 
