@@ -522,7 +522,9 @@ class Manager:
                 ligand_mask=ligand_mask,
                 ligand_radii=None,
                 ligand_radii_offset=self.pocket_params["ligand_radii_offset"],
-                erosion_radius=self.pocket_params.get("erosion_radius", 0),
+                erosion_radius=self.pocket_params["erosion_radius"],
+                opening_radius=self.pocket_params["opening_radius"],
+                morphology_order=self.pocket_params.get("morphology_order", ("opening", "erosion")),
                 grid=self.pocket_params["grid_spacing"],
             )
             pocket.to_npz(filepath=filepath_pocket)
