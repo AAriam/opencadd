@@ -9,7 +9,7 @@ from t2fpharm import Pharmacophore
 
 
 if TYPE_CHECKING:
-    from typing import Any, Sequence, Literal
+    from typing import Any, Literal
     from t2fpharm import Modeler
     from t2fpharm_study.typing import PDBID
 
