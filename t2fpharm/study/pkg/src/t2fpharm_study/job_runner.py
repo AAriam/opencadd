@@ -7,6 +7,7 @@ import pandas as pd
 
 from t2fpharm import Pharmacophore
 
+from t2fpharm_study.io import write_pharm_df
 
 if TYPE_CHECKING:
     from typing import Any, Literal
@@ -166,20 +167,18 @@ def _run_single(
     matches["job_idx"] = job_idx
 
     if dirpath_features:
-        pharm.features.to_parquet(
-            path=Path(dirpath_features) / f"{target_pdb_id}_{job_idx}.parquet",
-            engine="pyarrow",
-            compression="zstd",
-            compression_level=3,
-            index=False,
+        write_pharm_df(
+            df=pharm.features,
+            dirpath=dirpath_features,
+            pdb_id=target_pdb_id,
+            job_idx=job_idx,
         )
     if dirpath_matches:
-        matches.to_parquet(
-            path=Path(dirpath_matches) / f"{target_pdb_id}_{job_idx}.parquet",
-            engine="pyarrow",
-            compression="zstd",
-            compression_level=3,
-            index=False,
+        write_pharm_df(
+            df=matches,
+            dirpath=dirpath_matches,
+            pdb_id=target_pdb_id,
+            job_idx=job_idx,
         )
     return summary, pharm, matches
 
