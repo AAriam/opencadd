@@ -145,7 +145,7 @@ class Modeler:
 
         weights = pharm.features["value"].copy()
         # Make sure all weights are either >= 0 or <= 0
-        for feature_type in pharm.features["type"].unique()
+        for feature_type in pharm.features["type"].unique():
             type_mask = pharm.features["type"] == feature_type
             feature_weights = weights[type_mask]
             ge0 = feature_weights.ge(0)
