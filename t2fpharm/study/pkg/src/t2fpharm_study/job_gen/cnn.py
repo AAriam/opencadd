@@ -32,7 +32,7 @@ def generate(
     filter_percentiles: Sequence[float] | None = None,
     filter_gaussian_sigma_factors: Sequence[float] | None = None,
 
-) -> list[dict[str, str | dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Generate inputs for the `t2fpharm.Modeler.cnn` method."""
 
     max_members_data = _max_members(
