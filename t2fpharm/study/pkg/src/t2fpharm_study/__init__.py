@@ -25,9 +25,11 @@ def manager(
     dirpath_field: Path | str = "field",
     dirpath_ligand_plip: Path | str = "ligand/plip",
     dirpath_ligand_features: Path | str = "ligand/features",
-    dirpath_results: Path | str = "results",
+    dirpath_jobs: Path | str = "job",
+    dirname_job_pharms: str = "pharm",
+    dirname_job_matches: str = "match",
 ) -> Manager:
-    """Load the manager.
+    """Create a manager.
 
     Parameters
     ----------
@@ -94,7 +96,9 @@ def manager(
         dirpath_field=dirpath_field,
         dirpath_ligand_plip=dirpath_ligand_plip,
         dirpath_ligand_features=dirpath_ligand_features,
-        dirpath_results=dirpath_results,
+        dirpath_jobs=dirpath_jobs,
+        dirname_job_pharms=dirname_job_pharms,
+        dirname_job_matches=dirname_job_matches,
     )
 
 
