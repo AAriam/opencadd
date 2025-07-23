@@ -9,7 +9,7 @@ from t2fpharm import Pharmacophore
 
 
 if TYPE_CHECKING:
-    from typing import Any, Sequence
+    from typing import Any, Sequence, Literal
     from t2fpharm import Modeler
     from t2fpharm_study.typing import PDBID
 
@@ -18,235 +18,225 @@ def run(
     modeler: Modeler,
     ligand_pharms: dict[PDBID, Pharmacophore],
     target_pdb_id: str,
-    job_idx: int,
-    method: str,
-    kwargs: dict[str, Any],
-    feature_types: list[str],
-    filepath_features: Path | str | None = None,
-    filepath_matches: Path | str | None = None,
+    method: Literal["largest_peaks", "cnn"],
+    job: dict[str, Any],
+    dirpath_features: Path | str | None = None,
+    dirpath_matches: Path | str | None = None,
     return_pharm: bool = True,
     return_matches: bool = True,
 ):
     try:
-        # Calculate target pharmacophore
-        func = getattr(modeler, method)
-        target_pharm = func(**{k: v for k, v in kwargs.items() if k != "min_members_percents"})
-        # Save target pharmacophore
-        if filepath_features:
-            target_pharm.features.to_parquet(
-                path=Path(filepath_features),
-                engine="pyarrow",
-                compression="zstd",
-                compression_level=3,
-                index=False,
-            )
-
-        # Generate target pharmacophore summary
-        summary, matches = _analyze(
-            target_pharm=target_pharm,
+        summaries, pharms, matches = _run(
+            modeler=modeler,
             ligand_pharms=ligand_pharms,
             target_pdb_id=target_pdb_id,
             method=method,
-            feature_types=feature_types,
-            max_members=kwargs.get("max_members"),
-            min_members_percents=kwargs.get("min_members_percents"),
-            filepath_matches=filepath_matches,
+            job=job,
+            dirpath_features=dirpath_features,
+            dirpath_matches=dirpath_matches,
         )
-        summary["job-idx"] = job_idx
     except Exception as e:
         raise RuntimeError(
-            f"Error running job {job_idx} for PDB ID {target_pdb_id} with method {method}: {e}"
+            f"Error running job {job["job_idx"]} for PDB ID {target_pdb_id} with method {method}: {e}"
         ) from e
-
     # Prepare output
-    output = [summary]
+    output = [summaries]
     if return_pharm:
-        output.append(target_pharm)
+        output.append(pharms)
     if return_matches:
-        matches["job_idx"] = job_idx
         output.append(matches)
     return tuple(output)
 
 
-def _analyze(
-    target_pharm: Pharmacophore,
+def _run(
+    modeler: Modeler,
     ligand_pharms: dict[PDBID, Pharmacophore],
-    target_pdb_id: PDBID,
-    method: str,
-    feature_types: list[str],
-    max_members: dict[str, int] | None = None,
-    min_members_percents: Sequence[float] | None = None,
-    filepath_matches: Path | str | None = None,
-) -> tuple[dict[str, Any], pd.DataFrame]:
+    target_pdb_id: str,
+    method: Literal["largest_peaks", "cnn"],
+    job: dict[str, Any],
+    dirpath_features: Path | str | None = None,
+    dirpath_matches: Path | str | None = None,
+):
+    summaries = []
+    pharms = []
+    matches = []
     if method == "largest_peaks":
-        pharm_summary = _pharm_summary_lp(
-            features=target_pharm.features,
-            feature_types=feature_types,
+        pharm = modeler.largest_peaks(
+            min_distance=job["min_distance"],
+            priority_factor=job["priority_factor"],
+            max_features=job["max_features"],
+            filter_function=job["filter_function"],
+            filter_radius=job.get("filter_radius"),
+            filter_extension_mode="constant",
+            filter_extension_constant_value=0,
+            filter_gaussian_sigma=job.get("filter_gaussian_sigma"),
+            filter_percentile=job.get("filter_percentile", 0),
+            peak_type=job.get("peak_type", "min"),
+            best_per_point=False,
+            threshold_value=job.get("threshold_value"),
+            threshold_percentile=job.get("threshold_percentile"),
+            threshold_include_equal=False,
         )
-        # Calculate matches with ligand pharmacophores
-        matches = _matches_df(
-            target_pharm=target_pharm,
+        summary, pharm, match = _run_single(
+            pharm=pharm,
             ligand_pharms=ligand_pharms,
             target_pdb_id=target_pdb_id,
-            method=method,
+            job_idx=job["job_idx"],
+            include_radii=False,
+            dirpath_features=dirpath_features,
+            dirpath_matches=dirpath_matches,
         )
-        matches_summary = _calculate_matches_summary(matches)
-    else:
-        pharm_summary = _pharm_summary_cnn(
-            features=target_pharm.features,
-            feature_types=feature_types,
-            cluster_min_members_id="1"
-        )
-        matches_all = _matches_df(
-            target_pharm=target_pharm,
-            ligand_pharms=ligand_pharms,
-            target_pdb_id=target_pdb_id,
-            method=method,
-        )
-        matches_all["min_members"] = "1"
-        matches_summary = _calculate_matches_summary(
-            matches=matches_all,
-            cluster_min_members_id="1"
-        )
-        matches_dfs = [matches_all]
-        for percent in (min_members_percents or []):
-            min_members = {
-                feature_type: int((percent / 100) * feature_max_members)
-                for feature_type, feature_max_members in max_members.items()
-            }
-            min_members_per_feature = target_pharm.features["type"].map(min_members)
-            mask = target_pharm.features["n_members"] >= min_members_per_feature
-            allowed_features = target_pharm.features[mask]
-            pharm_summary.update(
-                _pharm_summary_cnn(
-                    features=allowed_features,
-                    feature_types=feature_types,
-                    cluster_min_members_id=f"{percent}%"
-                )
+        summaries.append(summary)
+        pharms.append(pharm)
+        matches.append(match)
+        return summaries, pharms, matches
+    pharm_base = modeler.cnn(
+        max_distance=job["max_distance"],
+        min_neighbors=job["min_neighbors"],
+        min_members=1,
+        max_members=job["max_members"],
+        filter_function=job["filter_function"],
+        filter_radius=job.get("filter_radius"),
+        filter_extension_mode="constant",
+        filter_extension_constant_value=0,
+        filter_gaussian_sigma=job.get("filter_gaussian_sigma"),
+        filter_percentile=job.get("filter_percentile", 0),
+        peak_type=job.get("peak_type", "min"),
+        best_per_point=job["best_per_point"],
+        threshold_value=job["threshold_value"],
+        threshold_percentile=job["threshold_percentile"],
+        threshold_include_equal=False,
+    )
+    features = pharm_base.features
+    job_idx = job["job_idx"]
+    for min_members in job["min_members_dicts"]:
+        min_members_per_feature = features["type"].map(min_members)
+        mask = features["n_members"] >= min_members_per_feature
+        features_filtered = features[mask]
+        for center_type in job["center_types"]:
+            features_filtered["value"] = features_filtered[f"value_{center_type}"]
+            features_filtered["center"] = features_filtered[f"center_{center_type}"]
+            features_filtered["radius"] = features_filtered[f"radius_{center_type}_max"]
+            features_final = features_filtered[["instance", "type", "label", "center", "radius", "value", "n_members"]]
+            pharm = Pharmacophore(
+                features=features_final,
+                feature_types=pharm_base.feature_types,
             )
-            subset_pharm = Pharmacophore(
-                features=allowed_features,
-                feature_types=target_pharm.feature_types,
-            )
-            matches_df = _matches_df(
-                target_pharm=subset_pharm,
+            summary, pharm, match = _run_single(
+                pharm=pharm,
                 ligand_pharms=ligand_pharms,
                 target_pdb_id=target_pdb_id,
-                method=method,
+                job_idx=job_idx,
+                include_radii=True,
+                dirpath_features=dirpath_features,
+                dirpath_matches=dirpath_matches,
             )
-            matches_df["min_members"] = f"{percent}%"
-            matches_dfs.append(matches_df)
-            matches_summary.update(
-                _calculate_matches_summary(
-                    matches=matches_df,
-                    cluster_min_members_id=f"{percent}%"
-                )
-            )
-        matches = pd.concat(matches_dfs, ignore_index=True)
+            summaries.append(summary)
+            pharms.append(pharm)
+            matches.append(match)
+            job_idx += 1
+    return summaries, pharms, matches
 
-    if filepath_matches:
-        matches.to_parquet(
-            path=Path(filepath_matches),
+
+def _run_single(
+    pharm: Pharmacophore,
+    ligand_pharms: dict[PDBID, Pharmacophore],
+    target_pdb_id: str,
+    job_idx: int,
+    include_radii: bool,
+    dirpath_features: Path | str | None = None,
+    dirpath_matches: Path | str | None = None,
+):
+    pharm_summary = _pharm_summary(
+        features=pharm.features,
+        feature_types=pharm.feature_types,
+        include_radii=include_radii,
+    )
+    matches = _match_df(
+        target_pharm=pharm,
+        ligand_pharms=ligand_pharms,
+    )
+    matches["target_pdb_id"] = target_pdb_id
+    matches_summary = _match_summary(matches)
+
+    pharm_summary["pdb_id"] = target_pdb_id
+    summary = pharm_summary | matches_summary
+
+    summary["job_idx"] = job_idx
+    matches["job_idx"] = job_idx
+
+    if dirpath_features:
+        pharm.features.to_parquet(
+            path=Path(dirpath_features) / f"{target_pdb_id}_{job_idx}.parquet",
             engine="pyarrow",
             compression="zstd",
             compression_level=3,
             index=False,
         )
-
-    pharm_summary["pdb_id"] = target_pdb_id
-    summary = pharm_summary | matches_summary
-    return summary, matches
-
-
-def _pharm_summary_lp(
-    features: pd.DataFrame,
-    feature_types: list[str],
-):
-    summary = _pharm_summary_feature_counts(
-        features=features,
-        feature_types=feature_types,
-    )
-    if len(features) == 0:
-        return summary
-    available_feature_types = features["type"].unique()
-    values = features["value"]
-    summary.update(
-        {
-            "value-all_types-min": float(values.min()),
-            "value-all_types-max": float(values.max()),
-            "value-all_types-mean": float(values.mean()),
-        }
-    )
-    for feature_type in available_feature_types:
-        values = features[features["type"] == feature_type]["value"]
-        summary.update(
-            {
-                f"value-{feature_type}-min": float(values.min()),
-                f"value-{feature_type}-max": float(values.max()),
-                f"value-{feature_type}-mean": float(values.mean()),
-            }
+    if dirpath_matches:
+        matches.to_parquet(
+            path=Path(dirpath_matches) / f"{target_pdb_id}_{job_idx}.parquet",
+            engine="pyarrow",
+            compression="zstd",
+            compression_level=3,
+            index=False,
         )
-    return summary
+    return summary, pharm, matches
 
 
-def _pharm_summary_cnn(
+def _pharm_summary(
     features: pd.DataFrame,
     feature_types: list[str],
-    cluster_min_members_id: str,
+    include_radii: bool,
 ):
-    def calculate(
-        values: pd.Series,
-        radii: pd.Series,
-        feature_type: str,
-        center_type: str,
-    ) -> dict[str, float]:
-        return {
-            f"value-{cluster_min_members_id}_member-{feature_type}-{center_type}-min": float(values.min()),
-            f"value-{cluster_min_members_id}_member-{feature_type}-{center_type}-max": float(values.max()),
-            f"value-{cluster_min_members_id}_member-{feature_type}-{center_type}-mean": float(values.mean()),
-            f"radius-{cluster_min_members_id}_member-{feature_type}-{center_type}-min": float(radii.min()),
-            f"radius-{cluster_min_members_id}_member-{feature_type}-{center_type}-max": float(radii.max()),
-            f"radius-{cluster_min_members_id}_member-{feature_type}-{center_type}-mean": float(radii.mean()),
-        }
-
-    summary = _pharm_summary_feature_counts(
-        features=features,
-        feature_types=feature_types,
-        cluster_min_members_id=cluster_min_members_id,
-    )
-    if len(features) == 0:
-        return summary
-    available_feature_types = features["type"].unique()
-    for center_type in ("midpoint", "mean", "average"):
-        values = features[f"value_{center_type}"]
-        radii = features[f"radius_{center_type}_max"]
-        summary.update(calculate(values, radii, feature_type="all_types", center_type=center_type))
-        for feature_type in available_feature_types:
-            type_mask = features["type"] == feature_type
-            type_values = values[type_mask]
-            type_radii = radii[type_mask]
-            summary.update(calculate(type_values, type_radii, feature_type=feature_type, center_type=center_type))
-    return summary
-
-
-def _pharm_summary_feature_counts(
-    features: pd.DataFrame,
-    feature_types: list[str],
-    cluster_min_members_id: str | None = None,
-):
-    def name(feature_type: str) -> str:
-        return f"n-{cluster_min_members_id}_member-{feature_type}" if cluster_min_members_id else f"n-{feature_type}"
-    return {name("all_types"): len(features)} | {
-        name(feature_type): int(features["type"].eq(feature_type).sum())
+    n_features = len(features)
+    summary = {"n-t_all": n_features} | {
+        f"n-t_{feature_type}": int(features["type"].eq(feature_type).sum())
         for feature_type in feature_types
     }
+    if n_features == 0:
+        return summary
+    available_feature_types = features["type"].unique()
+    summary_all_types = _pharm_summary_feature_type(
+        values=features["value"],
+        radii=features["radius"] if include_radii else None,
+        feature_type="all",
+    )
+    summary.update(summary_all_types)
+    for feature_type in available_feature_types:
+        type_features = features[features["type"] == feature_type]
+        type_summary = _pharm_summary_feature_type(
+            values=type_features["value"],
+            radii=type_features["radius"] if include_radii else None,
+            feature_type=feature_type,
+        )
+        summary.update(type_summary)
+    return summary
 
 
-def _matches_df(
+def _pharm_summary_feature_type(
+    values: pd.Series,
+    feature_type: str,
+    radii: pd.Series | None = None,
+):
+    summary = {
+        f"v_min-t_{feature_type}": float(values.min()),
+        f"v_max-t_{feature_type}": float(values.max()),
+        f"v_mean-t_{feature_type}": float(values.mean()),
+    }
+    if radii is not None:
+        summary_radii = {
+            f"r_min-t_{feature_type}": float(radii.min()),
+            f"r_max-t_{feature_type}": float(radii.max()),
+            f"r_mean-t_{feature_type}": float(radii.mean()),
+        }
+        summary.update(summary_radii)
+    return summary
+
+
+def _match_df(
     target_pharm: Pharmacophore,
     ligand_pharms: dict[PDBID, Pharmacophore],
-    target_pdb_id: PDBID,
-    method: str,
 ) -> pd.DataFrame:
     """Calculate matches between receptor and ligand pharmacophores."""
     def calculate(
@@ -258,121 +248,57 @@ def _matches_df(
             .drop(columns=["instance", "target_instance", "radius_sum"])
             .rename(columns={"label": "ligand_label"})
         )
-
     matches_dfs = []
     for ligand_pdb_id, ligand_pharm in ligand_pharms.items():
-        if method == "largest_peaks":
-            matches = calculate(target_pharm=target_pharm, ligand_pharm=ligand_pharm)
-        else:
-            center_type_matches_df = []
-            target_features = target_pharm.features.copy()
-            for center_type in ("midpoint", "mean", "average"):
-                target_features["center"] = target_features[f"center_{center_type}"]
-                target_pharm_center = Pharmacophore(
-                    features=target_features,
-                    feature_types=target_pharm.feature_types,
-                )
-                matches_center = calculate(
-                    target_pharm=target_pharm_center,
-                    ligand_pharm=ligand_pharm
-                )
-                matches_center["center_type"] = center_type
-                center_type_matches_df.append(matches_center)
-            matches = pd.concat(center_type_matches_df, ignore_index=True)
+        matches = calculate(target_pharm=target_pharm, ligand_pharm=ligand_pharm)
         matches["ligand_pdb_id"] = ligand_pdb_id
         matches_dfs.append(matches)
-    matches_df = pd.concat(matches_dfs, ignore_index=True)
-    matches_df["target_pdb_id"] = target_pdb_id
-    return matches_df
+    return pd.concat(matches_dfs, ignore_index=True)
 
 
-def _calculate_matches_summary(
-    matches: pd.DataFrame,
-    cluster_min_members_id: str | None = None,
-) -> dict[str, Any]:
-    matches_total = _calculate_match_summary(
+def _match_summary(matches: pd.DataFrame) -> dict[str, Any]:
+    matches_total = _match_summary_ligand_type(
         matches,
-        ligand_type="all_ligands",
-        cluster_min_members_id=cluster_min_members_id
+        ligand_type="all",
     )
-    matches_self = _calculate_match_summary(
+    matches_self = _match_summary_ligand_type(
         matches[matches["ligand_pdb_id"] == matches["target_pdb_id"]],
-        ligand_type="self_ligand",
-        cluster_min_members_id=cluster_min_members_id
+        ligand_type="self",
     )
     return matches_total | matches_self
 
 
-def _calculate_match_summary(
+def _match_summary_ligand_type(
     matches: pd.DataFrame,
     ligand_type: str,
-    cluster_min_members_id: str | None = None,
 ) -> dict[str, Any]:
-    out = _calculate_feature_match_summary(
+    out = _match_summary_feature_type(
         matches,
         ligand_type=ligand_type,
-        feature_type="all_types",
-        cluster_min_members_id=cluster_min_members_id
+        feature_type="all",
     )
     for feature_type in matches["type"].unique():
-        out_type = _calculate_feature_match_summary(
+        out_type = _match_summary_feature_type(
             matches,
             ligand_type=ligand_type,
             feature_type=feature_type,
-            cluster_min_members_id=cluster_min_members_id
         )
         out.update(out_type)
     return out
 
 
-def _calculate_feature_match_summary(
+def _match_summary_feature_type(
     matches: pd.DataFrame,
     ligand_type: str,
     feature_type: str,
-    cluster_min_members_id: str | None = None,
-) -> dict[str, Any]:
-    n_ligand_features = len(matches)
-    out = {f"match-{ligand_type}-{feature_type}-count": n_ligand_features}
-    if "center_type" in matches:
-        for center_type in matches["center_type"].unique():
-            summary = _calculate_ligand_feature_center_match_summary(
-                matches[matches["center_type"] == center_type],
-                ligand_type=ligand_type,
-                feature_type=feature_type,
-                center_type=f"{center_type}_center",
-                cluster_min_members_id=cluster_min_members_id,
-            )
-            out.update(summary)
-    else:
-        summary = _calculate_ligand_feature_center_match_summary(
-            matches=matches,
-            ligand_type=ligand_type,
-            feature_type=feature_type,
-            cluster_min_members_id=cluster_min_members_id,
-        )
-        out.update(summary)
-    return out
-
-
-def _calculate_ligand_feature_center_match_summary(
-    matches: pd.DataFrame,
-    ligand_type: str,
-    feature_type: str,
-    center_type: str | None = None,
-    cluster_min_members_id: str | None = None,
 ) -> dict[str, Any]:
     def name(dist_type: str) -> str:
-        out = "match"
-        if cluster_min_members_id:
-            out += f"-{cluster_min_members_id}_min_members"
-        out += f"-{ligand_type}-{feature_type}"
-        if center_type:
-            out += f"-{center_type}"
-        out += f"-dist-{dist_type}"
-        return out
+        return f"m-l_{ligand_type}-t_{feature_type}-d_{dist_type}"
+
     n_ligand_features = len(matches)
     dists = matches["distance"]
-    out = {
+    return {
+        f"m-l_{ligand_type}-t_{feature_type}-count": n_ligand_features,
         name("min"): float(dists.min()),
         name("max"): float(dists.max()),
         name("mean"): float(dists.mean()) if dists.notna().any() else float("nan"),
@@ -382,4 +308,3 @@ def _calculate_ligand_feature_center_match_summary(
         name("lt2"): float((dists < 2.0).sum()) / n_ligand_features,
         name("lt3"): float((dists < 3.0).sum()) / n_ligand_features,
     }
-    return out
