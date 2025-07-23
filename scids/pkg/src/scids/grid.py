@@ -342,7 +342,9 @@ class Grid:
             `(i + point1[0], j + point1[1], k + point1[2], ...)`.
             If `point2` is provided, `point1` and `point2` must
             be valid grid indices, and the number of common neighbors
-            is calculated on the finite grid.
+            is calculated on the finite grid,
+            i.e., two points at grid boundaries will have less common neighbors
+            than two points with the same distance but in the middle of the grid.
 
         Returns
         -------
