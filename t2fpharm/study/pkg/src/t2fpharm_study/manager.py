@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 import shutil
-from typing import Any, Sequence, Literal, TypeAlias
+from typing import Any, Sequence, Literal
 import copy
 import json
 
@@ -21,7 +21,8 @@ import caddpy
 
 import t2fpharm
 
-from t2fpharm_study.job_gen import create_job_inputs
+from t2fpharm import io
+from t2fpharm_study.job_gen import generate_job_inputs
 from t2fpharm_study.job_runner import run
 from t2fpharm_study.typing import PDBID
 
@@ -38,18 +39,20 @@ class Manager:
         job_inputs: dict[str, dict[str, Any]],
         group_color: dict[str, dict[str, str]],
         dirpath_data: Path,
-        dirpath_pdb_raw: Path | str = "structure/1-pdb-raw",
-        dirpath_pdb_fixed: Path | str = "structure/2-pdb-fixed",
-        dirpath_pdb_aligned: Path | str = "structure/3-pdb-aligned",
-        dirpath_pdb_apo: Path | str = "structure/4-pdb-apo",
-        dirpath_pdbqt: Path | str = "structure/5-pdbqt",
-        dirpath_affinity: Path | str = "affinity",
-        dirpath_pocket: Path | str = "pocket",
-        dirpath_autogrid: Path | str = "autogrid",
-        dirpath_field: Path | str = "field",
-        dirpath_ligand_plip: Path | str = "ligand/plip",
-        dirpath_ligand_features: Path | str = "ligand/features",
-        dirpath_results: Path | str = "results",
+        dirpath_pdb_raw: Path | str,
+        dirpath_pdb_fixed: Path | str,
+        dirpath_pdb_aligned: Path | str,
+        dirpath_pdb_apo: Path | str,
+        dirpath_pdbqt: Path | str,
+        dirpath_affinity: Path | str,
+        dirpath_pocket: Path | str,
+        dirpath_autogrid: Path | str,
+        dirpath_field: Path | str,
+        dirpath_ligand_plip: Path | str,
+        dirpath_ligand_features: Path | str,
+        dirpath_jobs: Path | str,
+        dirname_job_pharms: str,
+        dirname_job_matches: str,
     ):
         self._data = dataset
         self.pocket_params = pocket_inputs
@@ -57,6 +60,10 @@ class Manager:
         self.job_params = job_inputs
         self._group_color = group_color
         self.dirpath_data = Path(dirpath_data)
+        self._dirname = {
+            "job_pharms": dirname_job_pharms,
+            "job_matches": dirname_job_matches,
+        }
         self._path = {
             "pdb_raw": dirpath_pdb_raw,
             "pdb_fixed": dirpath_pdb_fixed,
@@ -70,12 +77,10 @@ class Manager:
             "ligand_plip": dirpath_ligand_plip,
             "ligand_features": dirpath_ligand_features,
 
-            "results": dirpath_results,
+            "results": dirpath_jobs,
 
-            "results_job_inputs": f"{dirpath_results}/jobs",
-            "results_summary": f"{dirpath_results}/summary",
-            "results_pharm": f"{dirpath_results}/pharmacophore",
-            "results_matches": f"{dirpath_results}/matches",
+            "results_job_inputs": f"{dirpath_jobs}/jobs",
+            "results_summary": f"{dirpath_jobs}/summary",
         }
         self._file_ext = {
             "pdb_raw": "pdb",
@@ -96,6 +101,7 @@ class Manager:
         self._pdb = None
         self._cache_enabled = True
         self._cache = {}
+        self.grid: dict[str, t2fpharm.Grid] = {}
         return
 
     @property
@@ -243,7 +249,8 @@ class Manager:
             summary_df = pd.DataFrame(columns=["pdb_id", "job_idx"])
 
         # Get job inputs
-        jobs = self.job_inputs(job_name=job_name)
+        jobs = self._job_inputs(job_name=job_name, grouped=True)
+        method = self.job_params[job_name]["method"]
 
         # Prepare jobs
         ligand_pharms: dict[PDBID, t2fpharm.pharm_ligand.LigandPharmacophore] = {}
@@ -267,7 +274,8 @@ class Manager:
                     modeler = ray.put(self.modeler(pdb_id))
                     if not caching_was_enabled:
                         self._cache = {}
-                    for job_idx, job in enumerate(jobs):
+                    for job in jobs:
+                        job_idx = job["job_idx"]
                         if (summary_df["pdb_id"].eq(pdb_id) & summary_df["job_idx"].eq(job_idx)).any():
                             pbar.update(1)
                             continue
@@ -275,12 +283,10 @@ class Manager:
                             modeler=modeler,
                             ligand_pharms=ligand_pharms,
                             target_pdb_id=pdb_id,
-                            job_idx=job_idx,
-                            method=job["method"],
-                            kwargs=job["kwargs"],
-                            feature_types=self.field_params["ligand_types"],
-                            filepath_features=str(self.path_results(job_name=job_name, filetype="pharm", pdb_id=pdb_id, job_idx=job_idx)),
-                            filepath_matches=str(self.path_results(job_name=job_name, filetype="matches", pdb_id=pdb_id, job_idx=job_idx)),
+                            method=method,
+                            job=job,
+                            dirpath_features=str(self.job_dirpath(job_name, dirtype="pharms")),
+                            dirpath_matches=str(self.job_dirpath(job_name, dirtype="matches")),
                             return_pharm=False,
                             return_matches=False,
                         )
@@ -296,30 +302,29 @@ class Manager:
             summary_path.write_text("")
 
         # Gather job results
+        future_batch_size = len(jobs[0].get("min_members_dicts", [None])) * len(jobs[0].get("center_types", [None]))
         write_batch_size = 100
         count = 0
         remaining_futures = futures[:]
-        with summary_path.open("a") as f, tqdm(total=len(futures), desc="Running jobs", unit="job") as pbar:
+        with summary_path.open("a") as f, tqdm(
+            total=len(futures) * future_batch_size,
+            desc="Running jobs",
+            unit="job"
+        ) as pbar:
             while remaining_futures:
                 done_futures, remaining_futures = ray.wait(remaining_futures, num_returns=1)
-                summary = ray.get(done_futures[0])[0]
-                pdb_id = summary["pdb_id"]
-                job_index = summary["job-idx"]
+                summaries = ray.get(done_futures[0])[0]
+                pdb_id = summaries[0]["pdb_id"]
                 group_id = self.group_id(pdb_id)
-                summary.update(
-                    {
-                        "group_id": group_id,
-                        "job-method": jobs[job_index]["method"],
-                        **{f"job-{k}": v for k, v in jobs[job_index]["identifier"].items()},
-                    }
-                )
-                f.write(json.dumps(summary, separators=(",", ":")) + "\n")
-                count += 1
-                if count == write_batch_size:
+                for summary in summaries:
+                    summary.update({"group_id": group_id})
+                    f.write(json.dumps(summary, separators=(",", ":")) + "\n")
+                    count += 1
+                if count >= write_batch_size:
                     f.flush()
                     os.fsync(f.fileno())
                     count = 0
-                pbar.update(1)
+                pbar.update(1 * future_batch_size)
             f.flush()
             os.fsync(f.fileno())
         return self.job_summary(job_name=job_name)
@@ -329,50 +334,64 @@ class Manager:
         if not path.is_file():
             raise FileNotFoundError(f"Summary file not found: {path}")
         df = pd.read_json(path, lines=True).convert_dtypes()
-        main_cols = ["job-method", "job-idx", "group_id", "pdb_id"]
+        main_cols = ["job_idx", "group_id", "pdb_id"]
         extra_cols = sorted([col for col in df.columns if col not in main_cols])
         all_cols = main_cols + extra_cols
-        df_final = df[all_cols].sort_values(["job-method", "job-idx", "group_id", "pdb_id"]).reset_index(drop=True)
+        df_final = df[all_cols].sort_values(main_cols).reset_index(drop=True)
         return df_final
 
-    def job_inputs(self, job_name: str) -> list[dict[str, Any]]:
+    def _job_inputs(self, job_name: str, grouped: bool) -> list[dict[str, Any]]:
         """Get the inputs for a given job."""
-        path = self.path_results(job_name=job_name, filetype="inputs")
-        if path.is_file():
-            jobs = pyserials.read.yaml_from_file(path)
-            for job in jobs:
-                if "min_distance" in job["kwargs"]:
-                    job["kwargs"]["min_distance"] = {
-                        tuple(k.split("__")): v
-                        for k, v in job["kwargs"]["min_distance"].items()
-                    }
-            return jobs
-
         job_spec = self.job_params.get(job_name)
         if job_spec is None:
             raise ValueError(f"Job '{job_name}' not found in job parameters.")
-        if "cnn" in job_spec:
-            job_spec["cnn"]["grid_spacing"] = self.pocket_params["grid_spacing"]
-            job_spec["cnn"]["grid_unique_distances"] = self.field(pdb_id=self.dataset["pdb_id"].iloc[0]).grid.unique_distances
-        jobs = create_job_inputs(**job_spec)
-        jobs_serialized = copy.deepcopy(jobs)
-        for job in jobs_serialized:
-            if "min_distance" in job["kwargs"]:
-                job["kwargs"]["min_distance"] = {f"{k[0]}__{k[1]}":v for k, v in job["kwargs"]["min_distance"].items()}
-        pyserials.write.to_yaml_file(
-            data=jobs_serialized,
-            path=path,
-        )
-        return jobs
+        method = job_spec["method"]
+        filetype = "jobs" if method == "largest_peaks" or not grouped else "inputs"
+        path = self.path_results(job_name=job_name, filetype=filetype)
+        if path.is_file():
+            jobs = pyserials.read.yaml_from_file(path)
+            if method == "largest_peaks":
+                for job in jobs:
+                    job["min_distance_base"] = {
+                        tuple(k.split("__")): v
+                        for k, v in job["min_distance_base"].items()
+                    }
+            return jobs
+        if method == "cnn":
+            # Add a `Grid` object to the job spec.
+            # The grid is only required to get the spacing,
+            # unique distances, and number of common neighbors,
+            # all of which are only dependent on the grid spacing.
+            # Since grid spacing is constant for all entries,
+            # it doesn't matter which PDB ID we use here.
+            job_spec["grid"] = self.grid(pdb_id=self.dataset["pdb_id"].iloc[0])
+        single_jobs, grouped_jobs = generate_job_inputs(**job_spec)
+        if method == "largest_peaks":
+            jobs_serialized = copy.deepcopy(single_jobs)
+            for job in jobs_serialized:
+                job["min_distance_base"] = {f"{k[0]}__{k[1]}":v for k, v in job["min_distance_base"].items()}
+            pyserials.write.to_yaml_file(
+                data=jobs_serialized,
+                path=path,
+            )
+        else:
+            pyserials.write.to_yaml_file(
+                data=single_jobs,
+                path=self.path_results(job_name=job_name, filetype="jobs"),
+            )
+            pyserials.write.to_yaml_file(
+                data=grouped_jobs,
+                path=self.path_results(job_name=job_name, filetype="inputs"),
+            )
+        return grouped_jobs if grouped else single_jobs
 
     def job_pharmacophore(self, job_name: str, pdb_id: str, job_idx: int) -> t2fpharm.Pharmacophore:
         """Get the pharmacophore for a given job and PDB ID."""
-        filepath = self.path_results(job_name=job_name, filetype="pharm", pdb_id=pdb_id, job_idx=job_idx)
-        if not filepath.is_file():
-            raise FileNotFoundError(f"Pharmacophore file not found: {filepath}")
-        features = pd.read_parquet(filepath, engine="pyarrow")
-        if features['label'].dtype == object:
-            features['label'] = features['label'].apply(tuple)
+        features = io.read_pharm_df(
+            dirpath=self.job_dirpath(job_name, "pharms"),
+            pdb_id=pdb_id,
+            job_idx=job_idx,
+        )
         return t2fpharm.Pharmacophore(
             features=features,
             feature_types=self.field_params["ligand_types"],
@@ -383,13 +402,22 @@ class Manager:
 
     def job_matches(self, job_name: str, pdb_id: str, job_idx: int) -> pd.DataFrame:
         """Get the matches for a given job and PDB ID."""
-        filepath = self.path_results(job_name=job_name, filetype="matches", pdb_id=pdb_id, job_idx=job_idx)
-        if not filepath.is_file():
-            raise FileNotFoundError(f"Matches file not found: {filepath}")
-        matches = pd.read_parquet(filepath, engine="pyarrow")
-        if matches['target_label'].dtype == object:
-            matches['target_label'] = matches['target_label'].apply(tuple)
+        matches = io.read_pharm_df(
+            dirpath=self.job_dirpath(job_name, "matches"),
+            pdb_id=pdb_id,
+            job_idx=job_idx,
+        )
         return matches
+
+    def job_dirpath(self, job_name: str, dirtype: Literal["root", "pharms", "matches"] = "root") -> Path:
+        """Get the directory path for a given job."""
+        root_path = self.dirpath_data / self._path["results"] / job_name
+        if dirtype == "root":
+            root_path.mkdir(parents=True, exist_ok=True)
+            return root_path
+        path = root_path / self._dirname[f"job_{dirtype}"]
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     def pdb_raw(self, pdb_id: str) -> scifile.pdb.PDBFile:
         cached = self._cache.get(pdb_id, {}).get("pdb_raw")
@@ -525,12 +553,57 @@ class Manager:
                 erosion_radius=self.pocket_params["erosion_radius"],
                 opening_radius=self.pocket_params["opening_radius"],
                 morphology_order=self.pocket_params.get("morphology_order", ("opening", "erosion")),
-                grid=self.pocket_params["grid_spacing"],
+                grid=self.grid(pdb_id),
             )
             pocket.to_npz(filepath=filepath_pocket)
         if self._cache_enabled:
             self._cache.setdefault(pdb_id, {})["pocket"] = pocket
         return pocket
+
+    def grid(self, pdb_id: str) -> t2fpharm.Grid:
+        """Get the grid for a given PDB ID.
+
+        The grid is identical for all PDB IDs in the same group.
+        """
+        group_id = self.group_id(pdb_id)
+        if group_id in self.grid:
+            return self.grid[group_id]
+        group_pdb_ids = self.group_pdb_ids(group_id=group_id, include_ref=True)
+        if not group_pdb_ids:
+            raise ValueError(f"No PDB IDs found for group ID: {group_id}")
+
+        lower_bounds = np.empty((len(group_pdb_ids), 3), dtype=float)
+        upper_bounds = np.empty((len(group_pdb_ids), 3), dtype=float)
+        for idx, pdb_id in enumerate(group_pdb_ids):
+            rcomplex = self.complex(pdb_id)
+            atoms = rcomplex.composition.atoms
+            ligand_res_name = self.dataset.loc[pdb_id, "ligand_res_name"]
+            ligand_chain_id = self.dataset.loc[pdb_id, "ligand_chain_id"]
+            ligand_res_seq = self.dataset.loc[pdb_id, "ligand_res_seq"]
+            ligand_mask = (
+                (atoms["res_name"] == ligand_res_name) &
+                (atoms["chain_id"] == ligand_chain_id) &
+                (atoms["res_seq"] == ligand_res_seq)
+            )
+            if ligand_mask.sum() == 0:
+                raise ValueError(
+                    f"Ligand {ligand_res_name} "
+                    f"not found in structure {pdb_id}"
+                )
+            ligand = rcomplex.select(selection=ligand_mask)
+            ligand_bounding_box = ligand.trajectory.aabb(per_instance=False)
+            ligand_atoms_radii = ligand.composition.vdw_radius
+            ligand_atoms_max_radius = ligand_atoms_radii.max()
+            lower_bounds[idx] = ligand_bounding_box.lower_bounds - ligand_atoms_max_radius
+            upper_bounds[idx] = ligand_bounding_box.upper_bounds + ligand_atoms_max_radius
+        padding = self.pocket_params["ligand_radii_offset"] + self.pocket_params["grid_spacing"]
+        grid = t2fpharm.grid.from_bounds_spacing(
+            lower=lower_bounds.min(axis=0) - padding,
+            upper=upper_bounds.max(axis=0) + padding,
+            spacing=self.pocket_params["grid_spacing"],
+        )
+        self.grid[group_id] = grid
+        return grid
 
     def field(self, pdb_id: str) -> t2fpharm.Field:
         cached = self._cache.get(pdb_id, {}).get("field")
@@ -673,6 +746,7 @@ class Manager:
         self,
         job_name: str,
         filetype: Literal[
+            "jobs",
             "inputs",
             "summary",
             "pharm",
@@ -683,8 +757,10 @@ class Manager:
     ) -> Path:
         path = self.dirpath_data / self._path["results"] / job_name
         path.mkdir(parents=True, exist_ok=True)
+        if filetype == "jobs":
+            return path / "jobs.yaml"
         if filetype == "inputs":
-            return path / "inputs.yaml"
+            return path / ".job_inputs.yaml"
         if filetype == "summary":
             return path / "summary.yaml"
         if pdb_id is None or job_idx is None:
