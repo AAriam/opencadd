@@ -297,12 +297,12 @@ def _match_summary_feature_type(
     feature_type: str,
 ) -> dict[str, Any]:
     def name(dist_type: str) -> str:
-        return f"m-l_{ligand_type}-t_{feature_type}-d_{dist_type}"
+        return f"d_{dist_type}-t_{feature_type}-l_{ligand_type}"
 
     n_ligand_features = len(matches)
     dists = matches["distance"]
     return {
-        f"m-l_{ligand_type}-t_{feature_type}-count": n_ligand_features,
+        name("count"): n_ligand_features,
         name("min"): float(dists.min()),
         name("max"): float(dists.max()),
         name("mean"): float(dists.mean()) if dists.notna().any() else float("nan"),
