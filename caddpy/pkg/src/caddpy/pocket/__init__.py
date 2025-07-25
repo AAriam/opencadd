@@ -306,6 +306,7 @@ def from_dogsite(
 def from_npz(
     filepath: str | PathLike,
     receptor: ChemicalSystem | None = None,
+    trim: bool = True,
 ) -> Pocket:
     """Create a Pocket from a .npz file."""
     data = scids.dataset.from_npz(filepath=filepath, data_key="tensor", return_dict=True)
@@ -322,4 +323,5 @@ def from_npz(
         batch=data["batch"],
         receptor=receptor,
         pocket_atom_serials=data.get("pocket_atom_serials", None),
+        trim=trim,
     )
