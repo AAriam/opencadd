@@ -6,7 +6,7 @@ dependencies:
   - python =3.12
   - numpy ==2.2.6
   - pandas ==2.3.1
-  - pyarrow ==21.0.0
+  - pyarrow ==20.0.0
   - matplotlib ==3.10.3
   - tqdm ==4.67.1
   - pydantic ==2.11.7
@@ -25,13 +25,14 @@ dependencies:
   - jupyter_core ==5.8.1
   - jupyterlab ==4.4.5
   - IPython ==9.4.0
+  - jaxlib ==0.6.2
   - pip
   - pip:
     - arrayer ==0.0.6
     - bbo ==0.0.2
     - commonnn-clustering ==0.0.4
     - fileex ==0.2.4
-    - jax ==0.7.0
+    - jax ==0.6.2
     - pkgdata ==0.1.2
     - plip ==2.4.0
     - pylinks ==0.1.0
