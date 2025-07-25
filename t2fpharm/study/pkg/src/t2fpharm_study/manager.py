@@ -255,7 +255,7 @@ class Manager:
             summary_df = pd.DataFrame(columns=["pdb_id", "job_idx"])
 
         # Get job inputs
-        jobs = self._job_inputs(job_name=job_name, grouped=True)[:10]
+        jobs = self._job_inputs(job_name=job_name, grouped=True).to_dict(orient="records")
         method = self.job_params[job_name]["method"]
 
         # Prepare jobs
@@ -361,7 +361,11 @@ class Manager:
         df_final = df[all_cols].sort_values(main_cols).reset_index(drop=True)
         return df_final
 
-    def _job_inputs(self, job_name: str, grouped: bool) -> list[dict[str, Any]]:
+    def job_inputs(self, job_name: str) -> pd.DataFrame:
+        """Get the inputs for a given job."""
+        return self._job_inputs(job_name=job_name, grouped=False)
+
+    def _job_inputs(self, job_name: str, grouped: bool) -> pd.DataFrame:
         """Get the inputs for a given job."""
         job_spec = self.job_params.get(job_name)
         if job_spec is None:
@@ -370,13 +374,11 @@ class Manager:
         filetype = "jobs" if method == "largest_peaks" or not grouped else "inputs"
         path = self.path_results(job_name=job_name, filetype=filetype)
         if path.is_file():
-            jobs = pyserials.read.yaml_from_file(path)
+            jobs = io.read_df(path)
             if method == "largest_peaks":
-                for job in jobs:
-                    job["min_distance_base"] = {
-                        tuple(k.split("__")): v
-                        for k, v in job["min_distance_base"].items()
-                    }
+                jobs["min_distance"] = jobs["min_distance"].apply(
+                    lambda x: {tuple(k.split("__")): v for k, v in x.items()}
+                )
             return jobs
         if method == "cnn":
             # Add a `Grid` object to the job spec.
@@ -387,22 +389,22 @@ class Manager:
             # it doesn't matter which PDB ID we use here.
             job_spec["grid"] = self.grid(pdb_id=self.dataset["pdb_id"].iloc[0])
         single_jobs, grouped_jobs = generate_job_inputs(**job_spec)
+        single_jobs = pd.DataFrame(single_jobs)
+        grouped_jobs = pd.DataFrame(grouped_jobs)
         if method == "largest_peaks":
-            jobs_serialized = copy.deepcopy(single_jobs)
-            for job in jobs_serialized:
-                job["min_distance_base"] = {f"{k[0]}__{k[1]}":v for k, v in job["min_distance_base"].items()}
-            pyserials.write.to_yaml_file(
-                data=jobs_serialized,
-                path=path,
-            )
+            jobs_serialized = single_jobs.copy()
+            jobs_serialized["min_distance"] = jobs_serialized["min_distance"].apply(
+                    lambda x: {f"{k[0]}__{k[1]}": v for k, v in x.items()}
+                )
+            io.write_df(df=jobs_serialized, filepath=path)
         else:
-            pyserials.write.to_yaml_file(
-                data=single_jobs,
-                path=self.path_results(job_name=job_name, filetype="jobs"),
+            io.write_df(
+                df=single_jobs,
+                filepath=self.path_results(job_name=job_name, filetype="jobs")
             )
-            pyserials.write.to_yaml_file(
-                data=grouped_jobs,
-                path=self.path_results(job_name=job_name, filetype="inputs"),
+            io.write_df(
+                df=grouped_jobs,
+                filepath=self.path_results(job_name=job_name, filetype="inputs")
             )
         return grouped_jobs if grouped else single_jobs
 
@@ -550,7 +552,11 @@ class Manager:
         filepath_pocket = self.path("pocket", pdb_id)
         rcomplex = self.complex(pdb_id)
         if filepath_pocket.is_file():
-            pocket = t2fpharm.pocket.from_npz(filepath=filepath_pocket, receptor=rcomplex)
+            pocket = t2fpharm.pocket.from_npz(
+                filepath=filepath_pocket,
+                receptor=rcomplex,
+                trim=False,
+            )
         else:
             atoms = rcomplex.composition.atoms
             ligand_res_name = self.dataset.loc[pdb_id, "ligand_res_name"]
@@ -807,27 +813,17 @@ class Manager:
             "jobs",
             "inputs",
             "summary",
-            "pharm",
-            "matches",
         ],
-        pdb_id: str | None = None,
-        job_idx: int | None = None,
     ) -> Path:
         path = self.dirpath_data / self._path["results"] / job_name
         path.mkdir(parents=True, exist_ok=True)
         if filetype == "jobs":
-            return path / "jobs.yaml"
+            return path / "jobs.parquet"
         if filetype == "inputs":
-            return path / ".job_inputs.yaml"
+            return path / ".job_inputs.parquet"
         if filetype == "summary":
             return path / "summary.yaml"
-        if pdb_id is None or job_idx is None:
-            raise ValueError(
-                "For results files, both `pdb_id` and `job_idx` must be provided."
-            )
-        subdir = path / filetype
-        subdir.mkdir(parents=True, exist_ok=True)
-        return subdir / f"{pdb_id}_{job_idx}.parquet"
+        raise ValueError(f"Unknown filetype: {filetype}")
 
     def group_id(self, pdb_id: str) -> str:
         """Get the group ID for a given PDB ID."""
