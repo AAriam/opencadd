@@ -6,6 +6,9 @@ from t2fpharm.grid import Grid
 from ._filter import generate as generate_filter
 
 
+_max_common_neighbors: dict[float, int] = {}
+
+
 def generate(
     grid: Grid,
 
@@ -116,12 +119,15 @@ def _clustering_params(
         max_distance_base=max_distance_base,
         max_distance_multipliers=max_distance_multipliers
     )
+    _max_common_neighbors.clear()
+    grid_unique_distances = grid.unique_distances[1:][::-1]  # Exclude `distance = grid spacing` (since no common neighbors)
     out = []
     for max_dist_mult_idx, (max_dist_mult, max_dist_scaled) in enumerate(max_dists_scaled):
         for min_neigh_start_percent_idx, min_neigh_start_percent in enumerate(min_neighbors_start_percents):
             for min_neigh_list_len_idx, min_neigh_list_len in enumerate(min_neighbors_list_lengths):
                 max_distance, min_neighbors = _clustering_params_single(
                     grid=grid,
+                    grid_unique_distances=grid_unique_distances,
                     max_distance=max_dist_scaled,
                     min_neighbors_start_percent=min_neigh_start_percent,
                     min_neighbors_list_length=min_neigh_list_len,
@@ -144,6 +150,7 @@ def _clustering_params(
 
 def _clustering_params_single(
     grid: Grid,
+    grid_unique_distances: np.ndarray,
     max_distance: dict[str, float],
     min_neighbors_start_percent: float,
     min_neighbors_list_length: int,
@@ -170,20 +177,18 @@ def _clustering_params_single(
     """
     max_distances = {}
     min_neighbors = {}
-    grid_unique_distances = grid.unique_distances
     for feature_type, radius in max_distance.items():
-        feature_max_distances = np.sort(
-            grid_unique_distances[grid_unique_distances <= radius]
-        )[::-1].tolist()
+        feature_max_distances = grid_unique_distances[grid_unique_distances <= radius].tolist()
         for feature_max_distance in feature_max_distances:
-
             # Calculate the maximum number of common neighbors
             # between two adjacent grid points for the current max distance.
-            max_common_neighbors = grid.common_neighbors_count(
-                neighborhood_radius=feature_max_distance,
-                point1=(0, 0, 1),
+            max_common_neighbors = _max_common_neighbors.setdefault(
+                feature_max_distance,
+                grid.common_neighbors_count(
+                    neighborhood_radius=feature_max_distance,
+                    point1=(0, 0, 1),
+                )
             )
-
             # Generate a geometric sequence (evenly spaced on log scale)
             # within the closed interval `[start, stop]`
             # with at most `num` unique integers.
