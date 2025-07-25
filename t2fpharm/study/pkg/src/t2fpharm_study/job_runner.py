@@ -114,7 +114,7 @@ def _run(
     for min_members in job["min_members_dicts"]:
         min_members_per_feature = features["type"].map(min_members)
         mask = features["n_members"] >= min_members_per_feature
-        features_filtered = features[mask]
+        features_filtered = features[mask].copy()
         for center_type in job["center_types"]:
             features_filtered["value"] = features_filtered[f"value_{center_type}"]
             features_filtered["center"] = features_filtered[f"center_{center_type}"]
@@ -190,8 +190,8 @@ def _pharm_summary(
     include_radii: bool,
 ):
     n_features = len(features)
-    summary = {"n-t_all": n_features} | {
-        f"n-t_{feature_type}": int(features["type"].eq(feature_type).sum())
+    summary = {"t_all-n": n_features} | {
+        f"t_{feature_type}-n": int(features["type"].eq(feature_type).sum())
         for feature_type in feature_types
     }
     if n_features == 0:
@@ -220,15 +220,15 @@ def _pharm_summary_feature_type(
     radii: pd.Series | None = None,
 ):
     summary = {
-        f"v_min-t_{feature_type}": float(values.min()),
-        f"v_max-t_{feature_type}": float(values.max()),
-        f"v_mean-t_{feature_type}": float(values.mean()),
+        f"t_{feature_type}-v_min": float(values.min()),
+        f"t_{feature_type}-v_max": float(values.max()),
+        f"t_{feature_type}-v_mean": float(values.mean()),
     }
     if radii is not None:
         summary_radii = {
-            f"r_min-t_{feature_type}": float(radii.min()),
-            f"r_max-t_{feature_type}": float(radii.max()),
-            f"r_mean-t_{feature_type}": float(radii.mean()),
+            f"t_{feature_type}-r_min": float(radii.min()),
+            f"t_{feature_type}-r_max": float(radii.max()),
+            f"t_{feature_type}-r_mean": float(radii.mean()),
         }
         summary.update(summary_radii)
     return summary
@@ -297,12 +297,14 @@ def _match_summary_feature_type(
     feature_type: str,
 ) -> dict[str, Any]:
     def name(dist_type: str) -> str:
-        return f"d_{dist_type}-t_{feature_type}-l_{ligand_type}"
+        if dist_type in ("min", "max", "mean", "median"):
+            return f"t_{feature_type}-d_{dist_type}-l_{ligand_type}"
+        return f"t_{feature_type}-dp_{dist_type}-l_{ligand_type}"
 
     n_ligand_features = len(matches)
     dists = matches["distance"]
     return {
-        name("count"): n_ligand_features,
+        f"t_{feature_type}-nl_{ligand_type}": n_ligand_features,
         name("min"): float(dists.min()),
         name("max"): float(dists.max()),
         name("mean"): float(dists.mean()) if dists.notna().any() else float("nan"),
