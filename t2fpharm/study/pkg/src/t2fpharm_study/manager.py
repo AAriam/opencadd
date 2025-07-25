@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 import shutil
 from typing import Any, Sequence, Literal
-import copy
 import json
 
 import arrayer
