@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from pathlib import Path
+import warnings
 
 import pandas as pd
 
@@ -252,7 +253,11 @@ def _match_df(
         matches = calculate(target_pharm=target_pharm, ligand_pharm=ligand_pharm)
         matches["ligand_pdb_id"] = ligand_pdb_id
         matches_dfs.append(matches)
-    return pd.concat(matches_dfs, ignore_index=True)
+    with warnings.catch_warnings():
+        # Ignore 'The behavior of DataFrame concatenation with empty or all-NA entries is deprecated.'
+        warnings.simplefilter("ignore", FutureWarning)
+        match_df = pd.concat(matches_dfs, ignore_index=True)
+    return match_df
 
 
 def _match_summary(matches: pd.DataFrame) -> dict[str, Any]:
