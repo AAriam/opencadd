@@ -130,6 +130,7 @@ def from_ligand(
     opening_radius: float = 0,
     morphology_order: tuple[Literal["opening", "erosion"], Literal["opening", "erosion"]] = ("opening", "erosion"),
     grid: float | Sequence[float] | Grid = 0.3,
+    trim: bool = True,
 ) -> Pocket:
     """Create a pocket from a ligand."""
     def get_pocket_atom_serials(
@@ -192,7 +193,8 @@ def from_ligand(
             ligand_voxels=ligand_voxels,
             receptor_voxels=receptor_volume.tensor,
             receptor=receptor,
-        )
+        ),
+        trim=trim
     )
 
 
