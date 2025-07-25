@@ -23,6 +23,7 @@ class Pocket(Field):
         batch: Sequence[str | tuple[str, Sequence[str]]] | None = None,
         receptor: ChemicalSystem | None = None,
         pocket_atom_serials: Sequence[int] | None = None,
+        trim: bool = True
     ):
         tensor = jnp.asarray(tensor, dtype=bool)
         if tensor.ndim < 3:
@@ -40,20 +41,21 @@ class Pocket(Field):
                     "than the number of dimensions of the tensor, "
                     f"but got {batch_ndim} batch dimensions for a {tensor.ndim}D tensor."
                 )
-        tensor, deltas = arrayer.tensor.ensure_padding(
-            tensor=tensor,
-            axes=tuple(range(batch_ndim, tensor.ndim)),
-            padding=0,
-            pad_value=False,
-        )
-        origin_shift = jnp.array([delta[0] for delta in deltas]) * grid.spacings
-        new_origin = grid.lower_bounds - origin_shift
-        grid = scids.grid.from_anchor_shape_spacing(
-            shape=tensor.shape[batch_ndim:],
-            spacing=grid.spacings,
-            anchor_type="lower",
-            anchor=new_origin,
-        )
+        if trim:
+            tensor, deltas = arrayer.tensor.ensure_padding(
+                tensor=tensor,
+                axes=tuple(range(batch_ndim, tensor.ndim)),
+                padding=0,
+                pad_value=False,
+            )
+            origin_shift = jnp.array([delta[0] for delta in deltas]) * grid.spacings
+            new_origin = grid.lower_bounds - origin_shift
+            grid = scids.grid.from_anchor_shape_spacing(
+                shape=tensor.shape[batch_ndim:],
+                spacing=grid.spacings,
+                anchor_type="lower",
+                anchor=new_origin,
+            )
         super().__init__(tensor=tensor, grid=grid, batch=batch)
         tensor_dialated, deltas = arrayer.tensor.ensure_padding(
             tensor=tensor,
