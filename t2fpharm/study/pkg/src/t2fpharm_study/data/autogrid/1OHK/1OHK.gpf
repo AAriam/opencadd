@@ -1,10 +1,10 @@
-npts 74 64 62
+npts 82 74 72
 gridfld /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1OHK/1OHK.maps.fld
 spacing 0.3
 receptor_types N HD C OA S A NA
 ligand_types HD C OA
 receptor /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/structure/5-pdbqt/1OHK.pdbqt
-gridcenter 32.84850101470947 17.601500034332275 -3.75199978351593
+gridcenter 32.51500129699707 17.369500160217285 -2.918999767303466
 smooth 0.5
 map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1OHK/1OHK.HD.map
 map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1OHK/1OHK.C.map

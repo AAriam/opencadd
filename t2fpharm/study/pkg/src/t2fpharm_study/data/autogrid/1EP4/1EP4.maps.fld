@@ -5,15 +5,15 @@
 # Created by autogrid4.
 #
 #SPACING 0.300
-#NELEMENTS 48 60 58
-#CENTER 143.852 -26.239 75.266
+#NELEMENTS 58 92 70
+#CENTER 144.004 -27.292 74.178
 #MACROMOLECULE /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/structure/5-pdbqt/1EP4.pdbqt
 #GRID_PARAMETER_FILE /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1EP4/1EP4.gpf
 #
 ndim=3			# number of dimensions in the field
-dim1=49			# number of x-elements
-dim2=61			# number of y-elements
-dim3=59			# number of z-elements
+dim1=59			# number of x-elements
+dim2=93			# number of y-elements
+dim3=71			# number of z-elements
 nspace=3		# number of physical coordinates per point
 veclen=5		# number of affinity values at each point
 data=float		# data type (byte, integer, float, double)
