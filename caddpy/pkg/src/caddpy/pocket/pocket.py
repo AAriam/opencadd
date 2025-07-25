@@ -49,12 +49,11 @@ class Pocket(Field):
                 pad_value=False,
             )
             origin_shift = jnp.array([delta[0] for delta in deltas]) * grid.spacings
-            new_origin = grid.lower_bounds - origin_shift
             grid = scids.grid.from_anchor_shape_spacing(
                 shape=tensor.shape[batch_ndim:],
                 spacing=grid.spacings,
                 anchor_type="lower",
-                anchor=new_origin,
+                anchor=grid.lower_bounds - origin_shift,
             )
         super().__init__(tensor=tensor, grid=grid, batch=batch)
         tensor_dialated, deltas = arrayer.tensor.ensure_padding(
@@ -63,12 +62,13 @@ class Pocket(Field):
             padding=3,
             pad_value=False,
         )
+        origin_shift = jnp.array([delta[0] for delta in deltas]) * grid.spacings
         self._tensor_dialated = tensor_dialated.astype(jnp.uint8)
         self._grid_dialated = scids.grid.from_anchor_shape_spacing(
             shape=self._tensor_dialated.shape[batch_ndim:],
             spacing=grid.spacings,
             anchor_type="lower",
-            anchor=grid.lower_bounds - 3 * grid.spacings,
+            anchor=grid.lower_bounds - origin_shift,
         )
         self._receptor = receptor
         self._pocket_atom_serials = jnp.asarray(pocket_atom_serials) if pocket_atom_serials is not None else None
