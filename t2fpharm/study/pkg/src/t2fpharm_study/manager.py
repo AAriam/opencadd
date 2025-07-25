@@ -823,6 +823,10 @@ class Manager:
         """Check if the structure is a reference structure."""
         return self.dataset.loc[pdb_id, "is_ref"]
 
+    def ref_pdb_id(self, group_id: str) -> str:
+        """Get the reference PDB ID for a given group ID."""
+        return self.dataset[(self.dataset["group_id"]==group_id) & self.dataset["is_ref"]].index[0]
+
     @staticmethod
     def plot_match_ratio_heatmap(
         df: pd.DataFrame,
