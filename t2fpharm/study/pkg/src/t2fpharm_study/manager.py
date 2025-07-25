@@ -237,6 +237,12 @@ class Manager:
             self._cache = {}
         return
 
+    def run_all(self):
+        """Run all jobs defined in the job parameters."""
+        for job_name in self.job_params:
+            self.run(job_name=job_name, ref_only=False)
+        return
+
     def run(self, job_name: str, ref_only: bool = False):
         # Enable caching to avoid recomputing heavy objects during modeler creation
         caching_was_enabled = self._cache_enabled
@@ -329,7 +335,22 @@ class Manager:
             os.fsync(f.fileno())
         return self.job_summary(job_name=job_name)
 
-    def job_summary(self, job_name: str) -> pd.DataFrame:
+    def job_summary(self, job_name: str | None = None) -> pd.DataFrame:
+        if job_name:
+            return self._job_summary(job_name=job_name)
+        summaries = []
+        for job_name in self.job_params:
+            summary = self._job_summary(job_name=job_name)
+            summary["job_name"] = job_name
+            summaries.append(summary)
+        df = pd.concat(summaries, ignore_index=True)
+        main_cols = ["job_name", "job_idx", "group_id", "pdb_id"]
+        extra_cols = sorted([col for col in df.columns if col not in main_cols])
+        all_cols = main_cols + extra_cols
+        df_final = df[all_cols].sort_values(main_cols).reset_index(drop=True)
+        return df_final
+
+    def _job_summary(self, job_name: str) -> pd.DataFrame:
         path = self.path_results(job_name=job_name, filetype="summary")
         if not path.is_file():
             raise FileNotFoundError(f"Summary file not found: {path}")
