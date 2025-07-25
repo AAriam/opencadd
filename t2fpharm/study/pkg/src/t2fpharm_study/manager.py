@@ -21,7 +21,7 @@ import caddpy
 
 import t2fpharm
 
-from t2fpharm import io
+from t2fpharm_study import io
 from t2fpharm_study.job_gen import generate_job_inputs
 from t2fpharm_study.job_runner import run
 from t2fpharm_study.typing import PDBID
@@ -101,7 +101,7 @@ class Manager:
         self._pdb = None
         self._cache_enabled = True
         self._cache = {}
-        self.grid: dict[str, t2fpharm.Grid] = {}
+        self._group_grid: dict[str, t2fpharm.Grid] = {}
         return
 
     @property
@@ -249,7 +249,7 @@ class Manager:
             summary_df = pd.DataFrame(columns=["pdb_id", "job_idx"])
 
         # Get job inputs
-        jobs = self._job_inputs(job_name=job_name, grouped=True)
+        jobs = self._job_inputs(job_name=job_name, grouped=True)[:10]
         method = self.job_params[job_name]["method"]
 
         # Prepare jobs
@@ -473,7 +473,7 @@ class Manager:
                     query=t2fpharm.system.from_pdb(pdb_fixed_str),
                     ref_chain_id=self.dataset.loc[ref_pdb_id, "chain_id"],
                     query_chain_id=self.dataset.loc[pdb_id, "chain_id"],
-                    ref_pocket=self.pocket(ref_pdb_id),
+                    ref_pocket_atoms=self._ref_pocket_atoms(ref_pdb_id),
                 )
                 pdb_aligned_str = str(complex_aligned.to_pdb())
             filepath_pdb_aligned.write_text(pdb_aligned_str)
@@ -554,11 +554,45 @@ class Manager:
                 opening_radius=self.pocket_params["opening_radius"],
                 morphology_order=self.pocket_params.get("morphology_order", ("opening", "erosion")),
                 grid=self.grid(pdb_id),
+                trim=False,
             )
             pocket.to_npz(filepath=filepath_pocket)
         if self._cache_enabled:
             self._cache.setdefault(pdb_id, {})["pocket"] = pocket
         return pocket
+
+    def _ref_pocket_atoms(self, ref_pdb_id: str) -> pd.DataFrame:
+        cached = self._cache.get(ref_pdb_id, {}).get("pocket_atoms")
+        if cached is not None:
+            return cached
+        rcomplex = self.complex(ref_pdb_id)
+        atoms = rcomplex.composition.atoms
+        ligand_res_name = self.dataset.loc[ref_pdb_id, "ligand_res_name"]
+        ligand_chain_id = self.dataset.loc[ref_pdb_id, "ligand_chain_id"]
+        ligand_res_seq = self.dataset.loc[ref_pdb_id, "ligand_res_seq"]
+        ligand_mask = (
+            (atoms["res_name"] == ligand_res_name) &
+            (atoms["chain_id"] == ligand_chain_id) &
+            (atoms["res_seq"] == ligand_res_seq)
+        )
+        if ligand_mask.sum() == 0:
+            raise ValueError(
+                f"Ligand {ligand_res_name} "
+                f"not found in structure {ref_pdb_id}"
+            )
+        pocket = t2fpharm.pocket.from_ligand(
+            system=rcomplex,
+            ligand_mask=ligand_mask,
+            ligand_radii=None,
+            ligand_radii_offset=self.pocket_params["ligand_radii_offset"],
+            erosion_radius=self.pocket_params["erosion_radius"],
+            opening_radius=self.pocket_params["opening_radius"],
+            morphology_order=self.pocket_params.get("morphology_order", ("opening", "erosion")),
+            grid=self.pocket_params["grid_spacing"],
+        )
+        if self._cache_enabled:
+            self._cache.setdefault(ref_pdb_id, {})["pocket_atoms"] = pocket.atoms
+        return pocket.atoms
 
     def grid(self, pdb_id: str) -> t2fpharm.Grid:
         """Get the grid for a given PDB ID.
@@ -566,8 +600,8 @@ class Manager:
         The grid is identical for all PDB IDs in the same group.
         """
         group_id = self.group_id(pdb_id)
-        if group_id in self.grid:
-            return self.grid[group_id]
+        if group_id in self._group_grid:
+            return self._group_grid[group_id]
         group_pdb_ids = self.group_pdb_ids(group_id=group_id, include_ref=True)
         if not group_pdb_ids:
             raise ValueError(f"No PDB IDs found for group ID: {group_id}")
@@ -602,7 +636,7 @@ class Manager:
             upper=upper_bounds.max(axis=0) + padding,
             spacing=self.pocket_params["grid_spacing"],
         )
-        self.grid[group_id] = grid
+        self._group_grid[group_id] = grid
         return grid
 
     def field(self, pdb_id: str) -> t2fpharm.Field:
@@ -619,8 +653,11 @@ class Manager:
             dirpath_autogrid.mkdir(parents=True, exist_ok=True)
             pocket_data = self.pocket(pdb_id).to_dict()
             grid_data = {k: v for k, v in pocket_data.items() if k.startswith("grid_")}
+            filepath_pdbqt = self.path("pdbqt", pdb_id)
+            if not filepath_pdbqt.is_file():
+                self.pdbqt(pdb_id)
             field = t2fpharm.field.from_autogrid(
-                receptor_files=self.path("pdbqt", pdb_id),
+                receptor_files=filepath_pdbqt,
                 receptor_file_ids=pdb_id,
                 ligand_types=self.field_params["ligand_types"],
                 smooth=self.field_params["smooth"],
@@ -879,7 +916,7 @@ def _align_query_to_ref(
     query: t2fpharm.system.System,
     ref_chain_id: str,
     query_chain_id: str,
-    ref_pocket: t2fpharm.pocket.Pocket,
+    ref_pocket_atoms: pd.DataFrame,
 ) -> t2fpharm.system.System:
     """Align the query system to the reference system.
 
@@ -918,7 +955,7 @@ def _align_query_to_ref(
     ref_chain = ref.composition.atoms_chain(ref_chain_id, poly=True)
     query_chain = query.composition.atoms_chain(query_chain_id, poly=True)
     ref_aligned_atoms, query_aligned_atoms = caddpy.alignment.align_sequences(ref_chain, query_chain)
-    ref_pocket_c_alpha_atoms = ref_pocket.atoms[ref_pocket.atoms["name"]=="CA"]
+    ref_pocket_c_alpha_atoms = ref_pocket_atoms[ref_pocket_atoms["name"]=="CA"]
     c_alpha_mask = ref_aligned_atoms["serial"].isin(ref_pocket_c_alpha_atoms["serial"])
     ref_pocket_c_alpha_serials = ref_aligned_atoms["serial"][c_alpha_mask]
     query_pocket_c_alpha_serials = query_aligned_atoms["serial"][c_alpha_mask]
