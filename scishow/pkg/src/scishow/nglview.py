@@ -11,8 +11,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from dataclasses import dataclass, field, asdict, fields
+import warnings
 
-import nglview as nv
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", UserWarning)
+    import nglview as nv
+
 import numpy as np
 
 if TYPE_CHECKING:
