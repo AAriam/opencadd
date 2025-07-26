@@ -347,15 +347,15 @@ data:
         C: 1.7    # Carbon vdW radius
         e+: 2.22  # N-H bond length in ammonia (1.02) + hydrogen vdW radius (1.2); estimate of RNH3+ radius
         e-: 2.8   # C-O bond length in carboxylate (1.25) + oxygen vdW radius (1.55); estimate of RCO2- radius
-      max_distance_multipliers: [0.5, 1, 1.5, 2]
+      max_distance_multipliers: [0.5, 1, 2]
       min_neighbors_start_percents: [1, 5, 10, 15]
       min_neighbors_list_lengths: [5, 10, 15]
       min_members_percents: [1, 5, 10, 20, 30, 40, 50]
       max_members_radius: *radius_vdw
-      max_members_multipliers: [0.5, 0.75, 1, 1.25, 1.5]
+      max_members_multipliers: [1, 1.5, 2]
       best_per_points: [true, false]
       threshold_values: [0]
-      threshold_percentiles: [1, 5, 10, 20, 30, 40, 50, 60]
+      threshold_percentiles: [1, 5, 10, 20, 30, 40]
       center_types: ["average", "mean", "midpoint"]
     grid_search-lp-1:
       method: largest_peaks
@@ -429,3 +429,47 @@ data:
       filter_mean: true
       filter_percentiles: null
       filter_gaussian_sigma_multipliers: [0.25, 0.5, 0.75, 1]
+    grid_search-lp-3:
+      method: largest_peaks
+      min_distance_base:
+        [HD, HD]: 1
+        [HD, OA]: 1
+        [HD, e+]: 1
+        [HD, e-]: 1
+        [HD, C]: 1
+
+        [OA, OA]: 1
+        [OA, e+]: 1
+        [OA, e-]: 1
+        [OA, C]: 1
+
+        [e+, e+]: 1
+        [e+, e-]: 1
+        [e+, C]: 1
+
+        [e-, e-]: 1
+        [e-, C]: 1
+
+        [C, C]: 1
+      min_distance_multipliers: [1, 1.5, 2, 2.5,  3, 3.5, 4]
+      max_features_base:
+        HD: 2
+        OA: 2
+        C: 4
+        e+: 1
+        e-: 1
+      max_features_multipliers: [1, 3, 5, 7, 10, 15, 20]
+      priority_factors:
+        - {HD: 1, OA: 1, C: 1, e+: 1, e-: 1}
+        - {HD: 1, OA: 1, C: 1, e+: 0.5, e-: 0.5}
+        - {HD: 1, OA: 0.7, C: 1, e+: 0.5, e-: 0.5}
+        - {HD: 1, OA: 1, C: 1, e+: 0.3, e-: 0.3}
+        - {HD: 1, OA: 0.5, C: 1, e+: 0.3, e-: 0.3}
+        - {HD: 0.9, OA: 0.5, C: 1, e+: 0.3, e-: 0.3}
+      threshold_values: [-0.1]
+      filter_none: true
+      filter_radius_base: *radius_vdw
+      filter_radius_multipliers: [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2]
+      filter_mean: true
+      filter_percentiles: null
+      filter_gaussian_sigma_multipliers: [0.25, 0.5, 0.75, 1, 1.25, 1.5]
