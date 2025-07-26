@@ -67,7 +67,7 @@ def _run(
             min_distance=job["min_distance"],
             priority_factor=job["priority_factor"],
             max_features=job["max_features"],
-            filter_function=job["filter_function"],
+            filter_function=job.get("filter_function"),
             filter_radius=job.get("filter_radius"),
             filter_extension_mode="constant",
             filter_extension_constant_value=0,
@@ -97,7 +97,7 @@ def _run(
         min_neighbors=job["min_neighbors"],
         min_members=1,
         max_members=job["max_members"],
-        filter_function=job["filter_function"],
+        filter_function=job.get("filter_function"),
         filter_radius=job.get("filter_radius"),
         filter_extension_mode="constant",
         filter_extension_constant_value=0,
@@ -105,8 +105,8 @@ def _run(
         filter_percentile=job.get("filter_percentile", 0),
         peak_type=job.get("peak_type", "min"),
         best_per_point=job["best_per_point"],
-        threshold_value=job["threshold_value"],
-        threshold_percentile=job["threshold_percentile"],
+        threshold_value=job.get("threshold_value"),
+        threshold_percentile=job.get("threshold_percentile"),
         threshold_include_equal=False,
     )
     features = pharm_base.features
