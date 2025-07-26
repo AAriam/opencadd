@@ -1,6 +1,8 @@
 """Point cloud dataset."""
 
 import functools
+import io
+import contextlib
 
 import arrayer
 import bbo
@@ -8,7 +10,9 @@ import jax.numpy as jnp
 import numpy as np
 import scipy as sp
 
-from commonnn import cluster as cnn_cluster
+with contextlib.redirect_stdout(io.StringIO()):
+    from commonnn import cluster as cnn_cluster
+
 import scids
 from scids import dataset, exception
 from scids.volume import AxisAlignedRectangularCuboid
