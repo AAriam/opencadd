@@ -254,7 +254,7 @@ class Manager:
             summary_df = pd.DataFrame(columns=["pdb_id", "job_idx"])
 
         # Get job inputs
-        jobs = self._job_inputs(job_name=job_name, grouped=True).to_dict(orient="records")
+        jobs = self._job_inputs(job_name=job_name, grouped=True).apply(lambda row: row.dropna().to_dict(), axis=1).tolist()
         method = self.job_params[job_name]["method"]
 
         # Prepare jobs
