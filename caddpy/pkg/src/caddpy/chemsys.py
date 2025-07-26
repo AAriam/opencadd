@@ -8,6 +8,11 @@ import io
 from typing import Literal
 from pathlib import Path
 import uuid
+import warnings
+
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", UserWarning)
+    import nglview as ngl
 
 import fileex
 from pdbfixer import PDBFixer
@@ -15,7 +20,6 @@ from openmm.app import PDBFile
 import jax
 import numpy as np
 import pandas as pd
-import nglview as ngl
 from openbabel import pybel
 import scicoda
 import scids.dataset
