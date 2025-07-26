@@ -24,13 +24,13 @@
         "r_is_d":true,
         "is_sidechain":true,
         "h_position":[
-            -5.742,
-            25.789,
-            11.329
+            -5.374,
+            26.304,
+            10.186
         ],
-        "dist_a_h":2.1526588211,
+        "dist_a_h":2.1844848363,
         "dist_a_d":2.8309395967,
-        "angle":112.7559165062,
+        "angle":110.3489131597,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -104,13 +104,13 @@
         "r_is_d":false,
         "is_sidechain":true,
         "h_position":[
-            -4.469,
-            27.606,
-            12.631
+            -5.155,
+            27.458,
+            12.088
         ],
-        "dist_a_h":1.6657067569,
+        "dist_a_h":1.8562278955,
         "dist_a_d":2.6971631393,
-        "angle":160.0060401042,
+        "angle":124.7180436854,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -144,9 +144,9 @@
         "r_is_d":true,
         "is_sidechain":null,
         "h_position":[
-            8.061,
-            25.844,
-            9.607
+            7.207,
+            26.17,
+            9.224
         ],
         "dist_a_h":null,
         "dist_a_d":null,
@@ -157,10 +157,10 @@
             24.714,
             7.413
         ],
-        "w_angle":112.1014351313,
+        "w_angle":91.0435177441,
         "dist_w_a":3.1658359086,
         "dist_w_d":3.3815316056,
-        "d_angle":123.9528301615,
+        "d_angle":146.1388354277,
         "dist":null
     },
     {
@@ -188,9 +188,9 @@
         "r_is_d":true,
         "is_sidechain":null,
         "h_position":[
-            8.061,
-            25.844,
-            9.607
+            7.207,
+            26.17,
+            9.224
         ],
         "dist_a_h":null,
         "dist_a_d":null,
@@ -201,10 +201,10 @@
             24.714,
             7.413
         ],
-        "w_angle":98.0372580031,
+        "w_angle":77.8583210247,
         "dist_w_a":3.4760394129,
         "dist_w_d":3.3815316056,
-        "d_angle":123.9528301615,
+        "d_angle":146.1388354277,
         "dist":null
     },
     {
@@ -232,9 +232,9 @@
         "r_is_d":true,
         "is_sidechain":null,
         "h_position":[
-            -8.001,
-            24.258,
-            12.944
+            -8.011,
+            23.952,
+            12.723
         ],
         "dist_a_h":null,
         "dist_a_d":null,
@@ -245,10 +245,10 @@
             25.602,
             13.319
         ],
-        "w_angle":139.2799274091,
+        "w_angle":133.3223217481,
         "dist_w_a":3.2851929928,
         "dist_w_d":3.0423482707,
-        "d_angle":144.595579434,
+        "d_angle":120.2405855021,
         "dist":null
     },
     {

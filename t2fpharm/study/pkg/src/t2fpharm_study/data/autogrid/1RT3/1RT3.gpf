@@ -4,7 +4,7 @@ spacing 0.3
 receptor_types N HD C OA S A NA
 ligand_types HD C OA
 receptor /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/structure/5-pdbqt/1RT3.pdbqt
-gridcenter 144.00449981689454 -27.292499542236328 74.1779998779297
+gridcenter 143.96399536132813 -27.018500900268556 74.23649826049805
 smooth 0.5
 map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1RT3/1RT3.HD.map
 map /Volumes/T7/repo/gh/aariam/opencadd/t2fpharm/study/pkg/src/t2fpharm_study/data/autogrid/1RT3/1RT3.C.map

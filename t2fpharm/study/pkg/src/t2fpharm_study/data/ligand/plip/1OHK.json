@@ -4,33 +4,33 @@
         "l_res_name":"NDP",
         "l_res_seq":187,
         "l_chain_id":"A",
-        "l_serial":3016,
-        "l_type":"O2",
+        "l_serial":3017,
+        "l_type":"O3",
         "l_position":[
-            27.79,
-            9.547,
-            8.222
+            25.782,
+            8.254,
+            7.384
         ],
         "r_res_name":"THR",
         "r_res_seq":56,
         "r_chain_id":"A",
-        "r_serial":866,
-        "r_type":"Nam",
+        "r_serial":874,
+        "r_type":"O3",
         "r_position":[
-            29.348,
-            11.697,
-            8.017
+            27.75,
+            10.811,
+            5.643
         ],
         "r_is_d":true,
-        "is_sidechain":false,
+        "is_sidechain":true,
         "h_position":[
-            28.262,
-            11.646,
-            8.481
+            26.795,
+            10.43,
+            6.209
         ],
-        "dist_a_h":2.1669485458,
-        "dist_a_d":2.6630600819,
-        "angle":101.2441493974,
+        "dist_a_h":2.6724090256,
+        "dist_a_d":3.666381595,
+        "angle":141.7003796848,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -68,13 +68,13 @@
         "r_is_d":true,
         "is_sidechain":false,
         "h_position":[
-            24.484,
-            9.48,
-            6.412
+            24.342,
+            9.459,
+            6.379
         ],
-        "dist_a_h":2.032895472,
+        "dist_a_h":2.1297065526,
         "dist_a_d":2.6186000076,
-        "angle":105.6666688315,
+        "angle":100.6026285646,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -112,13 +112,57 @@
         "r_is_d":true,
         "is_sidechain":false,
         "h_position":[
-            25.142,
-            5.771,
-            6.169
+            25.138,
+            5.75,
+            6.176
         ],
-        "dist_a_h":2.3473263514,
+        "dist_a_h":2.3496827445,
         "dist_a_d":3.2786524671,
-        "angle":133.7478241395,
+        "angle":133.3755257411,
+        "w_serial":null,
+        "w_position":null,
+        "w_angle":null,
+        "dist_w_a":null,
+        "dist_w_d":null,
+        "d_angle":null,
+        "l_group":null,
+        "l_serials":null,
+        "r_serials":null,
+        "r_is_cation":null,
+        "dist":null
+    },
+    {
+        "type":"hbond",
+        "l_res_name":"NDP",
+        "l_res_seq":187,
+        "l_chain_id":"A",
+        "l_serial":3019,
+        "l_type":"O3",
+        "l_position":[
+            26.435,
+            8.321,
+            9.884
+        ],
+        "r_res_name":"LYS",
+        "r_res_seq":55,
+        "r_chain_id":"A",
+        "r_serial":844,
+        "r_type":"Nam",
+        "r_position":[
+            28.972,
+            10.691,
+            10.817
+        ],
+        "r_is_d":true,
+        "is_sidechain":false,
+        "h_position":[
+            28.602,
+            9.626,
+            11.169
+        ],
+        "dist_a_h":2.8372766872,
+        "dist_a_d":3.5949628649,
+        "angle":121.2662053244,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -156,13 +200,13 @@
         "r_is_d":true,
         "is_sidechain":false,
         "h_position":[
-            21.687,
-            6.875,
-            7.201
+            21.689,
+            6.951,
+            7.126
         ],
-        "dist_a_h":3.1162100379,
+        "dist_a_h":3.1747768426,
         "dist_a_d":3.7258031349,
-        "angle":111.9992587742,
+        "angle":108.6133551242,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -224,6 +268,50 @@
         "l_res_name":"NDP",
         "l_res_seq":187,
         "l_chain_id":"A",
+        "l_serial":3044,
+        "l_type":"N2",
+        "l_position":[
+            18.853,
+            8.545,
+            12.822
+        ],
+        "r_res_name":"ARG",
+        "r_res_seq":77,
+        "r_chain_id":"A",
+        "r_serial":1248,
+        "r_type":"Ng+",
+        "r_position":[
+            18.132,
+            5.526,
+            14.296
+        ],
+        "r_is_d":true,
+        "is_sidechain":true,
+        "h_position":[
+            18.025,
+            6.041,
+            13.234
+        ],
+        "dist_a_h":2.6693339993,
+        "dist_a_d":3.4361137932,
+        "angle":121.1943749066,
+        "w_serial":null,
+        "w_position":null,
+        "w_angle":null,
+        "dist_w_a":null,
+        "dist_w_d":null,
+        "d_angle":null,
+        "l_group":null,
+        "l_serials":null,
+        "r_serials":null,
+        "r_is_cation":null,
+        "dist":null
+    },
+    {
+        "type":"hbond",
+        "l_res_name":"NDP",
+        "l_res_seq":187,
+        "l_chain_id":"A",
         "l_serial":3051,
         "l_type":"O2",
         "l_position":[
@@ -244,13 +332,13 @@
         "r_is_d":true,
         "is_sidechain":true,
         "h_position":[
-            26.352,
-            4.092,
-            4.442
+            26.081,
+            4.272,
+            4.213
         ],
-        "dist_a_h":2.7754439285,
+        "dist_a_h":2.968795547,
         "dist_a_d":3.7493474099,
-        "angle":138.5058857993,
+        "angle":123.3719709393,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -288,13 +376,13 @@
         "r_is_d":true,
         "is_sidechain":true,
         "h_position":[
-            28.572,
-            3.114,
-            5.708
+            28.531,
+            3.153,
+            5.685
         ],
-        "dist_a_h":2.8731315668,
+        "dist_a_h":2.8289004931,
         "dist_a_d":3.4025546285,
-        "angle":106.4370334946,
+        "angle":108.9671590799,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -332,13 +420,57 @@
         "r_is_d":true,
         "is_sidechain":false,
         "h_position":[
-            34.834,
-            5.363,
-            4.091
+            34.589,
+            5.26,
+            4.204
         ],
-        "dist_a_h":2.482054391,
+        "dist_a_h":2.3974046384,
         "dist_a_d":3.2772253508,
-        "angle":123.0700685075,
+        "angle":129.1616822597,
+        "w_serial":null,
+        "w_position":null,
+        "w_angle":null,
+        "dist_w_a":null,
+        "dist_w_d":null,
+        "d_angle":null,
+        "l_group":null,
+        "l_serials":null,
+        "r_serials":null,
+        "r_is_cation":null,
+        "dist":null
+    },
+    {
+        "type":"hbond",
+        "l_res_name":"NDP",
+        "l_res_seq":187,
+        "l_chain_id":"A",
+        "l_serial":3063,
+        "l_type":"O3",
+        "l_position":[
+            33.149,
+            7.175,
+            4.286
+        ],
+        "r_res_name":"ASP",
+        "r_res_seq":21,
+        "r_chain_id":"A",
+        "r_serial":277,
+        "r_type":"Nam",
+        "r_position":[
+            35.877,
+            8.37,
+            5.05
+        ],
+        "r_is_d":true,
+        "is_sidechain":false,
+        "h_position":[
+            35.656,
+            7.209,
+            5.047
+        ],
+        "dist_a_h":2.6201767116,
+        "dist_a_d":3.074687789,
+        "angle":101.0930121638,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -376,13 +508,13 @@
         "r_is_d":true,
         "is_sidechain":false,
         "h_position":[
-            27.356,
-            8.412,
-            -3.219
+            27.448,
+            8.186,
+            -3.298
         ],
-        "dist_a_h":1.826562345,
+        "dist_a_h":1.9663155901,
         "dist_a_d":2.7486598553,
-        "angle":130.7186938498,
+        "angle":119.6289559646,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -420,13 +552,57 @@
         "r_is_d":true,
         "is_sidechain":false,
         "h_position":[
-            22.455,
-            9.372,
-            16.296
+            23.201,
+            9.226,
+            17.179
         ],
-        "dist_a_h":1.829198185,
+        "dist_a_h":2.0284489148,
         "dist_a_d":2.8631915758,
-        "angle":142.1089638852,
+        "angle":124.0385139971,
+        "w_serial":null,
+        "w_position":null,
+        "w_angle":null,
+        "dist_w_a":null,
+        "dist_w_d":null,
+        "d_angle":null,
+        "l_group":null,
+        "l_serials":null,
+        "r_serials":null,
+        "r_is_cation":null,
+        "dist":null
+    },
+    {
+        "type":"hbond",
+        "l_res_name":"NDP",
+        "l_res_seq":187,
+        "l_chain_id":"A",
+        "l_serial":3089,
+        "l_type":"O3",
+        "l_position":[
+            25.028,
+            9.641,
+            15.988
+        ],
+        "r_res_name":"GLU",
+        "r_res_seq":78,
+        "r_chain_id":"A",
+        "r_serial":1251,
+        "r_type":"Nam",
+        "r_position":[
+            23.825,
+            10.469,
+            19.454
+        ],
+        "r_is_d":true,
+        "is_sidechain":false,
+        "h_position":[
+            24.081,
+            11.21,
+            18.575
+        ],
+        "dist_a_h":3.1703531349,
+        "dist_a_d":3.7611100755,
+        "angle":111.2565054842,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -451,26 +627,70 @@
             8.717,
             -1.67
         ],
-        "r_res_name":"ALA",
-        "r_res_seq":9,
+        "r_res_name":"ILE",
+        "r_res_seq":16,
         "r_chain_id":"A",
-        "r_serial":121,
+        "r_serial":213,
         "r_type":"O2",
         "r_position":[
-            28.584,
-            6.362,
-            -3.865
+            31.383,
+            6.602,
+            0.486
         ],
         "r_is_d":false,
         "is_sidechain":false,
         "h_position":[
-            30.636,
-            7.563,
-            -1.867
+            31.346,
+            7.991,
+            -1.355
         ],
-        "dist_a_h":3.1056575793,
-        "dist_a_d":3.7321031604,
-        "angle":113.1450309286,
+        "dist_a_h":2.3065062324,
+        "dist_a_d":3.1545969632,
+        "angle":126.5798253816,
+        "w_serial":null,
+        "w_position":null,
+        "w_angle":null,
+        "dist_w_a":null,
+        "dist_w_d":null,
+        "d_angle":null,
+        "l_group":null,
+        "l_serials":null,
+        "r_serials":null,
+        "r_is_cation":null,
+        "dist":null
+    },
+    {
+        "type":"hbond",
+        "l_res_name":"NDP",
+        "l_res_seq":187,
+        "l_chain_id":"A",
+        "l_serial":3063,
+        "l_type":"O3",
+        "l_position":[
+            33.149,
+            7.175,
+            4.286
+        ],
+        "r_res_name":"ASP",
+        "r_res_seq":21,
+        "r_chain_id":"A",
+        "r_serial":282,
+        "r_type":"O2",
+        "r_position":[
+            34.897,
+            7.269,
+            2.674
+        ],
+        "r_is_d":false,
+        "is_sidechain":false,
+        "h_position":[
+            33.435,
+            7.923,
+            3.425
+        ],
+        "dist_a_h":1.76894347,
+        "dist_a_d":2.3796814913,
+        "angle":106.0636953497,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -532,6 +752,50 @@
         "l_res_name":"NDP",
         "l_res_seq":187,
         "l_chain_id":"A",
+        "l_serial":3091,
+        "l_type":"O3",
+        "l_position":[
+            25.564,
+            7.164,
+            16.565
+        ],
+        "r_res_name":"GLU",
+        "r_res_seq":78,
+        "r_chain_id":"A",
+        "r_serial":1264,
+        "r_type":"O2",
+        "r_position":[
+            26.938,
+            7.27,
+            20.092
+        ],
+        "r_is_d":false,
+        "is_sidechain":true,
+        "h_position":[
+            25.014,
+            6.703,
+            17.502
+        ],
+        "dist_a_h":3.2758762187,
+        "dist_a_d":3.7866662119,
+        "angle":106.6413072189,
+        "w_serial":null,
+        "w_position":null,
+        "w_angle":null,
+        "dist_w_a":null,
+        "dist_w_d":null,
+        "d_angle":null,
+        "l_group":null,
+        "l_serials":null,
+        "r_serials":null,
+        "r_is_cation":null,
+        "dist":null
+    },
+    {
+        "type":"hbond",
+        "l_res_name":"NDP",
+        "l_res_seq":187,
+        "l_chain_id":"A",
         "l_serial":3041,
         "l_type":"N3",
         "l_position":[
@@ -539,26 +803,26 @@
             7.565,
             10.681
         ],
-        "r_res_name":"SER",
-        "r_res_seq":119,
+        "r_res_name":"GLU",
+        "r_res_seq":123,
         "r_chain_id":"A",
-        "r_serial":1889,
-        "r_type":"O2",
+        "r_serial":1968,
+        "r_type":"O3",
         "r_position":[
-            18.828,
-            5.196,
-            7.398
+            15.461,
+            8.026,
+            10.983
         ],
         "r_is_d":false,
-        "is_sidechain":false,
+        "is_sidechain":true,
         "h_position":[
-            18.467,
-            6.377,
-            10.709
+            17.401,
+            8.007,
+            10.864
         ],
-        "dist_a_h":3.5338085687,
-        "dist_a_d":4.0635023071,
-        "angle":108.1184954551,
+        "dist_a_h":1.94373918,
+        "dist_a_d":3.0679062893,
+        "angle":157.7354501365,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -576,33 +840,33 @@
         "l_res_name":"COP",
         "l_res_seq":188,
         "l_chain_id":"A",
-        "l_serial":3131,
-        "l_type":"Npl",
+        "l_serial":3140,
+        "l_type":"O2",
         "l_position":[
-            26.091,
-            12.385,
-            -1.319
+            33.26,
+            19.079,
+            0.292
         ],
-        "r_res_name":"TYR",
-        "r_res_seq":121,
+        "r_res_name":"ASN",
+        "r_res_seq":64,
         "r_chain_id":"A",
-        "r_serial":1930,
-        "r_type":"O3",
+        "r_serial":1016,
+        "r_type":"Nam",
         "r_position":[
-            24.023,
-            9.948,
-            0.096
+            34.997,
+            22.01,
+            1.124
         ],
-        "r_is_d":false,
+        "r_is_d":true,
         "is_sidechain":true,
         "h_position":[
-            25.442,
-            11.402,
-            -1.128
+            35.128,
+            20.84,
+            1.27
         ],
-        "dist_a_h":2.3718880665,
-        "dist_a_d":3.495399548,
-        "angle":155.9163307866,
+        "dist_a_h":2.7471856508,
+        "dist_a_d":3.5071575385,
+        "angle":120.8837921999,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -640,13 +904,13 @@
         "r_is_d":false,
         "is_sidechain":false,
         "h_position":[
-            26.391,
-            11.246,
-            -6.026
+            26.057,
+            11.512,
+            -5.674
         ],
-        "dist_a_h":2.5680362147,
+        "dist_a_h":2.6491406154,
         "dist_a_d":3.709786382,
-        "angle":160.5016066552,
+        "angle":154.0256594795,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -704,6 +968,50 @@
         "dist":null
     },
     {
+        "type":"hbond",
+        "l_res_name":"COP",
+        "l_res_seq":188,
+        "l_chain_id":"A",
+        "l_serial":3131,
+        "l_type":"Npl",
+        "l_position":[
+            26.091,
+            12.385,
+            -1.319
+        ],
+        "r_res_name":"VAL",
+        "r_res_seq":115,
+        "r_chain_id":"A",
+        "r_serial":1848,
+        "r_type":"O2",
+        "r_position":[
+            24.987,
+            11.39,
+            1.305
+        ],
+        "r_is_d":false,
+        "is_sidechain":false,
+        "h_position":[
+            26.265,
+            12.447,
+            -0.146
+        ],
+        "dist_a_h":2.203618388,
+        "dist_a_d":3.0156619506,
+        "angle":122.7122719258,
+        "w_serial":null,
+        "w_position":null,
+        "w_angle":null,
+        "dist_w_a":null,
+        "dist_w_d":null,
+        "d_angle":null,
+        "l_group":null,
+        "l_serials":null,
+        "r_serials":null,
+        "r_is_cation":null,
+        "dist":null
+    },
+    {
         "type":"water_bridge",
         "l_res_name":"NDP",
         "l_res_seq":187,
@@ -728,9 +1036,9 @@
         "r_is_d":true,
         "is_sidechain":null,
         "h_position":[
-            23.129,
-            5.273,
-            7.527
+            22.995,
+            5.24,
+            7.755
         ],
         "dist_a_h":null,
         "dist_a_d":null,
@@ -741,10 +1049,10 @@
             5.539,
             8.812
         ],
-        "w_angle":95.8334043039,
+        "w_angle":101.3926628744,
         "dist_w_a":3.319754509,
         "dist_w_d":2.9526427146,
-        "d_angle":145.6366807436,
+        "d_angle":150.5489499279,
         "l_group":null,
         "l_serials":null,
         "r_serials":null,
@@ -776,9 +1084,9 @@
         "r_is_d":true,
         "is_sidechain":null,
         "h_position":[
-            23.129,
-            5.273,
-            7.527
+            22.995,
+            5.24,
+            7.755
         ],
         "dist_a_h":null,
         "dist_a_d":null,
@@ -789,10 +1097,10 @@
             5.539,
             8.812
         ],
-        "w_angle":98.5226044479,
+        "w_angle":106.4591294214,
         "dist_w_a":3.798282375,
         "dist_w_d":2.9526427146,
-        "d_angle":145.6366807436,
+        "d_angle":150.5489499279,
         "l_group":null,
         "l_serials":null,
         "r_serials":null,
@@ -824,9 +1132,9 @@
         "r_is_d":true,
         "is_sidechain":null,
         "h_position":[
-            29.267,
-            25.764,
-            2.155
+            29.191,
+            25.98,
+            2.331
         ],
         "dist_a_h":null,
         "dist_a_d":null,
@@ -837,10 +1145,10 @@
             25.014,
             1.288
         ],
-        "w_angle":94.914652088,
+        "w_angle":99.3924244365,
         "dist_w_a":4.0858831359,
         "dist_w_d":3.4154043684,
-        "d_angle":141.9323844749,
+        "d_angle":123.9362357182,
         "l_group":null,
         "l_serials":null,
         "r_serials":null,

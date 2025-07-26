@@ -26,17 +26,6 @@
         "type":"OA",
         "label":3,
         "center":[
-            7.254,
-            23.524,
-            6.438
-        ],
-        "radius":0
-    },
-    {
-        "instance":0,
-        "type":"OA",
-        "label":4,
-        "center":[
             7.256,
             23.825,
             8.895
@@ -59,16 +48,16 @@
         "type":"HD",
         "label":2,
         "center":[
-            3.286,
-            29.077,
-            7.273
+            3.274,
+            29.038,
+            7.135
         ],
         "radius":0
     },
     {
         "instance":0,
         "type":"OA",
-        "label":5,
+        "label":4,
         "center":[
             -3.97,
             32.78,

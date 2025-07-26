@@ -4,12 +4,12 @@
         "l_res_name":"CMG",
         "l_res_seq":401,
         "l_chain_id":"A",
-        "l_serial":4867,
-        "l_type":"N3",
+        "l_serial":4856,
+        "l_type":"N2",
         "l_position":[
-            0.51,
-            31.44,
-            7.314
+            2.306,
+            30.045,
+            6.48
         ],
         "r_res_name":"LEU",
         "r_res_seq":83,
@@ -24,13 +24,13 @@
         "r_is_d":true,
         "is_sidechain":false,
         "h_position":[
-            3.175,
-            31.945,
-            6.179
+            3.394,
+            31.509,
+            5.805
         ],
-        "dist_a_h":2.9403188603,
-        "dist_a_d":4.0667806678,
-        "angle":159.7985611153,
+        "dist_a_h":1.9449074528,
+        "dist_a_d":3.1120906156,
+        "angle":171.1937060015,
         "dist":null
     },
     {
@@ -58,13 +58,13 @@
         "r_is_d":true,
         "is_sidechain":true,
         "h_position":[
-            -1.838,
-            28.746,
-            10.309
+            -1.846,
+            28.523,
+            10.635
         ],
-        "dist_a_h":2.6386684142,
+        "dist_a_h":2.9836578222,
         "dist_a_d":3.5586660422,
-        "angle":132.2046391583,
+        "angle":109.2661103722,
         "dist":null
     },
     {

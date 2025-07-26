@@ -24,13 +24,13 @@
         "r_is_d":false,
         "is_sidechain":false,
         "h_position":[
-            25.72,
-            12.317,
-            -3.932
+            25.71,
+            12.487,
+            -3.846
         ],
-        "dist_a_h":2.8566004271,
+        "dist_a_h":2.8427511323,
         "dist_a_d":3.7750901976,
-        "angle":134.3866225972,
+        "angle":135.6697443397,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
@@ -68,67 +68,19 @@
         "r_is_d":false,
         "is_sidechain":true,
         "h_position":[
-            27.123,
-            11.728,
-            -6.84
+            27.112,
+            11.711,
+            -6.801
         ],
-        "dist_a_h":2.6885148316,
+        "dist_a_h":2.7215559888,
         "dist_a_d":3.633,
-        "angle":135.8525853569,
+        "angle":133.1377345206,
         "w_serial":null,
         "w_position":null,
         "w_angle":null,
         "dist_w_a":null,
         "dist_w_d":null,
         "d_angle":null,
-        "l_group":null,
-        "l_serials":null,
-        "r_serials":null,
-        "r_is_cation":null,
-        "dist":null
-    },
-    {
-        "type":"water_bridge",
-        "l_res_name":"DZF",
-        "l_res_seq":187,
-        "l_chain_id":"A",
-        "l_serial":3023,
-        "l_type":"O2",
-        "l_position":[
-            30.807,
-            13.324,
-            -3.431
-        ],
-        "r_res_name":"TRP",
-        "r_res_seq":24,
-        "r_chain_id":"A",
-        "r_serial":335,
-        "r_type":"Nar",
-        "r_position":[
-            34.116,
-            9.37,
-            -4.952
-        ],
-        "r_is_d":true,
-        "is_sidechain":null,
-        "h_position":[
-            33.299,
-            10.219,
-            -4.951
-        ],
-        "dist_a_h":null,
-        "dist_a_d":null,
-        "angle":null,
-        "w_serial":3067,
-        "w_position":[
-            32.762,
-            12.163,
-            -5.336
-        ],
-        "w_angle":114.9941987227,
-        "dist_w_a":2.9663059519,
-        "dist_w_d":3.1275583128,
-        "d_angle":149.7023490693,
         "l_group":null,
         "l_serials":null,
         "r_serials":null,
@@ -160,9 +112,9 @@
         "r_is_d":true,
         "is_sidechain":null,
         "h_position":[
-            33.299,
-            10.219,
-            -4.951
+            33.406,
+            10.201,
+            -5.396
         ],
         "dist_a_h":null,
         "dist_a_d":null,
@@ -173,10 +125,10 @@
             12.163,
             -5.336
         ],
-        "w_angle":115.1131860271,
+        "w_angle":120.3004808728,
         "dist_w_a":3.8259915055,
         "dist_w_d":3.1275583128,
-        "d_angle":149.7023490693,
+        "d_angle":147.742275123,
         "l_group":null,
         "l_serials":null,
         "r_serials":null,
@@ -188,43 +140,43 @@
         "l_res_name":"DZF",
         "l_res_seq":187,
         "l_chain_id":"A",
-        "l_serial":3030,
-        "l_type":"N2",
+        "l_serial":3023,
+        "l_type":"O2",
         "l_position":[
-            26.447,
-            12.371,
-            -1.792
+            30.807,
+            13.324,
+            -3.431
         ],
-        "r_res_name":"ALA",
-        "r_res_seq":9,
+        "r_res_name":"TRP",
+        "r_res_seq":24,
         "r_chain_id":"A",
-        "r_serial":116,
-        "r_type":"Nam",
+        "r_serial":335,
+        "r_type":"Nar",
         "r_position":[
-            27.014,
-            8.906,
-            -4.552
+            34.116,
+            9.37,
+            -4.952
         ],
         "r_is_d":true,
         "is_sidechain":null,
         "h_position":[
-            27.491,
-            8.894,
-            -3.471
+            33.406,
+            10.201,
+            -5.396
         ],
         "dist_a_h":null,
         "dist_a_d":null,
         "angle":null,
-        "w_serial":3073,
+        "w_serial":3067,
         "w_position":[
-            28.665,
-            9.131,
-            -2.07
+            32.762,
+            12.163,
+            -5.336
         ],
-        "w_angle":78.4990778639,
-        "dist_w_a":3.9362936882,
-        "dist_w_d":2.9894397468,
-        "d_angle":162.0261329366,
+        "w_angle":126.5714848447,
+        "dist_w_a":2.9663059519,
+        "dist_w_d":3.1275583128,
+        "d_angle":147.742275123,
         "l_group":null,
         "l_serials":null,
         "r_serials":null,

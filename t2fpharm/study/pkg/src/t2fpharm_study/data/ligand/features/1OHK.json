@@ -12,12 +12,23 @@
     },
     {
         "instance":0,
+        "type":"OA",
+        "label":2,
+        "center":[
+            33.26,
+            19.079,
+            0.292
+        ],
+        "radius":0
+    },
+    {
+        "instance":0,
         "type":"HD",
         "label":1,
         "center":[
-            25.442,
-            11.402,
-            -1.128
+            26.057,
+            11.512,
+            -5.674
         ],
         "radius":0
     },
@@ -25,17 +36,6 @@
         "instance":0,
         "type":"HD",
         "label":2,
-        "center":[
-            26.391,
-            11.246,
-            -6.026
-        ],
-        "radius":0
-    },
-    {
-        "instance":0,
-        "type":"HD",
-        "label":3,
         "center":[
             31.1112044335,
             12.7656731183,
@@ -45,8 +45,19 @@
     },
     {
         "instance":0,
+        "type":"HD",
+        "label":3,
+        "center":[
+            26.265,
+            12.447,
+            -0.146
+        ],
+        "radius":0
+    },
+    {
+        "instance":0,
         "type":"OA",
-        "label":2,
+        "label":3,
         "center":[
             31.376,
             25.014,
