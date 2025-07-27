@@ -243,60 +243,84 @@ class Manager:
         return
 
     def run(self, job_name: str, ref_only: bool = False):
+        def keep_row(pdb_id: str, job_idx: int) -> bool:
+            """Check if the entire job batch is completed."""
+            # generate all the slots in this batch
+            slots = ((pdb_id, job_idx + offset)
+                    for offset in range(batch_size_per_job))
+            # if *all* of them are in completed, drop; otherwise keep
+            return not all(slot in completed_jobs for slot in slots)
+
+        # Get job inputs
+        jobs = self._job_inputs(job_name=job_name, grouped=True)
+        batch_size_per_job = len(jobs.iloc[0].get("min_members_dicts", [None])) * len(jobs.iloc[0].get("center_types", [None]))
+
+        # Get job dataset
+        dataset = self.dataset
+        if ref_only:
+            dataset = dataset[dataset["is_ref"]]
+        dataset = dataset[["group_id", "pdb_id"]].reset_index(drop=True)
+
+        # Create a dataframe with one row per job/PDB ID pair
+        all_jobs = dataset.merge(jobs, how="cross")
+
+        # Load summary dataframe to skip already completed jobs
+        try:
+            summary_df = self.job_summary(job_name=job_name)
+            completed_jobs = set(zip(summary_df["pdb_id"], summary_df["job_idx"]))
+        except FileNotFoundError:
+            completed_jobs = None
+        if completed_jobs is not None:
+            all_jobs["keep"] = [
+                keep_row(pdb_id, job_idx)
+                for pdb_id, job_idx in zip(all_jobs["pdb_id"], all_jobs["job_idx"])
+            ]
+            print(f"Skipping {all_jobs[~all_jobs['keep']].shape[0] * batch_size_per_job} already completed jobs.")
+            all_jobs = all_jobs[all_jobs["keep"]].drop(columns=["keep"])
+
+        # Common parameters for all jobs
+        method = self.job_params[job_name]["method"]
+        dirpath_features = str(self.job_dirpath(job_name, dirtype="pharms"))
+        dirpath_matches = str(self.job_dirpath(job_name, dirtype="matches"))
+
         # Enable caching to avoid recomputing heavy objects during modeler creation
         caching_was_enabled = self._cache_enabled
         self.caching(enabled=True)
-
-        # Load summary to skip already completed jobs
-        try:
-            summary_df = self.job_summary(job_name=job_name)
-        except FileNotFoundError:
-            summary_df = pd.DataFrame(columns=["pdb_id", "job_idx"])
-
-        # Get job inputs
-        jobs = self._job_inputs(job_name=job_name, grouped=True).apply(lambda row: row.dropna().to_dict(), axis=1).tolist()
-        method = self.job_params[job_name]["method"]
 
         # Prepare jobs
         ligand_pharms: dict[PDBID, t2fpharm.pharm_ligand.LigandPharmacophore] = {}
         futures = []
         ray.init(ignore_reinit_error=True)
         with tqdm(
-            total=(self.dataset["is_ref"].sum() if ref_only else len(self.dataset)) * len(jobs),
+            total=len(all_jobs) * batch_size_per_job,
             desc="Creating jobs",
             unit="job"
         ) as pbar:
-            for _, group in self.dataset.groupby("group_id"):
+            for group_id, group in all_jobs.groupby("group_id"):
                 ligand_pharms = ray.put(
                     {
                         pdb_id: self.ligand_pharmacophore(pdb_id)
-                        for pdb_id in group["pdb_id"]
+                        for pdb_id in self.group_pdb_ids(group_id)
                     }
                 )
-                for pdb_id in group["pdb_id"]:
-                    if ref_only and not self.is_ref(pdb_id):
-                        continue
+                for pdb_id, pdb_group in group.groupby("pdb_id"):
                     modeler = ray.put(self.modeler(pdb_id))
                     if not caching_was_enabled:
                         self._cache = {}
-                    for job in jobs:
-                        job_idx = job["job_idx"]
-                        if (summary_df["pdb_id"].eq(pdb_id) & summary_df["job_idx"].eq(job_idx)).any():
-                            pbar.update(1)
-                            continue
+                    pdb_group_jobs = pdb_group.to_dict(orient="records")
+                    for job in pdb_group_jobs:
                         remote_job = _remote_job_runner.remote(
                             modeler=modeler,
                             ligand_pharms=ligand_pharms,
-                            target_pdb_id=pdb_id,
                             method=method,
                             job=job,
-                            dirpath_features=str(self.job_dirpath(job_name, dirtype="pharms")),
-                            dirpath_matches=str(self.job_dirpath(job_name, dirtype="matches")),
+                            dirpath_features=dirpath_features,
+                            dirpath_matches=dirpath_matches,
                             return_pharm=False,
                             return_matches=False,
                         )
                         futures.append(remote_job)
-                        pbar.update(1)
+                        pbar.update(batch_size_per_job)
 
         # Restore caching state
         self.caching(enabled=caching_was_enabled)
@@ -307,29 +331,25 @@ class Manager:
             summary_path.write_text("")
 
         # Gather job results
-        future_batch_size = len(jobs[0].get("min_members_dicts", [None])) * len(jobs[0].get("center_types", [None]))
         write_batch_size = 100
         count = 0
         remaining_futures = futures[:]
         with summary_path.open("a") as f, tqdm(
-            total=len(futures) * future_batch_size,
+            total=len(futures) * batch_size_per_job,
             desc="Running jobs",
             unit="job"
         ) as pbar:
             while remaining_futures:
                 done_futures, remaining_futures = ray.wait(remaining_futures, num_returns=1)
                 summaries = ray.get(done_futures[0])[0]
-                pdb_id = summaries[0]["pdb_id"]
-                group_id = self.group_id(pdb_id)
                 for summary in summaries:
-                    summary.update({"group_id": group_id})
                     f.write(json.dumps(summary, separators=(",", ":")) + "\n")
                     count += 1
                 if count >= write_batch_size:
                     f.flush()
                     os.fsync(f.fileno())
                     count = 0
-                pbar.update(1 * future_batch_size)
+                pbar.update(1 * batch_size_per_job)
             f.flush()
             os.fsync(f.fileno())
         return self.job_summary(job_name=job_name)
@@ -350,19 +370,47 @@ class Manager:
         return df_final
 
     def _job_summary(self, job_name: str) -> pd.DataFrame:
+        dfs = []
         path = self.path_results(job_name=job_name, filetype="summary")
-        if not path.is_file():
-            raise FileNotFoundError(f"Summary file not found: {path}")
-        df = pd.read_json(path, lines=True).convert_dtypes()
+        if path.is_file():
+            df = pd.read_json(path, lines=True).convert_dtypes()
+            lig_count_cols = df.columns[df.columns.str.endswith(('-nl_all','-nl_self'))]
+            df[lig_count_cols] = df[lig_count_cols].fillna(0)
+            dfs.append(df)
+            path.unlink()
+            write_parquet = True
+        else:
+            write_parquet = False
+        path_final = self.path_results(job_name=job_name, filetype="summary_final")
+        if path_final.is_file():
+            df = io.read_df(path_final)
+            dfs.append(df)
+        if not dfs:
+            raise FileNotFoundError(f"No summary found for job '{job_name}'.")
+        df = pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
+        if write_parquet:
+            io.write_df(df=df, filepath=path_final)
         main_cols = ["job_idx", "group_id", "pdb_id"]
         extra_cols = sorted([col for col in df.columns if col not in main_cols])
         all_cols = main_cols + extra_cols
         df_final = df[all_cols].sort_values(main_cols).reset_index(drop=True)
         return df_final
 
-    def job_inputs(self, job_name: str) -> pd.DataFrame:
+    def job_inputs(self, job_name: str | None = None) -> pd.DataFrame:
         """Get the inputs for a given job."""
-        return self._job_inputs(job_name=job_name, grouped=False)
+        if job_name:
+            return self._job_inputs(job_name=job_name, grouped=False)
+        input_dfs = []
+        for job_name in self.job_params:
+            inputs = self._job_inputs(job_name=job_name, grouped=False)
+            inputs["job_name"] = job_name
+            input_dfs.append(inputs)
+        df = pd.concat(input_dfs, ignore_index=True)
+        main_cols = ["job_name", "job_idx"]
+        extra_cols = sorted([col for col in df.columns if col not in main_cols])
+        all_cols = main_cols + extra_cols
+        df_final = df[all_cols].sort_values(main_cols).reset_index(drop=True)
+        return df_final
 
     def _job_inputs(self, job_name: str, grouped: bool) -> pd.DataFrame:
         """Get the inputs for a given job."""
@@ -812,6 +860,7 @@ class Manager:
             "jobs",
             "inputs",
             "summary",
+            "summary_final",
         ],
     ) -> Path:
         path = self.dirpath_data / self._path["results"] / job_name
@@ -821,7 +870,9 @@ class Manager:
         if filetype == "inputs":
             return path / ".job_inputs.parquet"
         if filetype == "summary":
-            return path / "summary.yaml"
+            return path / "summary.jsonl"
+        if filetype == "summary_final":
+            return path / "summary.parquet"
         raise ValueError(f"Unknown filetype: {filetype}")
 
     def group_id(self, pdb_id: str) -> str:
