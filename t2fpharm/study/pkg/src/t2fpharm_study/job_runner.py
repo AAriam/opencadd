@@ -19,7 +19,6 @@ if TYPE_CHECKING:
 def run(
     modeler: Modeler,
     ligand_pharms: dict[PDBID, Pharmacophore],
-    target_pdb_id: str,
     method: Literal["largest_peaks", "cnn"],
     job: dict[str, Any],
     dirpath_features: Path | str | None = None,
@@ -31,7 +30,6 @@ def run(
         summaries, pharms, matches = _run(
             modeler=modeler,
             ligand_pharms=ligand_pharms,
-            target_pdb_id=target_pdb_id,
             method=method,
             job=job,
             dirpath_features=dirpath_features,
@@ -39,7 +37,7 @@ def run(
         )
     except Exception as e:
         raise RuntimeError(
-            f"Error running job {job["job_idx"]} for PDB ID {target_pdb_id} with method {method}: {e}"
+            f"Error running job {job["job_idx"]} for PDB ID {job["pdb_id"]} with method {method}: {e}"
         ) from e
     # Prepare output
     output = [summaries]
@@ -53,7 +51,6 @@ def run(
 def _run(
     modeler: Modeler,
     ligand_pharms: dict[PDBID, Pharmacophore],
-    target_pdb_id: str,
     method: Literal["largest_peaks", "cnn"],
     job: dict[str, Any],
     dirpath_features: Path | str | None = None,
@@ -82,7 +79,8 @@ def _run(
         summary, pharm, match = _run_single(
             pharm=pharm,
             ligand_pharms=ligand_pharms,
-            target_pdb_id=target_pdb_id,
+            target_pdb_id=job["pdb_id"],
+            group_id=job["group_id"],
             job_idx=job["job_idx"],
             include_radii=False,
             dirpath_features=dirpath_features,
@@ -127,7 +125,8 @@ def _run(
             summary, pharm, match = _run_single(
                 pharm=pharm,
                 ligand_pharms=ligand_pharms,
-                target_pdb_id=target_pdb_id,
+                target_pdb_id=job["pdb_id"],
+                group_id=job["group_id"],
                 job_idx=job_idx,
                 include_radii=True,
                 dirpath_features=dirpath_features,
@@ -144,6 +143,7 @@ def _run_single(
     pharm: Pharmacophore,
     ligand_pharms: dict[PDBID, Pharmacophore],
     target_pdb_id: str,
+    group_id: str,
     job_idx: int,
     include_radii: bool,
     dirpath_features: Path | str | None = None,
@@ -162,6 +162,7 @@ def _run_single(
     matches_summary = _match_summary(matches)
 
     pharm_summary["pdb_id"] = target_pdb_id
+    pharm_summary["group_id"] = group_id
     summary = pharm_summary | matches_summary
 
     summary["job_idx"] = job_idx
