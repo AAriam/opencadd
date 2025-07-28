@@ -364,8 +364,9 @@ class Manager:
             summaries.append(summary)
         df = pd.concat(summaries, ignore_index=True)
         main_cols = ["job_name", "job_idx", "group_id", "pdb_id"]
-        extra_cols = sorted([col for col in df.columns if col not in main_cols])
-        all_cols = main_cols + extra_cols
+        all_type_cols = sorted([col for col in df.columns if col.startswith("t_all-")])
+        per_type_cols = sorted([col for col in df.columns if col not in main_cols and col not in all_type_cols])
+        all_cols = main_cols + all_type_cols + per_type_cols
         df_final = df[all_cols].sort_values(main_cols).reset_index(drop=True)
         return df_final
 
@@ -391,8 +392,9 @@ class Manager:
         if write_parquet:
             io.write_df(df=df, filepath=path_final)
         main_cols = ["job_idx", "group_id", "pdb_id"]
-        extra_cols = sorted([col for col in df.columns if col not in main_cols])
-        all_cols = main_cols + extra_cols
+        all_type_cols = sorted([col for col in df.columns if col.startswith("t_all-")])
+        per_type_cols = sorted([col for col in df.columns if col not in main_cols and col not in all_type_cols])
+        all_cols = main_cols + all_type_cols + per_type_cols
         df_final = df[all_cols].sort_values(main_cols).reset_index(drop=True)
         return df_final
 
