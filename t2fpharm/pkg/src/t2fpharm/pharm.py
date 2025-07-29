@@ -67,8 +67,10 @@ class Pharmacophore:
         in visualizations or batch analyses.
     system
         Optional chemical system associated with the pharmacophore.
-        If provided, it is used by the `display()` method
+        If provided, it is only used by the `display()` method
         to visualize the pharmacophore in the context of the chemical structure.
+        This can be any object that can be visualized by NGLView
+        using its `add_trajectory()` method.
     pocket
         Optional binding pocket associated with the pharmacophore.
         If provided, it is used by the `display()` method
@@ -89,7 +91,7 @@ class Pharmacophore:
         feature_types: set[str] | None = None,
         inputs: Sequence[dict[str, Any]] | None = None,
         name: str = "Pharmacophore",
-        system: System | None = None,
+        system: Any | None = None,
         pocket: Pocket | None = None,
         field: Field | None = None,
         extra: dict[str, Any] | None = None,
@@ -161,7 +163,7 @@ class Pharmacophore:
         return self._name
 
     @property
-    def system(self) -> System | None:
+    def system(self) -> Any | None:
         """Chemical system associated with the pharmacophore."""
         return self._system
 
@@ -742,7 +744,7 @@ class Pharmacophore:
     def display(
         self,
         nglwidget: scishow.nglview.NGLWidget | None = None,
-        system: Any | None = None,
+        system: Any | Literal[False] | None = None,
         default_radius: float = 1.5,
         show_box: bool = True,
         show_pocket: bool = True,
@@ -763,10 +765,11 @@ class Pharmacophore:
         feature_colors = feature_colors or {}
 
         # System
-        if system is not None:
-            nv.add_trajectory(system)
-        elif self.system is not None:
-            nv.add_trajectory(self.system)
+        if system is not False:
+            if system is not None:
+                nv.add_trajectory(system)
+            elif self.system is not None:
+                nv.add_trajectory(self.system)
 
         # Pocket
         if self.pocket is not None:
