@@ -53,7 +53,7 @@ class Modeler:
                     "Pocket and field must have the same grid, "
                     f"but got pocket grid {pocket.grid} and field grid {field.grid}."
                 )
-            if pocket.tensor.shape != field.tensor.shape[1:]:
+            if pocket.tensor.shape != field.tensor.shape[1:] and pocket.tensor.shape != field.tensor.shape[-3:]:
                 raise ValueError(
                     "Pocket and field tensors must have the same shape along their last dimensions, "
                     f"but got pocket tensor shape {pocket.tensor.shape} "
