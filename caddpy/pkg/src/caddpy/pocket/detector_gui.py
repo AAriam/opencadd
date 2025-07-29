@@ -1063,31 +1063,43 @@ class DetectorGUI(scishow.widgets.GUI):
             if pockets:
                 for pocket_name in self._ngl_current_pocket_names:
                     ngl.remove_component_by_name(pocket_name)
-                for pocket_idx in range(1, self._pockets.num_features + 1):
-                    pocket_size = self._pockets.num_points[pocket_idx]
-                    if pocket_size < 300:
-                        continue
-                    pocket_name = f"{self._ngl_name_pocket} {pocket_idx} ({pocket_size})"
-                    pocket_slice = self._pockets.slices[pocket_idx - 1]
-                    pocket_slice_dialated = tuple(slice(max(s.start - 2, 0), min(s.stop + 2, self._pockets.labels.shape[axis_idx])) for axis_idx, s in enumerate(pocket_slice))
-                    pocket_lower_bound_idx = tuple(s.start for s in pocket_slice_dialated)
-                    pocket_lower_bound = self.field.grid.coordinates[pocket_lower_bound_idx]
-                    ngl.add_volume(
-                        (self._pockets.labels[pocket_slice_dialated] == pocket_idx).astype(np.uint8),
-                        name=pocket_name,
-                        basis=self.field.grid.unit_vectors,
-                        origin=pocket_lower_bound,
-                        representation_params=scishow.nglview.SurfaceRepresentationParameters(
-                            lazy=True,
-                            opacity=1,
-                            contour=False,
-                            visible=True,
-                            color=(0,0,200),
-                            isolevel=0.5,
-                            isolevel_type="value",
-                        )
-                    )
+                for _, pocket in self._pockets.pockets.iterrows():
+                    pocket_name = f"{self._ngl_name_pocket} {pocket.label} ({round(pocket.volume)})"
                     self._ngl_current_pocket_names.append(pocket_name)
+                    pocket.pocket.display(
+                        nglwidget=ngl,
+                        name=pocket_name,
+                        contour=True,
+                        visible=True,
+                        color=(0,0,200),
+                    )
+
+
+                # for pocket_idx in range(1, self._pockets.num_features + 1):
+                #     pocket_size = self._pockets.num_points[pocket_idx]
+                #     if pocket_size < 300:
+                #         continue
+                #     pocket_name = f"{self._ngl_name_pocket} {pocket_idx} ({pocket_size})"
+                #     pocket_slice = self._pockets.slices[pocket_idx - 1]
+                #     pocket_slice_dialated = tuple(slice(max(s.start - 2, 0), min(s.stop + 2, self._pockets.pocket_labels.shape[axis_idx])) for axis_idx, s in enumerate(pocket_slice))
+                #     pocket_lower_bound_idx = tuple(s.start for s in pocket_slice_dialated)
+                #     pocket_lower_bound = self.field.grid.coordinates[pocket_lower_bound_idx]
+                #     ngl.add_volume(
+                #         (self._pockets.pocket_labels[pocket_slice_dialated] == pocket_idx).astype(np.uint8),
+                #         name=pocket_name,
+                #         basis=self.field.grid.unit_vectors,
+                #         origin=pocket_lower_bound,
+                #         representation_params=scishow.nglview.SurfaceRepresentationParameters(
+                #             lazy=True,
+                #             opacity=1,
+                #             contour=False,
+                #             visible=True,
+                #             color=(0,0,200),
+                #             isolevel=0.5,
+                #             isolevel_type="value",
+                #         )
+                #     )
+                #     self._ngl_current_pocket_names.append(pocket_name)
         return
 
     @contextmanager
