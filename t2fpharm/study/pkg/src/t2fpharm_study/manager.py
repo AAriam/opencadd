@@ -750,7 +750,7 @@ class Manager:
         return t2fpharm.modeler(
             field=self.field(pdb_id),
             pocket=self.pocket(pdb_id),
-            receptor=self.complex(pdb_id),
+            system=self.complex(pdb_id),
         )
 
     def ligand_pharmacophore(self, pdb_id: str):
