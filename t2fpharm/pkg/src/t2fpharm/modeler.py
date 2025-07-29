@@ -1,4 +1,4 @@
-from typing import Sequence, Literal, Callable
+from typing import Sequence, Literal, Callable, Any
 
 import pandas as pd
 import numpy as np
@@ -17,11 +17,31 @@ FilterFunction = Literal["gaussian", "mean", "percentile"] | Callable
 
 
 class Modeler:
+    """Target-focused pharmacophore modeler.
+
+    This class provides methods to perceive pharmacophore features
+    from a field tensor, optionally using a binding pocket mask.
+
+    Parameters
+    ----------
+    field
+        The field tensor from which to perceive pharmacophore features.
+    pocket
+        An optional binding pocket mask to restrict the perception to a specific region.
+    system
+        Optional chemical system associated with the pharmacophore.
+        This is not used by the modeler itself.
+        If provided, it is only used by the `display()` method
+        of the generated Pharmacophore to visualize the pharmacophore
+        in the context of the chemical structure.
+        This can be any object that can be visualized by NGLView
+        using its `add_trajectory()` method.
+    """
     def __init__(
         self,
         field: Field,
         pocket: Pocket | None = None,
-        receptor: System | None = None,
+        system: Any | None = None,
     ):
         if not isinstance(field, Field):
             raise TypeError(f"Expected Field object, got {type(field).__name__}.")
@@ -41,10 +61,10 @@ class Modeler:
                 )
         self._field = field
         self._pocket = pocket
-        if receptor:
-            self._receptor = receptor
+        if system:
+            self._system = system
         elif pocket is not None:
-            self._receptor = pocket.receptor
+            self._system = pocket.receptor
         return
 
     @property
@@ -56,8 +76,8 @@ class Modeler:
         return self._pocket
 
     @property
-    def receptor(self) -> System | None:
-        return self._receptor
+    def system(self) -> Any | None:
+        return self._system
 
     def cnn(
         self,
@@ -565,7 +585,7 @@ class Modeler:
             features=features,
             feature_types=set(self.field.batch_instance_labels["feature"]),
             inputs=[args.model_dump()],
-            system=self.receptor,
+            system=self.system,
             pocket=self.pocket,
             field=self.field,
             extra={"mask": mask},
