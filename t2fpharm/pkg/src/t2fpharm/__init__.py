@@ -1,5 +1,7 @@
 """T2FPharm: Truly Target Focused Pharmacophore Modeler."""
 
+from typing import Any
+
 from t2fpharm import field, grid, pharm, pocket, system
 from t2fpharm.field import Field
 from t2fpharm.grid import Grid
@@ -27,7 +29,7 @@ __all__ = [
 def modeler(
     field: Field,
     pocket: Pocket | None = None,
-    receptor: System | None = None,
+    system: Any | None = None,
 ) -> Modeler:
     """Create a target-focused pharmacophore modeler.
 
@@ -38,7 +40,13 @@ def modeler(
         corresponding to pharmacophore features.
     pocket
         Optional pocket mask for the field.
-    receptor
-        Receptor associated with the pharmacophore modeler.
+    system
+        Optional chemical system associated with the pharmacophore.
+        This is not used by the modeler itself.
+        If provided, it is only used by the `display()` method
+        of the generated Pharmacophore to visualize the pharmacophore
+        in the context of the chemical structure.
+        This can be any object that can be visualized by NGLView
+        using its `add_trajectory()` method.
     """
-    return Modeler(field=field, pocket=pocket, receptor=receptor)
+    return Modeler(field=field, pocket=pocket, system=system)
