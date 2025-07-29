@@ -1,4 +1,4 @@
-"""Fields representing metrics for pharmacophore features."""
+"""Field generation for pharmacophore modeling."""
 
 from __future__ import annotations
 
@@ -16,14 +16,15 @@ if TYPE_CHECKING:
 
 
 __all__ = [
+    "Field",
     "from_data",
     "from_autogrid",
     "from_npz",
-    "Field",
 ]
 
 
 def from_data(
+    *,
     grid_shape: Sequence[int],
     grid_size: Sequence[float],
     grid_spacing: Sequence[float],
