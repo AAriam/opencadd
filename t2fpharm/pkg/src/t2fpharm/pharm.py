@@ -73,12 +73,12 @@ class Pharmacophore:
         using its `add_trajectory()` method.
     pocket
         Optional binding pocket associated with the pharmacophore.
-        If provided, it is used by the `display()` method
-        to visualize the pharmacophore in the context of a binding pocket.
+        If provided, it is only used by the `display()` method
+        to visualize the pharmacophore in the context of its binding pocket.
     field
         Optional field associated with the pharmacophore.
-        If provided, it is used by the `display()` method
-        to visualize the pharmacophore in the context of a field.
+        If provided, it is only used by the `display()` method
+        to visualize the pharmacophore in the context of its fields.
     extra
         Optional dictionary to bundle additional information
         related to the pharmacophore, such as metadata or processing results.
