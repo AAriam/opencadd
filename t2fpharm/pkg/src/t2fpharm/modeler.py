@@ -92,7 +92,7 @@ class Modeler:
         min_members: PositiveInt | dict[str, PositiveInt] = 1,
         max_members: PositiveInt | dict[str, PositiveInt] | None = None,
         center_type: Literal["function", "midpoint", "mean", "average"] | dict[str, Literal["function", "midpoint", "mean", "average"]] = "average",
-        radius_type: Literal["average", "mean", "max", "min"] = "average",
+        radius_type: Literal["average", "mean", "max", "min"] = "max",
         # Parameters for `self.simple`
         filter_function: FilterFunction | dict[str, FilterFunction] | None = None,
         filter_radius: PositiveFloat | dict[str, PositiveFloat] | None = None,
