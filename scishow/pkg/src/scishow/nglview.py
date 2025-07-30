@@ -429,6 +429,7 @@ class NGLWidget(nv.NGLWidget):
         array_sanitized[np.isneginf(array_flat)] = "-Infinity"
         return f"[{", ".join(array_sanitized)}]"
 
+
 @dataclass(kw_only=True)
 class RepresentationParameters:
     """General representation parameters for NGLWidget.
