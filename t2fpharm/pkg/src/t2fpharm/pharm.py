@@ -223,6 +223,10 @@ class Pharmacophore:
             (i.e., to keep at most `max_features` features per each type),
             or a dictionary mapping each feature type to its maximum number of features.
 
+        Returns
+        -------
+        A new pharmacophore instance containing only the non-overlapping subset of features.
+
         Notes
         -----
         The algorithm works as follows:
@@ -373,9 +377,18 @@ class Pharmacophore:
         - `instance`: Instance identifier (0 if `per_instance` is `False`).
         - `type`: Feature type.
         - `label`: Cluster label (taken from the clustering result).
-        - `center`: Center coordinates of the cluster.
-        - `radius`: Radius of the cluster.
+        - `center`: Center coordinates of the cluster according to `center_type`.
+        - `radius`: Radius of the cluster according to `radius_type`.
+        - `value`: Value associated with the cluster center.
+          This is the value of the cluster member with the shortest distance to the cluster center.
+        - `n_members`: Number of features in the cluster.
         - `members`: Row indices of the original features that belong to this cluster.
+        - `center_<center_type>`: Center coordinates of the cluster
+          according to each available `center_type`.
+        - `radius_<center_type>_<radius_type>`: Radius of the cluster
+          according to each available `center_type` and `radius_type`.
+        - `value_<center_type>`: Value associated with the cluster center
+          for each available `center_type`.
         """
         args = PharmClusterInput(
             function=function,
@@ -753,6 +766,7 @@ class Pharmacophore:
         show_feature_points: bool = False,
         feature_colors: dict[str, tuple[float, float, float] | tuple[int, int, int]] | None = None,
         overdide_radius: bool = False,
+        gui: bool = True,
     ):
         def feature_color(feature_id: str) -> tuple[float, float, float] | tuple[int, int, int]:
             """Get color for a feature type, defaulting to gray if not set."""
@@ -823,7 +837,9 @@ class Pharmacophore:
                         visible=show_feature_points,
                     )
                 )
-        return nv.display(gui=True)
+        if gui:
+            nv.display(gui=True)
+        return nv
 
     def set_feature_color(self, **kwargs: tuple[int, int, int] | tuple[float, float, float]) -> None:
         """Set custom colors for pharmacophore features.
@@ -863,6 +879,69 @@ def from_complex(
     pocket: Pocket | None = None,
     receptor: System | None = None,
 ):
+    """Create a pharmacophore from a receptor–ligand complex.
+
+    This function uses the PLIP library to analyze the interactions
+    between the receptor and ligand(s) in the provided PDB files.
+    The non-receptor interaction centers
+    are then converted into pharmacophore features.
+
+    Note that if any of the `type_*` parameters are set to `None`,
+    the corresponding feature type will not be included in the pharmacophore.
+
+    Parameters
+    ----------
+    pdb_files
+        PDB file(s) containing the protein-ligand complex.
+        This can be a single file or an array of files with any shape.
+        Each entry can be either a PDB file content (as string or bytes)
+        or a path to a PDB file (as a `pathlib.Path` object).
+        If an array of files is provided,
+        the `instance` column in the `features` DataFrame
+        of the generated `Pharmacophore` object
+        will indicate the index of the file in the array.
+        (as a single integer for 1D or a tuple of integers for multi-dimensional arrays).
+    ligands
+        Ligand identifiers to filter interactions.
+        If not provided, all ligands in the PDB file will be considered.
+        Each ligand is identified by a tuple of three elements:
+        1. Residue name (e.g., "ATP")
+        2. Residue chain ID (e.g., "A")
+        3. Residue sequence number (e.g., 1)
+
+        For each ligand, you can provide the first n elements of the tuple,
+        in which case the ligand will be matched against all ligands
+        with the same specifications.
+    type_hbond_acceptor
+        Feature type ID for hydrogen bond acceptors in the ligand.
+    type_water_bridge_ligand_acceptor
+        Feature type ID for water bridge acceptors in the ligand.
+        Water bridge acceptors are hydrogen bond acceptors
+        that interact with the receptor through a water molecule.
+    type_water_bridge_ligand_donor
+        Feature type ID for water bridge donors in the ligand.
+        Water bridge donors are hydrogen bond donors
+        that interact with the receptor through a water molecule.
+    type_water_bridge_water_acceptor
+        Feature type ID for water bridge acceptors in the water molecule.
+        This is the oxygen atom of the water molecule.
+        Note that hydrogen position of the water molecule
+        is not available in PLIP, so it cannot be used as a feature.
+    type_anion
+        Feature type ID for anionic centers in the ligand.
+    type_cation
+        Feature type ID for cationic centers in the ligand.
+    type_hydrophobic
+        Feature type ID for hydrophobic centers in the ligand.
+    type_aromatic
+        Feature type ID for aromatic centers in the ligand.
+    pocket
+        Optional pocket to filter features based on their coverage.
+        If provided, only features that are within the pocket will be included.
+    receptor
+        Optional structure to associate with the pharmacophore.
+        This is only used for visualization purposes.
+    """
     plip = caddpy.interaction.from_pdb(pdb_files, ligands=ligands)
     out = []
     for _, row in plip.all.iterrows():
@@ -922,4 +1001,4 @@ def from_complex(
         positions = np.stack([feature["center"] for feature in out])
         coverages = pocket.point_coverage(positions)
         out = [feature for feature, coverage in zip(out, coverages) if coverage]
-    return Pharmacophore(features=out, extra={"plip": plip}, system=receptor)
+    return Pharmacophore(features=out, extra={"plip": plip}, system=receptor, pocket=pocket)
