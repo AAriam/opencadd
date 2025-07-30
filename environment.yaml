@@ -31,7 +31,7 @@ dependencies:
     - arrayer ==0.0.6
     - bbo ==0.0.2
     - commonnn-clustering ==0.0.4
-    - fileex ==0.2.4
+    - fileex ==0.2.5
     - jax ==0.6.2
     - pkgdata ==0.1.2
     - plip ==2.4.0
@@ -48,4 +48,3 @@ dependencies:
     - -e scishow/pkg
     - -e t2fpharm/pkg
     - -e t2fpharm/study/pkg
-
