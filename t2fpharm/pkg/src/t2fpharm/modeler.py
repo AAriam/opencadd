@@ -1,3 +1,5 @@
+"""Pharmacophore modeler for target-focused pharmacophore perception."""
+
 from typing import Sequence, Literal, Callable, Any
 
 import pandas as pd
@@ -6,11 +8,14 @@ from pydantic import BaseModel
 
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
-from t2fpharm.system import System
 from t2fpharm.pharm import Pharmacophore
-from t2fpharm.input.modeler import ModelerCNNInput, ModelerLargestPeaksInput, ModelerSimpleInput
+from t2fpharm.input.modeler import ModelerLargestPeaksInput, ModelerSimpleInput
 from t2fpharm.typing import PositiveInt, PositiveFloat
 
+
+__all__ = [
+    "Modeler",
+]
 
 FilterExtensionMode = Literal["constant", "nearest", "mirror", "reflect", "wrap"]
 FilterFunction = Literal["gaussian", "mean", "percentile"] | Callable
