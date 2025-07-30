@@ -288,7 +288,7 @@ def from_pdb(
         Each entry can be either a PDB file content (as string or bytes)
         or a path to a PDB file (as a `pathlib.Path` object).
         If an array of files is provided,
-        each interaction will have an additional column `idx`
+        each interaction will have an additional column `instance`
         indicating the index of the file in the array
         (as a single integer for 1D or a tuple of integers for multi-dimensional arrays).
     ligands
