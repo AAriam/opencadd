@@ -26,17 +26,17 @@ class PharmClusterCNNInput(PharmClusterInput):
     @model_validator(mode="before")
     def _cluster_cnn_input(cls, values: dict[str, object]) -> dict[str, object]:
         feature_types = values["feature_types"]
-        for argname in (
-            "max_distance",
-            "min_neighbors",
-            "min_members",
-            "max_members",
+        for argname, none_allowed in (
+            ("max_distance", False),
+            ("min_neighbors", False),
+            ("min_members", False),
+            ("max_members", True),
         ):
             values[argname] = validator.validate_input_dict(
                 name=argname,
                 value=values[argname],
                 feature_types=feature_types,
-                none_allowed=False,
+                none_allowed=none_allowed,
                 require_all_types=True,
             )
 
