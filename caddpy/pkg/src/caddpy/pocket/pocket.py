@@ -119,7 +119,7 @@ class Pocket(Field):
     def display(
         self,
         nglwidget: scishow.nglview.NGLWidget | None = None,
-        show_box: bool = False,
+        show_box: bool = True,
         show_pocket_atoms: bool = False,
         name: str = "Pocket",
         box_name: str = "BBox",
@@ -130,6 +130,7 @@ class Pocket(Field):
         opacity: float = 0.8,
         color: tuple[float, float, float] = (0.8, 0.2, 0.2),
         receptor: Any | Literal[False] | None = None,
+        gui: bool = True,
     ):
         nv = nglwidget or scishow.nglview.NGLWidget()
         if receptor is not False:
@@ -166,6 +167,8 @@ class Pocket(Field):
                 lazy=lazy,
             )
         )
+        if gui:
+            nv.display(gui=True)
         return nv
 
     def to_dict(self) -> dict[str, list]:
