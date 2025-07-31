@@ -49,6 +49,7 @@ class Pharmacophore:
         - `center`: A sequence of three real numbers representing
            the 3D coordinates of the feature in some reference frame.
         - `radius`: A non-negative real number representing the feature radius.
+           The radius defines the uncertainty of the feature center.
            If not present, it will be added with a default value of 0.
     feature_types
         Set of all feature types that were considered when creating the pharmacophore.
