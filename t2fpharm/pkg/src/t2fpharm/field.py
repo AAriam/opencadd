@@ -117,11 +117,12 @@ def from_data(
 
 
 def from_autogrid(
-    grid_shape: Sequence[int],
-    grid_size: Sequence[float],
-    grid_spacing: Sequence[float],
-    grid_lower: Sequence[float],
-    grid_upper: Sequence[float],
+    grid: Grid,
+    # grid_shape: Sequence[int],
+    # grid_size: Sequence[float],
+    # grid_spacing: Sequence[float],
+    # grid_lower: Sequence[float],
+    # grid_upper: Sequence[float],
     receptor_files: str | bytes | Path | ArrayLike,
     ligand_types: Sequence[str] = ("HD", "C", "OA", "e-", "e+"),
     receptor_types: Sequence[str] | None = None,
@@ -135,13 +136,13 @@ def from_autogrid(
     output_dir: str | Path = None,
     allow_copy: bool = True,
 ) -> Field:
-    grid = scids.grid.from_data(
-        shape=grid_shape,
-        size=grid_size,
-        spacing=grid_spacing,
-        lower=grid_lower,
-        upper=grid_upper,
-    )
+    # grid = scids.grid.from_data(
+    #     shape=grid_shape,
+    #     size=grid_size,
+    #     spacing=grid_spacing,
+    #     lower=grid_lower,
+    #     upper=grid_upper,
+    # )
     return caddpy.mif.autogrid.from_pdbqt(
         receptor_files=receptor_files,
         grid=grid,
