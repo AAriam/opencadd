@@ -727,19 +727,20 @@ class Manager:
             if dirpath_autogrid.exists():
                 shutil.rmtree(dirpath_autogrid)
             dirpath_autogrid.mkdir(parents=True, exist_ok=True)
-            pocket_data = self.pocket(pdb_id).to_dict()
-            grid_data = {k: v for k, v in pocket_data.items() if k.startswith("grid_")}
+            # pocket_data = self.pocket(pdb_id).to_dict()
+            # grid_data = {k: v for k, v in pocket_data.items() if k.startswith("grid_")}
             filepath_pdbqt = self.path("pdbqt", pdb_id)
             if not filepath_pdbqt.is_file():
                 self.pdbqt(pdb_id)
             field = t2fpharm.field.from_autogrid(
+                grid=self.pocket(pdb_id).grid,
                 receptor_files=filepath_pdbqt,
                 receptor_file_ids=pdb_id,
                 ligand_types=self.field_params["ligand_types"],
                 smooth=self.field_params["smooth"],
                 dielectric=self.field_params["dielectric"],
                 output_dir=dirpath_autogrid,
-                **grid_data,
+                # **grid_data,
             )
             field.to_npz(filepath=filepath_field)
         if self._cache_enabled:
