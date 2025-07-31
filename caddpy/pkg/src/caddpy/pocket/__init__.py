@@ -132,7 +132,53 @@ def from_ligand(
     grid: float | Sequence[float] | Grid = 0.3,
     trim: bool = True,
 ) -> Pocket:
-    """Create a pocket from a ligand."""
+    """Create a pocket from a ligand.
+
+    This function works as follows:
+    1. Ligand atoms are selected from the `system` using `ligand_mask`.
+    2. The ligand volume is converted to a voxel grid using the provided `grid`,
+       where each ligand atom is represented by a sphere of radius `ligand_radii + ligand_radii_offset`.
+    3. The receptor volume is converted to a voxel grid using the same `grid`.
+    4. The pocket voxels are determined as the voxels that are occupied by the ligand
+       but not occupied by the receptor.
+    5. Morphological operations (erosion and opening) are applied to the pocket voxels
+       in the specified order (`morphology_order`) to remove small artifacts and refine the pocket shape.
+    6. The pocket voxels are labeled based on their connectivity,
+       and the largest connected component is selected as the pocket.
+
+    Parameters
+    ----------
+    system
+        A `ChemicalSystem` object containing the receptor and ligand structures.
+    ligand_mask
+        A 1D boolean array to select the ligand atoms from `system.composition.atoms`.
+    ligand_radii
+        A sequence of non-negative real numbers representing the radius of each ligand atom.
+        If `None`, the default van der Waals radii of the ligand atoms will be used.
+    ligand_radii_offset
+        A non-negative real number or a sequence of non-negative real numbers
+        to be added to the ligand radii.
+        This is useful when `ligand_radii` is not provided.
+    erosion_radius
+        A non-negative real number representing the radius of the morphological erosion operation
+        applied to the pocket voxels.
+        If `0`, no erosion is applied.
+    opening_radius
+        A non-negative real number representing the radius of the morphological opening operation
+        applied to the pocket voxels.
+        If `0`, no opening is applied.
+    morphology_order
+        A tuple of two distinct strings, either `("opening", "erosion")` or `("erosion", "opening")`,
+        specifying the order of morphological operations applied to the pocket voxels.
+        The first operation is applied first, followed by the second operation.
+    grid
+        Grid specification for the pocket voxels.
+        - If a single float is provided, it will be used as the grid spacing in all three dimensions.
+        - If a sequence of three floats is provided, they will be used as the grid spacing in the x, y, and z dimensions, respectively.
+        - If a `Grid` object is provided, it will be used directly.
+    trim
+        Whether to trim the pocket tensor to remove all-zero borders.
+    """
     def get_pocket_atom_serials(
         ligand_voxels: jnp.ndarray,
         receptor_voxels: jnp.ndarray,
