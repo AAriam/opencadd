@@ -31,26 +31,55 @@ def manager(
 ) -> Manager:
     """Create a manager.
 
+    Note that all other paths must be relative to `dirpath_data`.
+
     Parameters
     ----------
     dirpath_data
         Path to the data directory.
+        All inputs, intermediate results, and outputs are stored here.
         If not provided, the default data directory is used.
     filepath_inputs
-        Path to the inputs file (JSON, YAML, or TOML)
-        relative to `dirpath`.
+        Path to the input specification file (JSON, YAML, or TOML).
+    dirpath_pdb_raw
+        Path to the directory containing raw PDB files.
+    dirpath_pdb_fixed
+        Path to the directory containing fixed PDB files.
+    dirpath_pdb_aligned
+        Path to the directory containing aligned PDB files.
+    dirpath_pdb_apo
+        Path to the directory containing apo PDB files.
+    dirpath_pdbqt
+        Path to the directory containing PDBQT files.
+    dirpath_affinity
+        Path to the directory containing affinity data.
+    dirpath_pocket
+        Path to the directory containing pocket data.
+    dirpath_autogrid
+        Path to the directory containing AutoGrid data.
+    dirpath_field
+        Path to the directory containing field data.
+    dirpath_ligand_plip
+        Path to the directory containing PLIP ligand data.
+    dirpath_ligand_features
+        Path to the directory containing ligand pharmacophore features data.
+    dirpath_jobs
+        Path to the directory containing job data.
+    dirname_job_pharms
+        Name of the directory containing pharmacophore data for each job.
+    dirname_job_matches
+        Name of the directory containing matches data for each job.
     """
     dirpath_data = (
         Path(dirpath_data) if dirpath_data else
         pkgdata.get_package_path_from_caller(top_level=True) / "data"
     )
-    input_data = pyserials.read.from_file(
+    inputs = pyserials.read.from_file(
         path=dirpath_data / filepath_inputs,
         json_strict=True,
         yaml_safe=True,
         toml_as_dict=True,
     )
-    inputs = input_data["data"]
     rows = []
     group_color = {}
     for group_data in inputs["receptor_groups"]:
