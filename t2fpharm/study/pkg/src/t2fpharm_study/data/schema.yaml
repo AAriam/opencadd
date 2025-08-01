@@ -1,0 +1,68 @@
+title: Evaluation Dataset
+summary: Dataset of protein structures for evaluation.
+description: |
+  Structures are mostly selected from the [Patel dataset](https://doi.org/10.1023/A:1021954728347),
+  which contains a collection of five structurally diverse and well-described protein families,
+  for which a large number of structural data is available
+  and has been used to evaluate other tools in the context of pharmacophore modelling.
+  Here, we only use four of the five families,
+  discarding the zinc-containing protein, thermolysin,
+  as this version of the T²F method is not suitable for the detection of metal coordinations.
+  Instead of thermolysin, the adenosine A2A receptor is included in our set
+  to represent the GPCR class of proteins.
+  The dataset thus contains ligand-enzyme complexes for:
+
+  - Cyclin-dependent kinase 2 (CDK2, 6 entries)
+  - Dihydrofolate reductase (DHFR, 6 entries)
+  - Thrombin (THROM, 7 entries)
+  - HIV-1 reverse transcriptase (HIVRT, 10 entries)
+  - Adenosine A2A receptor (A2AR, 3 entries)
+type: array
+items:
+  type: object
+  additionalProperties: false
+  required: [group_id, group_name, uniprot_id, reference_structure]
+  properties:
+    group_id:
+      type: string
+      description: Unique identifier for the protein family.
+    group_name:
+      type: string
+      description: Full name of the protein family.
+    uniprot_id:
+      type: string
+      description: UniProt identifier of the protein family.
+    reference_structure:
+      summary: Reference structure for the protein family.
+      $ref: '#/definitions/structure'
+    structures:
+      type: array
+      items:
+        title: Structure
+        summary: A structure in the protein family.
+        $ref: '#/definitions/structure'
+definitions:
+  structure:
+    type: object
+    additionalProperties: false
+    required: [pdb_id, chain_id]
+    properties:
+      pdb_id:
+        title: PDB ID
+        summary: PDB ID of the structure.
+        type: string
+        pattern: '^[1-9][A-Za-z0-9]{3}$'
+      chain_id:
+        title: Chain ID
+        summary: Chain ID of the representative chain in the structure.
+        type: string
+      reference_ligand:
+        type: array
+        items:
+          type: string
+        description: Reference ligand in the structure (optional).
+      ligand:
+        type: array
+        items:
+          type: string
+        description: List of ligands in the structure (optional).

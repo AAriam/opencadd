@@ -1,66 +1,85 @@
-# OpenCADD
+# T2FPharm
 
-[//]: # "Badges"
+***T2FPharm*** (Truly Target Focused Pharmacophore Modeler)
+is a Python library for generating 3D pharmacophores from molecular structures.
+As the name suggests, it is mainly focused on modeling pharmacophores
+from apo target structures, i.e., protein or nucleic acid structures
+without any information about bound ligands.
+However, T2FPharm can also be used to generate pharmacophores
+from target–ligand complexes.
+Pharmacophores can be obtained from a single structure
+or an ensemble of different conformations,
+e.g., from molecular dynamics simulations or different crystal structures.
+The package also provides functionalities to analyze, compare, and visualize
+the generated pharmacophores.
 
-[![GH Actions Status](https://github.com/volkamerlab/opencadd/workflows/CI/badge.svg)](https://github.com/volkamerlab/opencadd/actions?query=branch%3Amaster)
-[![codecov](https://codecov.io/gh/volkamerlab/opencadd/branch/master/graph/badge.svg)](https://codecov.io/gh/volkamerlab/opencadd/branch/master)
-[![Documentation Status](https://readthedocs.org/projects/opencadd/badge/?version=latest)](https://opencadd.readthedocs.io)
-[![Conda Version](https://img.shields.io/conda/vn/conda-forge/opencadd.svg)](https://anaconda.org/conda-forge/opencadd)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-[![DOI](https://joss.theoj.org/papers/10.21105/joss.03951/status.svg)](https://doi.org/10.21105/joss.03951) [![DOI](https://zenodo.org/badge/237947037.svg)](https://zenodo.org/badge/latestdoi/237947037)
+## Installation
 
-![OpenCADD](/docs/_static/opencadd.png)
-
-A Python library for structural cheminformatics.
-
-## Overview
-
-> Some modules of this library are still in early stages of development as indicated below.
-
-- `databases.klifs`: utilities to query the KLIFS database, offline or online.
-- :construction: `io`: read and write molecules from/to files.
-- :construction: `structure.pocket`: identification and analysis of protein (sub)pockets.
-- :construction: `structure.superposition` (formerly `superposer`): superimpose macromolecules using sequence and structural information.
-
-## Documentation
-
-The documentation is available [here](https://opencadd.readthedocs.io/en/latest/).
-
-## Citation
-
-If you are using the OpenCADD-KLIFS module, please cite our [JOSS publication](https://joss.theoj.org/papers/10.21105/joss.03951):
+The library can be installed by cloning the GitHub repository
+and installing the conda environment [`environment.yaml`](./environment.yaml),
+for example using the following one-liner:
 
 ```
-@article{Sydow2022,
-  doi = {10.21105/joss.03951},
-  url = {https://doi.org/10.21105/joss.03951},
-  year = {2022},
-  publisher = {The Open Journal},
-  volume = {7},
-  number = {70},
-  pages = {3951},
-  author = {Dominique Sydow and Jaime Rodríguez-Guerra and Andrea Volkamer},
-  title = {OpenCADD-KLIFS: A Python package to fetch kinase data from the KLIFS database},
-  journal = {Journal of Open Source Software}
-}
+git clone https://github.com/aariam/opencadd.git \
+&& conda env create --file opencadd/environment.yaml \
+&& conda activate t2fpharm
 ```
 
-If you are using other modules of the OpenCADD package, please cite our [Zenodo entry](https://doi.org/10.5281/zenodo.5653542).
+## Minimal Example
 
-## License
+T2FPharm has a highly modular design,
+allowing users to generate pharmacophores
+from various input data.
+Below is a minimal example starting from the PDB file of a protein-ligand complex.
+For other possible scenarios and more details see the provided Jupyter notebooks
+at [`t2fpharm/docs`](./t2fpharm/docs/).
 
-`opencadd` is free software and is licensed under the MIT license. Copyright (c) 2020, Volkamer Lab
+```python
+import t2fpharm
 
-## Authors
+PDB_FILEPATH = "path/to/pdbfile.pdb"
 
-`opencadd` is the cumulative work of several members of the [Volkamer Lab](https://volkamerlab.org), as well as contributions from students that have participated in our lab. In no particular order:
+# Create a chemical system
+rcomplex = t2fpharm.system.from_pdb(PDB_FILEPATH)
 
-- Jaime Rodríguez-Guerra, PhD
-- Dominique Sydow
-- Dennis Köser, Annie Pham, Enes Kurnaz, Julian Pipart (structural superposition, 2020)
+# Create a binding pocket from the co-crystalized ligand
+atoms = rcomplex.composition.atoms
+ligand_mask = (
+    (atoms["res_name"] == "LIGAND_RESIDUE_NAME_IN_PDBFILE")
+    & (atoms["chain_id"] == "LIGAND_CHAIN_ID_IN_PDB_FILE")
+    & (atoms["res_seq"] == 123)  # Ligand residue sequence number in the PDB file
+)
+pocket = t2fpharm.pocket.from_ligand(system=rcomplex, ligand_mask=ligand_mask)
 
-# Acknowledgements
+# Isolate the receptor
+receptor = rcomplex.select(rcomplex.composition.atoms["res_poly"])
 
-Project based on the
-[Computational Molecular Science Python Cookiecutter](https://github.com/molssi/cookiecutter-cms) version 1.1.
+# Create a PDBQT file for AutoGrid
+pdbqt = receptor.to_pdbqt()
+
+# Create energy fields
+field = t2fpharm.field.from_autogrid(
+    grid=pocket.grid,
+    receptor_files=pdbqt,
+    ligand_types=("HD", "C", "OA", "e-", "e+")
+)
+
+# Create a pharmacophore modeler
+modeler = t2fpharm.modeler(field=field, pocket=pocket, system=rcomplex)
+
+# Generate pharmacophore using the `largest_peaks` method
+pharm_lp = modeler.largest_peaks(
+    min_distance=2,
+    max_features=10,
+    threshold_value=0
+)
+
+# Or, generate a pharmacophore using the `cnn` method
+pharm_cnn = modeler.cnn(
+    max_distance=2,
+    min_neighbors=10,
+    min_members=1,
+    threshold_percentile=20,
+)
+```

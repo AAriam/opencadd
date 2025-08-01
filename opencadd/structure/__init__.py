@@ -1,3 +1,0 @@
-"""
-opencadd.structure module
-"""

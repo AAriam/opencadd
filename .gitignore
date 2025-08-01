@@ -110,3 +110,7 @@ ENV/
 
 # MacOS
 .DS_Store
+
+
+# Temporary files
+.tmp/

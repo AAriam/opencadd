@@ -1,3 +1,0 @@
-"""
-opencadd.io module
-"""

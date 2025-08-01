@@ -1,0 +1,154 @@
+schema:
+  title: AutoDock Atom Types
+  summary: AutoDock4 atom types and their properties.
+  description: |
+    These are used in the AutoDock software suite (e.g. AutoGrid4)
+    and file formats (e.g. PDBQT, GPF).
+
+    References
+    ----------
+    1. [AutoDockTools](https://github.com/CADDsci/MGLTools/blob/94b258d99b9011505e3d71ffa23a1a271a136204/MGLTools/AutoDockTools/AD4_parameters.dat)
+    2. [BioExcel](https://mmb.irbbarcelona.org/gitlab/BioExcel/structureChecking/blob/5f07d82dc36d1f43733ae3b1ecd9f40aebe8b0a2/biobb_structure_checking/dat/autodock_atomtypes.dat)
+  type: array
+  items:
+    title: AutoDock Atom Type
+    summary: An atom type used in AutoDock4.
+    type: object
+    additionalProperties: false
+    properties:
+      type:
+        summary: Atom type as defined in AutoDock.
+        type: string
+        minLength: 1
+        maxLength: 2
+      element:
+        summary: Chemical element symbol.
+        type: string
+        minLength: 1
+        maxLength: 2
+      description:
+        summary: Description of the atom type.
+        type: string
+      hbond_acceptor:
+        summary: Whether the atom is a hydrogen bond acceptor.
+        type: boolean
+        default: false
+        description: |
+          A hydrogen bond acceptor is an electron pair donor.
+      hbond_donor:
+        summary: Whether the atom is a hydrogen bond donor.
+        type: boolean
+        default: false
+        description: |
+          A hydrogen bond donor is an electron pair acceptor.
+      hbond_count:
+        summary: Number of possible H-bonds.
+        type: [ number, 'null' ]
+        minimum: 0
+        description: |
+          Number of possible H-bonds for directionally H-bonding atoms,
+          `.nan` for spherically H-bonding atoms,
+          and 0 for non H-bonding atoms.
+        default: 0
+    required: [ type, element, hbond_acceptor, hbond_donor, hbond_count ]
+    oneOf:
+      - properties:
+          hbond_acceptor:
+            const: true
+          hbond_count:
+            type: number
+            minimum: 1
+      - properties:
+          hbond_donor:
+            const: true
+          hbond_count:
+            type: number
+            minimum: 1
+      - properties:
+          hbond_acceptor:
+            const: false
+          hbond_donor:
+            const: false
+          hbond_count:
+            const: 0
+data:
+  - type: H
+    element: H
+    description: Hydrogen (non H-bonding)
+  - type: HD
+    element: H
+    description: Hydrogen (1 H-bond donor)
+    hbond_donor: true
+    hbond_count: 1
+  - type: HS
+    element: H
+    description: Hydrogen (spherical H-bond donor)
+    hbond_donor: true
+    hbond_count: .nan
+  - type: C
+    element: C
+    description: Carbon (aliphatic, non H-bonding)
+  - type: A
+    element: C
+    description: Carbon (aromatic, non H-bonding)
+  - type: N
+    element: N
+    description: Nitrogen (non H-bonding)
+  - type: NA
+    element: N
+    description: Nitrogen (1 H-bond acceptor)
+    hbond_acceptor: true
+    hbond_count: 1
+  - type: NS
+    element: N
+    description: Nitrogen (spherical H-bond acceptor)
+    hbond_acceptor: true
+    hbond_count: .nan
+  - type: OA
+    element: O
+    description: Oxygen (2 H-bond acceptors)
+    hbond_acceptor: true
+    hbond_count: 2
+  - type: OS
+    element: O
+    description: Oxygen (spherical H-bond acceptor)
+    hbond_acceptor: true
+    hbond_count: .nan
+  - type: F
+    element: F
+    description: Fluorine (non H-bonding)
+  - type: Mg
+    element: Mg
+    description: Magnesium (non H-bonding)
+  - type: P
+    element: P
+    description: Phosphorus (non H-bonding)
+  - type: S
+    element: S
+    description: Sulfur (non H-bonding)
+  - type: SA
+    element: S
+    description: Sulfur (2 H-bond acceptors)
+    hbond_acceptor: true
+    hbond_count: 2
+  - type: Cl
+    element: Cl
+    description: Chlorine (non H-bonding)
+  - type: Ca
+    element: Ca
+    description: Calcium (non H-bonding)
+  - type: Mn
+    element: Mn
+    description: Manganese (non H-bonding)
+  - type: Fe
+    element: Fe
+    description: Iron (non H-bonding)
+  - type: Zn
+    element: Zn
+    description: Zinc (non H-bonding)
+  - type: Br
+    element: Br
+    description: Bromine (non H-bonding)
+  - type: I
+    element: I
+    description: Iodine (non H-bonding)
