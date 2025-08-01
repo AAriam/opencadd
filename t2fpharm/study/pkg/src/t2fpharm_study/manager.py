@@ -506,13 +506,13 @@ class Manager:
             self._cache.setdefault(pdb_id, {})["pdb_raw"] = pdb
         return pdb
 
-    def complex(self, pdb_id: str) -> t2fpharm.System:
-        cached = self._cache.get(pdb_id, {}).get("complex")
+    def pdb_fixed(self, pdb_id: str) -> scifile.pdb.PDBFile:
+        cached = self._cache.get(pdb_id, {}).get("pdb_fixed")
         if cached:
             return cached
-        filepath_pdb_aligned = self.path("pdb_aligned", pdb_id)
-        if filepath_pdb_aligned.is_file():
-            pdb_aligned_str = filepath_pdb_aligned.read_text()
+        filepath_pdb_fixed = self.path("pdb_fixed", pdb_id)
+        if filepath_pdb_fixed.is_file():
+            pdb = scifile.pdb.read(filepath_pdb_fixed)
         else:
             filepath_pdb_raw = self.path("pdb_raw", pdb_id)
             if not filepath_pdb_raw.is_file():
@@ -533,7 +533,24 @@ class Manager:
                 add_missing_hydrogens=7.0,
                 keep_ids=True,
             )
-            self.path("pdb_fixed", pdb_id).write_text(pdb_fixed_str)
+            filepath_pdb_fixed.write_text(pdb_fixed_str)
+            pdb = scifile.pdb.read(filepath_pdb_fixed)
+        if self._cache_enabled:
+            self._cache.setdefault(pdb_id, {})["pdb_fixed"] = pdb
+        return pdb
+
+    def complex(self, pdb_id: str) -> t2fpharm.System:
+        cached = self._cache.get(pdb_id, {}).get("complex")
+        if cached:
+            return cached
+        filepath_pdb_aligned = self.path("pdb_aligned", pdb_id)
+        if filepath_pdb_aligned.is_file():
+            pdb_aligned_str = filepath_pdb_aligned.read_text()
+        else:
+            filepath_pdb_fixed = self.path("pdb_fixed", pdb_id)
+            if not filepath_pdb_fixed.is_file():
+                self.pdb_fixed(pdb_id)
+            pdb_fixed_str = filepath_pdb_fixed.read_text()
             if self.dataset.loc[pdb_id, "is_ref"]:
                 pdb_aligned_str = pdb_fixed_str
             else:
