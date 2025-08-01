@@ -129,7 +129,7 @@ def from_pdbqt(
 
     Parameters
     ----------
-    files
+    receptor_files
         PDBQT file contents (as string or bytes)
         or paths (as string or pathlib.Path).
         This can be a single file or an array of files with any shape.
@@ -142,6 +142,11 @@ def from_pdbqt(
         in each dimension.
     ligand_types
         AutoDock atom types for which interaction energies must be calculated.
+        In addition to the standard AutoDock atom types,
+        the following types are also supported:
+        - `e+`: Electrostatic potential (for a positive charge)
+        - `e-`: Electrostatic potential (for a negative charge)
+        - `dsolv`: Solvation energy
     receptor_types
         AutoDock atom types present in the receptor.
         If provided, all input PDBQT files are assumed to have identical receptor types.
@@ -168,16 +173,32 @@ def from_pdbqt(
         this can be a single file or an array of files.
         If an array is provided, all parameter files will be used for each receptor file,
         i.e., generating a matrix of jobs.
-    file_ids
-        A list of file IDs for the input files.
-        If not provided, the file IDs will be generated automatically.
+    receptor_file_ids
+        File ID(s) for the input receptor file(s).
+        If `receptor_files` is a single file,
+        this must be a single string.
+        Otherwise, this must be a sequence of 2-tuples,
+        one for each dimension of the `receptor_files` array.
+        Each tuple must contain a string defining the axis name,
+        followed by a sequence of file IDs for that axis.
         The file IDs must be unique and must not contain spaces.
+        If not provided, the file IDs will be generated automatically.
     parameter_file_ids
-        A list of file IDs for the parameter files.
-        If not provided, the file IDs will be generated automatically.
+        File ID(s) for the parameter file(s).
+        If `parameter_files` is a single file,
+        this must be a single string.
+        Otherwise, this must be a sequence of 2-tuples,
+        one for each dimension of the `parameter_files` array.
+        Each tuple must contain a string defining the axis name,
+        followed by a sequence of file IDs for that axis.
         The file IDs must be unique and must not contain spaces.
+        If not provided, the file IDs will be generated automatically.
     field_dtype
-        Data type of the output field.
+        Numpy data type of the output field.
+    field_batch_order
+        The order of the batch dimensions in the output field.
+        This must be a tuple of three unique strings,
+        each being one of "receptor", "parameter", or "ligand".
     output_dir
         Path to a directory to write the output files in.
         If not provided, a temporary directory will be used.
@@ -187,7 +208,9 @@ def from_pdbqt(
         Allow copying files with spaces in their names to the output directory.
         AutoGrid4 does not support spaces in file names,
         so if this is set to `False`, an error will be raised
-        if any of the input files contain spaces in their names.
+        if any of the input files contains spaces in its name.
+    ligand_axis_id
+        The batch axis ID for the ligand dimension in the output field.
 
     Returns
     -------
@@ -223,21 +246,38 @@ def from_pdbqt(
         return extracted_receptor_types
 
     with fileex.directory.get_or_make(path=output_dir, ensure_empty=True) as output_dir:
-        receptor_files, receptor_file_ids, receptor_filepaths, receptor_file_ids_array, single_receptor_file = _process_file_inputs(
+        (
+            receptor_files,
+            receptor_file_ids,
+            receptor_filepaths,
+            receptor_file_ids_array,
+            single_receptor_file,
+        ) = _process_file_inputs(
             files=receptor_files,
             ids=receptor_file_ids,
             is_receptor=True,
             allow_copy=allow_copy,
             output_dir=output_dir,
         )
-        parameter_files, parameter_file_ids, parameter_filepaths, parameter_file_ids_array, single_parameter_file = _process_file_inputs(
+        (
+            parameter_files,
+            parameter_file_ids,
+            parameter_filepaths,
+            parameter_file_ids_array,
+            single_parameter_file
+        ) = _process_file_inputs(
             files=parameter_files,
             ids=parameter_file_ids,
             is_receptor=False,
             allow_copy=allow_copy,
             output_dir=output_dir,
         )
-        all_ligand_types, autodock_ligand_types, extra_ligand_types, anion_type_idx = _process_ligand_types(ligand_types)
+        (
+            all_ligand_types,
+            autodock_ligand_types,
+            extra_ligand_types,
+            anion_type_idx,
+        ) = _process_ligand_types(ligand_types)
         batch_shape, batch_order, batch_labels, ligand_axis_idx = _get_map_filepaths_shape(
             receptor_file_ids=None if single_receptor_file else receptor_file_ids,
             parameter_file_ids=None if single_parameter_file else parameter_file_ids,
