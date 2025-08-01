@@ -710,8 +710,8 @@ class Pharmacophore:
         ).convert_dtypes()
 
         # Ensure these cols always exist, even if merged is empty
-        merged['distance'] = np.nan
         merged['radius_sum'] = np.nan
+        merged['distance'] = np.nan
         if max_distance is not None:
             merged['match'] = False
 
@@ -748,8 +748,8 @@ class Pharmacophore:
             'label',
             'target_instance',
             'target_label',
+            'radius_sum',
             'distance',
-            'radius_sum'
         ]
         if max_distance is not None:
             final_cols.append('match')
