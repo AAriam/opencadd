@@ -75,6 +75,57 @@ def detector(
     return detector_gui
 
 
+def from_tensor(
+    *,
+    tensor: ArrayLike,
+    grid: Grid,
+    batch: Sequence[str | tuple[str, Sequence[str]]] | None = None,
+    receptor: ChemicalSystem | None = None,
+    pocket_atom_serials: ArrayLike | None = None,
+    trim: bool = True,
+) -> Pocket:
+    """Create a pocket from a Grid and voxel field tensor.
+
+    Parameters
+    ----------
+    voxels
+        An `(n_batches + 3)`-dimensional array-like object
+        containing the pocket voxels.
+        The first `n_batches >= 0` dimensions represent batch dimensions,
+        along which different instances of the pocket can be stored.
+        The last three dimensions represent the spatial dimensions
+        of the pocket along x, y, and z axes, respectively,
+        and must match the shape of the provided grid.
+        The values in the array are interpreted as boolean values
+        each representing a voxel,
+        where voxels that make up the pocket are `True`.
+    grid
+        The grid on which the pocket voxels are defined.
+    batch
+        Information about the batch dimensions of the tensor.
+        This can be a sequence of strings or tuples,
+        where each string represents a batch dimension name,
+        and each tuple contains a batch dimension name and a sequence of batch element names.
+    receptor
+        A `ChemicalSystem` object representing the receptor structure.
+        If provided, it will be used to associate the pocket with the receptor,
+        e.g., for visualization or further analysis.
+    pocket_atom_serials
+        A 1D array-like object containing the serial numbers of the atoms
+        that make up the pocket.
+    trim
+        Whether to trim the pocket tensor to remove all-zero borders.
+    """
+    return Pocket(
+        tensor=tensor,
+        grid=grid,
+        batch=batch,
+        receptor=receptor,
+        pocket_atom_serials=pocket_atom_serials,
+        trim=trim
+    )
+
+
 def from_data(
     *,
     grid_shape: Sequence[int],
