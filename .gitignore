@@ -105,5 +105,12 @@ ENV/
 # VSCode
 .vscode/
 
+# PyCharm
+.idea/
+
+# MacOS
+.DS_Store
+
+
 # Temporary files
 .tmp/
