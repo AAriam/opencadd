@@ -108,36 +108,12 @@ class Modeler:
     ) -> Pharmacophore:
         """Perceive pharmacophore features using the Common Nearest Neighbors (CNN) clustering algorithm.
 
-        This method is equivalent to calling `Modeler.simple`
+        This method is equivalent to calling `Modeler.simple()`
         to create an initial pharmacophore,
-        followed by calling `Pharmacophore.cluster_cnn`
+        followed by calling `Pharmacophore.cluster_cnn()`
         to cluster the feature centers.
         For more information on the algorithm and parameters,
-        see the documentation of these methods.
-
-        Parameters
-        ----------
-        weight_factor
-            Optional dictionary mapping feature types to their weight factors.
-            If provided, the field values of each feature type
-            are multiplied by the corresponding factor
-            to create the `weights` parameter of `Pharmacophore.cluster_cnn`.
-            Note that if after applying the weight factor,
-            the field values of a feature type are not all positive or all negative,
-            depending on the `peak_type` of that feature type,
-            violating weights (i.e., weights > 0 for "min" peaks or weights < 0 for "max" peaks)
-            will be set to zero.
-        max_distance
-            If `None`, defaults to 2.1 times the grid spacing of the field
-            for all feature types and clustering runs.
-            This ensures that for each grid point, all 26 first neighbors
-            plus 6 orthogonal second neighbors are included in the clustering.
-        min_members
-            If `None`, defaults to the number of grid points with the same
-            volume as half the van der Waals volume of a hydrogen atom.
-        max_members
-            If `None`, defaults to 5 times the `min_members` value
-            for each feature type.
+        see the documentation of those methods.
         """
         pharm = self.simple(
             filter_function=filter_function,
@@ -193,7 +169,7 @@ class Modeler:
     def largest_peaks(
         self,
         *,
-        min_distance: PositiveFloat | dict[tuple[str, str], PositiveFloat] = 2,
+        min_distance: PositiveFloat | dict[tuple[str, str], PositiveFloat],
         priority_factor: dict[str, float] | None = None,
         max_features: PositiveInt | dict[str, PositiveInt] | None = None,
         # Parameters for `self.simple`
@@ -211,12 +187,12 @@ class Modeler:
     ) -> Pharmacophore:
         """Perceive pharmacophore features as largest extrema in the fields.
 
-        This method is equivalent to calling `Modeler.simple`
+        This method is equivalent to calling `Modeler.simple()`
         to create an initial pharmacophore,
-        followed by calling `Pharmacophore.remove_overlaps`
+        followed by calling `Pharmacophore.remove_overlaps()`
         to filter the features based on their distance.
         For more information on the algorithm and parameters,
-        see the documentation of these methods.
+        see the documentation of those methods.
 
         Parameters
         ----------
@@ -224,7 +200,7 @@ class Modeler:
             Optional dictionary mapping feature types to their priority factors.
             If provided, the field values of each feature type
             are multiplied by the corresponding factor
-            to create the `priority` parameter of `Pharmacophore.remove_overlaps`.
+            to create the `priority` parameter of `Pharmacophore.remove_overlaps()`.
             The factors must be chosen such that the highest priority is the lowest value.
             This is useful when the field values of different feature types
             do not all have the same scale/sign, or when you want to add bias
