@@ -629,7 +629,7 @@ class Pharmacophore:
         self,
         query: Self | DataFrameLike,
         max_distance: float | Literal["radius_sum"] | None = "radius_sum",
-        raise_missing_types: bool = True,
+        raise_missing_types: bool = False,
     ) -> pd.DataFrame:
         """Match query pharmacophore features against the target pharmacophore.
 
@@ -654,9 +654,9 @@ class Pharmacophore:
             of the query and target features.
             If set to `None`, no `match` column is added.
         raise_missing_types
-            If `True`, raises an error if the query features contain types
+            If `True`, raise an error if the query features contain types
             not present in the target pharmacophore's feature types,
-            otherwise treats them as missing.
+            otherwise treat them as missing.
 
         Returns
         -------
@@ -1002,4 +1002,22 @@ def from_complex(
         positions = np.stack([feature["center"] for feature in out])
         coverages = pocket.point_coverage(positions)
         out = [feature for feature, coverage in zip(out, coverages) if coverage]
-    return Pharmacophore(features=out, extra={"plip": plip}, system=receptor, pocket=pocket)
+    return Pharmacophore(
+        features=out,
+        extra={"plip": plip},
+        system=receptor,
+        pocket=pocket,
+        feature_types=[
+            feature_type for feature_type in (
+                type_hbond_acceptor,
+                type_hbond_donor,
+                type_water_bridge_ligand_acceptor,
+                type_water_bridge_ligand_donor,
+                type_water_bridge_water_acceptor,
+                type_anion,
+                type_cation,
+                type_hydrophobic,
+                type_aromatic
+            ) if feature_type is not None
+        ]
+    )
