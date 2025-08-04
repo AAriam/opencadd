@@ -765,6 +765,8 @@ class Pharmacophore:
     def display(
         self,
         nglwidget: scishow.nglview.NGLWidget | None = None,
+        instances: Sequence[Any] | None = None,
+        feature_types: Sequence[str] | None = None,
         system: Any | Literal[False] | None = None,
         default_radius: float = 1.5,
         show_box: bool = True,
@@ -832,6 +834,10 @@ class Pharmacophore:
         for _, feature in self.features.sort_values(
             ["instance", "type", "value" if "value" in self.features else "label"]
         ).iterrows():
+            if instances is not None and feature["instance"] not in instances:
+                continue
+            if feature_types is not None and feature["type"] not in feature_types:
+                continue
             instance = normalize_name(feature["instance"])
             ftype = normalize_name(feature["type"])
             label = normalize_name(feature["label"])
@@ -1040,4 +1046,42 @@ def from_complex(
                 type_aromatic
             ) if feature_type is not None
         ]
+    )
+
+
+def merge(pharmacophores: Sequence[Pharmacophore]) -> Pharmacophore:
+    """Merge multiple pharmacophores into a single one.
+
+    Parameters
+    ----------
+    pharmacophores
+        Sequence of `Pharmacophore` objects to merge.
+
+    Returns
+    -------
+    A new `Pharmacophore` object containing the merged features.
+    The `features` DataFrame will contain all features from the input pharmacophores,
+    with the `instance` column indicating the source pharmacophore.
+    """
+    def instance_merger(instance_value, instance_prefix):
+        if isinstance(instance_value, (tuple, list, np.ndarray)):
+            return (instance_prefix, *instance_value)
+        return (instance_prefix, instance_value)
+
+
+    if not pharmacophores:
+        raise ValueError("No pharmacophores to merge.")
+
+    dfs = []
+    for pharm_idx, pharm in enumerate(pharmacophores):
+        feats = pharm.features.copy()
+        feats["instance"] = feats["instance"].apply(instance_merger, instance_prefix=pharm_idx)
+        dfs.append(feats)
+
+    merged_features = pd.concat(dfs, ignore_index=True)
+    feature_types = set().union(*(ph.feature_types for ph in pharmacophores))
+
+    return Pharmacophore(
+        features=merged_features,
+        feature_types=feature_types,
     )
