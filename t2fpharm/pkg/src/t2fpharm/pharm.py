@@ -193,7 +193,7 @@ class Pharmacophore:
     def remove_overlaps(
         self,
         min_distance: PositiveFloat | dict[tuple[str, str], PositiveFloat],
-        priority: pd.Series | Sequence,
+        priority: pd.Series | Sequence | str = "value",
         highest_priority: Literal["lowest", "highest"] = "lowest",
         max_features: PositiveInt | dict[str, PositiveInt] | None = None,
     ) -> Self:
@@ -219,8 +219,10 @@ class Pharmacophore:
             to have no minimum distance constraint.
         priority
             Priority of each feature in the pharmacophore.
-            This must be a 1D array-like object
-            with the same length and order as features in `self.features`.
+            This can be either
+            - A 1D array-like object with the same length
+               and order as features in `self.features`.
+            - A column name in the `self.features` DataFrame.
         highest_priority
             How to interpret the `priority` values:
             - "lowest": The lowest value is the highest priority.
@@ -249,6 +251,10 @@ class Pharmacophore:
            reaches `max_features`, all remaining features of that type
            are discarded for that instance.
         """
+        if isinstance(priority, str):
+            if priority not in self._features.columns:
+                raise ValueError(f"Priority column '{priority}' not found in features DataFrame.")
+            priority = self._features[priority]
         args = RemoveOverlapsInput(
             min_distance=min_distance,
             priority=priority,
