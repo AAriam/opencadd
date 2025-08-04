@@ -446,12 +446,12 @@ class Pharmacophore:
                     f"Clustering function for feature type '{feature_type}' must return integer labels, "
                     f"but got dtype {labels.dtype}."
                 )
-            unique_labels = np.unique(labels)
-            unique_positive_labels = unique_labels[unique_labels > 0]
+            unique_labels_and_noise = np.unique(labels)
+            unique_labels = unique_labels_and_noise[unique_labels_and_noise >= 0]
             instance = group_idx[0] if per_instance else 0
             feature_center_type = center_type[feature_type]
             feature_radius_type = radius_type[feature_type]
-            for label in unique_positive_labels:
+            for label in unique_labels:
                 label_mask = labels == label
                 cluster_points = centers[label_mask]
                 cluster_weight = weights[label_mask]
