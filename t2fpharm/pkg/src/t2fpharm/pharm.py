@@ -141,6 +141,13 @@ class Pharmacophore:
             "e+": (0, 0, 1.0),
             "e-": (1.0, 0, 0),
         }
+
+        if self._field is None:
+            self._field_in_pocket = None
+        else:
+            self._field_in_pocket = self._field.new(
+                tensor=np.where(self._pocket.tensor, self._field.tensor, 0),
+            ) if self._pocket is not None else self._field
         return
 
     @property
@@ -763,6 +770,7 @@ class Pharmacophore:
         show_box: bool = True,
         show_pocket: bool = True,
         show_fields: bool = False,
+        field_only_in_pocket: bool = True,
         show_feature_centers: bool = True,
         show_feature_points: bool = False,
         feature_colors: dict[str, tuple[float, float, float] | tuple[int, int, int]] | None = None,
@@ -775,6 +783,12 @@ class Pharmacophore:
                 feature_id,
                 self._feature_colors.get(feature_id, (0.5, 0.5, 0.5))
             )
+
+        def normalize_name(name: Any) -> str:
+            if isinstance(name, tuple | list | np.ndarray):
+                return "-".join(map(str, name))
+            return str(name)
+
 
         nv = nglwidget or scishow.nglview.NGLWidget()
         feature_colors = feature_colors or {}
@@ -797,11 +811,12 @@ class Pharmacophore:
 
         # Field
         if self.field is not None:
-            for feature_type in self.field.batch_instance_labels["feature"]:
+            field = self._field_in_pocket if field_only_in_pocket else self._field
+            for feature_type in field.batch_instance_labels["feature"]:
                 nv.add_volume(
-                    data=self.field(feature=feature_type),
-                    basis=self.field.grid.unit_vectors,
-                    origin=self.field.grid.lower_bounds,
+                    data=field(feature=feature_type),
+                    basis=field.grid.unit_vectors,
+                    origin=field.grid.lower_bounds,
                     name=f"{feature_type} Field",
                     representation_params=scishow.nglview.SurfaceRepresentationParameters(
                         isolevel=0,
@@ -814,8 +829,13 @@ class Pharmacophore:
                 )
 
         # Features
-        for _, feature in self.features.iterrows():
-            name = f"{feature['instance']}_{feature['type']}_{feature['label']}"
+        for _, feature in self.features.sort_values(
+            ["instance", "type", "value" if "value" in self.features else "label"]
+        ).iterrows():
+            instance = normalize_name(feature["instance"])
+            ftype = normalize_name(feature["type"])
+            label = normalize_name(feature["label"])
+            name = f"{instance}_{ftype}_{label}"
             radius = feature["radius"]
             nv.add_spheres(
                 coords=feature["center"],
@@ -828,16 +848,16 @@ class Pharmacophore:
                     lazy=True,
                 )
             )
-            if "points" in feature:
-                nv.add_spheres(
-                    coords=feature["points"],
-                    radii=self.field.grid.spacings[0] / 2,
-                    name=f"{name} Points",
-                    colors=feature_color(feature["type"]),
-                    representation_params=scishow.nglview.RepresentationParameters(
-                        visible=show_feature_points,
-                    )
-                )
+            # if "points" in feature:
+            #     nv.add_spheres(
+            #         coords=feature["points"],
+            #         radii=self.field.grid.spacings[0] / 2,
+            #         name=f"{name} Points",
+            #         colors=feature_color(feature["type"]),
+            #         representation_params=scishow.nglview.RepresentationParameters(
+            #             visible=show_feature_points,
+            #         )
+            #     )
         if gui:
             nv.display(gui=True)
         return nv
