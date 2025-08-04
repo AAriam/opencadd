@@ -170,6 +170,7 @@ class Modeler:
         self,
         *,
         min_distance: PositiveFloat | dict[tuple[str, str], PositiveFloat],
+        priority_value_filter: bool = True,
         priority_factor: dict[str, float] | None = None,
         max_features: PositiveInt | dict[str, PositiveInt] | None = None,
         # Parameters for `self.simple`
@@ -196,10 +197,13 @@ class Modeler:
 
         Parameters
         ----------
+        priority_value_filter
+            - `True`: Use the filtered field values for the priority calculation.
+            - `False`: Use the original field values before applying the filter function.
         priority_factor
             Optional dictionary mapping feature types to their priority factors.
-            If provided, the field values of each feature type
-            are multiplied by the corresponding factor
+            If provided, the field values (as defined by `priority_value_filter`)
+            of each feature type are multiplied by the corresponding factor
             to create the `priority` parameter of `Pharmacophore.remove_overlaps()`.
             The factors must be chosen such that the highest priority is the lowest value.
             This is useful when the field values of different feature types
@@ -224,7 +228,7 @@ class Modeler:
             priority_factor=priority_factor,
             feature_types=self.field.batch_instance_labels["feature"],
         ).priority_factor
-        priority = pharm.features["value"].copy()
+        priority = pharm.features["value_filter" if priority_value_filter else "value"].copy()
         for feature_type, factor in priority_factor.items():
             if factor is not None:
                 priority.loc[pharm.features["type"] == feature_type] *= factor
@@ -374,8 +378,9 @@ class Modeler:
             feature_types=self.field.batch_instance_labels["feature"],
             grid=self.field.grid,
         )
+        tensor = self._filter(args.filter_function)
         mask = self._mask(
-            tensor=self._filter(args.filter_function),
+            tensor=tensor,
             peak_type=args.peak_type,
             best_per_point=args.best_per_point,
             threshold_value=args.threshold_value,
@@ -387,6 +392,7 @@ class Modeler:
             for feature_type, radius in args.filter_radius.items()
         }
         return self._pharmacophore(
+            tensor=tensor,
             mask=mask,
             feature_radius=feature_radius,
             args=args
@@ -536,6 +542,7 @@ class Modeler:
 
     def _pharmacophore(
         self,
+        tensor: np.ndarray,
         mask: np.ndarray,
         args: BaseModel,
         feature_radius: dict[str, PositiveFloat | None],
@@ -560,6 +567,7 @@ class Modeler:
                 "center": list(coordinates),
                 "radius": radii,
                 "value": self.field.tensor[mask],
+                "value_filter": tensor[mask],
             }
         )
         pharm = Pharmacophore(
