@@ -248,6 +248,21 @@ class Field(dataset.DataSet):
             constant_values=0,
         )
 
+    def new(
+        self,
+        tensor: ArrayLike | None = None,
+        grid: Grid | None = None,
+        batch: int | Sequence[str | tuple[str, Sequence[str]]] | None = None
+    ) -> Field:
+        """Create a new field with the same grid and batch dimensions."""
+        if tensor is None:
+            tensor = self.tensor
+        if grid is None:
+            grid = self.grid
+        if batch is None:
+            batch = self.batch_input
+        return Field(tensor=tensor, grid=grid, batch=batch)
+
     def to_npz(
         self,
         filepath: PathLike | None = None,
