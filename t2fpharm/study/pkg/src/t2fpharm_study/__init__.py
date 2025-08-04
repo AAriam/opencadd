@@ -90,6 +90,7 @@ def manager(
         group = {
             "group_id": group_data["id"],
             "group_name": group_data["name"],
+            "uniprot_id": group_data.get("uniprot_id"),
         }
         row = _make_structure(
             group=group,
