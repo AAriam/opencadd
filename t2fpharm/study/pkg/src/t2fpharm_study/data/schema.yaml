@@ -1,46 +1,91 @@
-title: Evaluation Dataset
-summary: Dataset of protein structures for evaluation.
-description: |
-  Structures are mostly selected from the [Patel dataset](https://doi.org/10.1023/A:1021954728347),
-  which contains a collection of five structurally diverse and well-described protein families,
-  for which a large number of structural data is available
-  and has been used to evaluate other tools in the context of pharmacophore modelling.
-  Here, we only use four of the five families,
-  discarding the zinc-containing protein, thermolysin,
-  as this version of the T²F method is not suitable for the detection of metal coordinations.
-  Instead of thermolysin, the adenosine A2A receptor is included in our set
-  to represent the GPCR class of proteins.
-  The dataset thus contains ligand-enzyme complexes for:
+title: T2FPharm Study Inputs
+type: object
+additionalProperties: false
+required: [pocket, field, receptor_groups, job]
+properties:
+  pocket:
+    description: Configuration for pocket detection.
+    type: object
+    additionalProperties: false
+    required: [grid_spacing, ligand_radii_offset]
+    properties:
+      grid_spacing:
+        description: Spacing (in Å) between grid points for the pocket and field.
+        type: number
+        exclusiveMinimum: 0
+      ligand_radii_offset:
+        description: Offset (in Å) to the radii of the ligand atoms for pocket generation.
+        type: number
+        minimum: 0
+      opening_radius:
+        description: Radius (in Å) for the morphological opening operation in pocket detection.
+        type: number
+        minimum: 0
+      erosion_radius:
+        description: Radius (in Å) for the morphological erosion operation in pocket detection.
+        type: number
+        minimum: 0
+  field:
+    description: Configuration for the field generation.
+    type: object
+    additionalProperties: false
+    required: [ligand_types, smooth, dielectric]
+    properties:
+      ligand_types:
+        description: List of AutoDock atom types to generate fields for.
+        type: array
+        items:
+          type: string
+      smooth:
+        description: Smoothing factor for AutoGrid.
+        type: number
+        minimum: 0
+      dielectric:
+        description: Dielectric constant for AutoGrid.
+        type: number
+  receptor_groups:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      required: [id, name, ref_structure]
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the protein family.
+        name:
+          type: string
+          description: Full name of the protein family.
+        ref_structure:
+          summary: Reference structure for the protein family.
+          $ref: '#/definitions/structure'
+        structures:
+          type: array
+          items:
+            title: Structure
+            summary: A structure in the protein family.
+            $ref: '#/definitions/structure'
+        color_bg:
+          type: string
+          description: Background color for the protein family in DataFrames.
+          pattern: '^#[0-9A-Fa-f]{6}$'
+        color_text:
+          type: string
+          description: Text color for the protein family in DataFrames.
+          pattern: '^#[0-9A-Fa-f]{6}$'
+  job:
+    type: object
+    additionalProperties:
+      oneOf:
+        - type: object
+          properties:
+            method:
+              constant: cnn
+        - type: object
+          properties:
+            method:
+              constant: largest_peaks
 
-  - Cyclin-dependent kinase 2 (CDK2, 6 entries)
-  - Dihydrofolate reductase (DHFR, 6 entries)
-  - Thrombin (THROM, 7 entries)
-  - HIV-1 reverse transcriptase (HIVRT, 10 entries)
-  - Adenosine A2A receptor (A2AR, 3 entries)
-type: array
-items:
-  type: object
-  additionalProperties: false
-  required: [group_id, group_name, uniprot_id, reference_structure]
-  properties:
-    group_id:
-      type: string
-      description: Unique identifier for the protein family.
-    group_name:
-      type: string
-      description: Full name of the protein family.
-    uniprot_id:
-      type: string
-      description: UniProt identifier of the protein family.
-    reference_structure:
-      summary: Reference structure for the protein family.
-      $ref: '#/definitions/structure'
-    structures:
-      type: array
-      items:
-        title: Structure
-        summary: A structure in the protein family.
-        $ref: '#/definitions/structure'
 definitions:
   structure:
     type: object
@@ -56,13 +101,8 @@ definitions:
         title: Chain ID
         summary: Chain ID of the representative chain in the structure.
         type: string
-      reference_ligand:
-        type: array
-        items:
-          type: string
-        description: Reference ligand in the structure (optional).
-      ligand:
-        type: array
-        items:
-          type: string
-        description: List of ligands in the structure (optional).
+      ref_ligand:
+        description: Reference ligand in the structure.
+        type: object
+        additionalProperties: false
+        required: [res_name, chain_id, res_seq]
