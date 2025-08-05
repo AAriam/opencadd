@@ -317,6 +317,7 @@ class Pharmacophore:
     def cluster(
         self,
         function: ClusteringFunction | dict[str, ClusteringFunction],
+        noise_as_singleton: bool = True,
         weights: pd.Series | np.ndarray | Sequence[float] | None = None,
         center_type: CenterType | dict[str, CenterType] = "average",
         radius_type: RadiusType | dict[str, RadiusType] = "average",
@@ -356,6 +357,9 @@ class Pharmacophore:
             for each feature center in the input array.
             Negative labels are considered background/noise
             and will not be included in the output pharmacophore.
+        noise_as_singleton
+            If `True`, noise features (i.e., those with negative labels)
+            are each assigned a unique label and treated as a separate cluster.
         weights
             Optional weights for each feature center.
             If provided, it must be a 1D array-like object
@@ -450,6 +454,11 @@ class Pharmacophore:
                     f"Clustering function for feature type '{feature_type}' must return integer labels, "
                     f"but got dtype {labels.dtype}."
                 )
+            if noise_as_singleton:
+                is_noise = labels < 0
+                new_label_start = labels.max() + 1
+                new_label_end = new_label_start + is_noise.sum()
+                labels[is_noise] = np.arange(new_label_start, new_label_end)
             unique_labels_and_noise = np.unique(labels)
             unique_labels = unique_labels_and_noise[unique_labels_and_noise >= 0]
             instance = group_idx[0] if per_instance else 0
@@ -476,10 +485,11 @@ class Pharmacophore:
 
                 # Calculate center values
                 values = {}
-                for center_key, center_value in cluster_centers.items():
-                    dist_to_points = np.linalg.norm(centers - center_value, axis=1)
-                    shortest_dist_idx = np.argmin(dist_to_points)
-                    values[f"value_{center_key.removeprefix('center_')}"] = group["value"].iloc[shortest_dist_idx]
+                if "value" in group.columns:
+                    for center_key, center_value in cluster_centers.items():
+                        dist_to_points = np.linalg.norm(centers - center_value, axis=1)
+                        shortest_dist_idx = np.argmin(dist_to_points)
+                        values[f"value_{center_key.removeprefix('center_')}"] = group["value"].iloc[shortest_dist_idx]
 
                 # Calculate cluster radius
                 cluster_radii = {}
@@ -505,7 +515,7 @@ class Pharmacophore:
                         "label": label,
                         "center": cluster_centers[f"center_{feature_center_type}"],
                         "radius": cluster_radii[f"radius_{feature_center_type}_{feature_radius_type}"],
-                        "value": values[f"value_{feature_center_type}"],
+                        "value": values.get(f"value_{feature_center_type}"),
                         "n_members": len(member_indices),
                         "members": member_indices,
                         **cluster_centers,
@@ -541,7 +551,7 @@ class Pharmacophore:
                     "value_mean",
                     "value_midpoint",
                 ]
-            ),
+            ).dropna(axis=1, how="all"),
             feature_types=self.feature_types,
             inputs=self.inputs + [args.model_dump()],
             name=self.name,
@@ -557,6 +567,8 @@ class Pharmacophore:
         min_neighbors: PositiveInt | Sequence[PositiveInt] | dict[str, PositiveInt | Sequence[PositiveInt]],
         min_members: PositiveInt | dict[str, PositiveInt] = 1,
         max_members: PositiveInt | dict[str, PositiveInt] | None = None,
+        # Parameters for `self.cluster()`
+        noise_as_singleton: bool = True,
         weights: pd.Series | np.ndarray | Sequence[float] | None = None,
         center_type: CenterTypeNoFunction | dict[str, CenterTypeNoFunction] = "average",
         radius_type: RadiusType | dict[str, RadiusType] = "average",
@@ -636,6 +648,7 @@ class Pharmacophore:
         )
         return self.cluster(
             function=args.function,
+            noise_as_singleton=noise_as_singleton,
             weights=args.weights,
             center_type=args.center_type,
             radius_type=args.radius_type,
