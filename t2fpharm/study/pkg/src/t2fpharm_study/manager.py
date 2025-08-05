@@ -649,6 +649,10 @@ class Manager:
                 grid=self.grid(pdb_id),
                 trim=False,
             )
+            if pocket.holes().any():
+                raise ValueError(f"Pocket for {pdb_id} contains holes.")
+            if not pocket.point_coverage(rcomplex.trajectory.points[ligand_mask.to_numpy()]).all():
+                raise ValueError(f"Pocket for {pdb_id} does not cover ligand.")
             pocket.to_npz(filepath=filepath_pocket)
         if self._cache_enabled:
             self._cache.setdefault(pdb_id, {})["pocket"] = pocket
