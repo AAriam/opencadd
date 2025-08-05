@@ -283,7 +283,11 @@ class Pharmacophore:
         # Process each instance separately
         for _, group in df.groupby("instance", sort=False):
             # Sort by priority
-            sorted_grp = group.sort_values("_priority", ascending=args.highest_priority == "lowest")
+            sorted_grp = group.sort_values(
+                "_priority",
+                ascending=args.highest_priority == "lowest",
+                kind="stable",
+            )
             # Get selected indices
             chosen_indices = scids.functional.dist.ensure_pointcloud_spacing(
                 points=np.stack(sorted_grp["center"].to_numpy()),
