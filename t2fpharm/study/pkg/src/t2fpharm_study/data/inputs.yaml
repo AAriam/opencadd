@@ -11,8 +11,6 @@ receptor_groups:
   - id: CDK2
     name: Cyclin-dependent kinase 2
     uniprot_id: P24941
-    seq_begin: 1
-    seq_end: 298
     color_bg: '#F0F8FF'
     color_text: '#000000'
     ref_structure:
@@ -56,8 +54,6 @@ receptor_groups:
   - id: DHFR
     name: Dihydrofolate reductase
     uniprot_id: P00374
-    seq_begin: 1
-    seq_end: 186
     color_bg: '#FFF0F5'
     color_text: '#000000'
     ref_structure:
@@ -74,40 +70,24 @@ receptor_groups:
           res_name: PRD
           chain_id: A
           res_seq: 400
-        ligands:
-          - res_name: NDP
-            chain_id: A
-            res_seq: 187
       - pdb_id: 1DLR
         chain_id: A
         ref_ligand:
           res_name: MXA
           chain_id: A
           res_seq: 188
-        ligands:
-          - res_name: NDP
-            chain_id: A
-            res_seq: 187
       - pdb_id: 1HFP
         chain_id: A
         ref_ligand:
           res_name: MOT
           chain_id: A
           res_seq: 188
-        ligands:
-          - res_name: NDP
-            chain_id: A
-            res_seq: 187
       - pdb_id: 1OHK
         chain_id: A
         ref_ligand:
           res_name: COP
           chain_id: A
           res_seq: 188
-        ligands:
-          - res_name: NDP
-            chain_id: A
-            res_seq: 187
       - pdb_id: 2DHF
         chain_id: A
         ref_ligand:
@@ -126,19 +106,6 @@ receptor_groups:
         res_name: IH2
         chain_id: '2'
         res_seq: 370
-      heterogens:
-        - res_name: HOH
-          chain_id: '2'
-          res_seq: 404
-        - res_name: HOH
-          chain_id: '2'
-          res_seq: 408
-        - res_name: HOH
-          chain_id: '2'
-          res_seq: 410
-        - res_name: HOH
-          chain_id: '2'
-          res_seq: 477
     structures:
       - pdb_id: 1D4P
         chain_id: B
@@ -275,8 +242,8 @@ job:
       HD: 1.2   # Hydrogen vdW radius
       OA: 1.55  # Oxygen vdW radius
       C: 1.7    # Carbon vdW radius
-      e+: 2.22  # N-H bond length in ammonia (1.02) + hydrogen vdW radius (1.2); estimate of RNH3+ radius
-      e-: 2.8   # C-O bond length in carboxylate (1.25) + oxygen vdW radius (1.55); estimate of RCO2- radius
+      e+: 2.22  # N-H bond length in ammonia (1.02) + hydrogen vdW radius (1.2); estimate of ––NH3+ radius
+      e-: 2.8   # C-O bond length in carboxylate (1.25) + oxygen vdW radius (1.55); estimate of ––CO2- radius
     max_distance_multipliers: [0.5, 1, 2]
     min_neighbors_start_percents: [1, 5, 10, 15]
     min_neighbors_list_lengths: [5, 10, 15]
