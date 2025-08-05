@@ -3,6 +3,7 @@ from pathlib import Path
 import shutil
 from typing import Any, Sequence, Literal
 import json
+import warnings
 
 import arrayer
 import pandas as pd
@@ -354,12 +355,38 @@ class Manager:
             os.fsync(f.fileno())
         return self.job_summary(job_name=job_name)
 
-    def job_summary(self, job_name: str | None = None) -> pd.DataFrame:
-        if job_name:
-            return self._job_summary(job_name=job_name)
+    def job_summary(
+        self,
+        job_name: str | Sequence[str] | None = None,
+        group_cols: Sequence[str] | None = ("job_name", "job_idx")
+    ) -> pd.DataFrame:
+        """Get the summary DataFrame for a given job or jobs.
+
+        Parameters
+        ----------
+        job_name
+            Name of the job or a list of job names to summarize.
+            If None, summary of all available jobs is returned.
+        group_cols
+            Columns to group by when calculating the mean of the summary DataFrame.
+            If None, no grouping is applied and all rows are returned.
+            The default value of `("job_name", "job_idx")` calculates the mean values
+            for each unique job averaged over all PDB structures.
+        """
+        if job_name is None:
+            job_names = self.job_params.keys()
+        elif isinstance(job_name, str):
+            job_names = [job_name]
+        else:
+            job_names = job_name
+
         summaries = []
-        for job_name in self.job_params:
-            summary = self._job_summary(job_name=job_name)
+        for job_name in job_names:
+            try:
+                summary = self._job_summary(job_name=job_name)
+            except FileNotFoundError:
+                warnings.warn(f"No summary found for job '{job_name}'. Skipping.")
+                continue
             summary["job_name"] = job_name
             summaries.append(summary)
         df = pd.concat(summaries, ignore_index=True)
@@ -368,6 +395,8 @@ class Manager:
         per_type_cols = sorted([col for col in df.columns if col not in main_cols and col not in all_type_cols])
         all_cols = main_cols + all_type_cols + per_type_cols
         df_final = df[all_cols].sort_values(main_cols).reset_index(drop=True)
+        if group_cols:
+            df_final = self._group_mean(df_final, columns=group_cols)
         return df_final
 
     def _job_summary(self, job_name: str) -> pd.DataFrame:
@@ -391,12 +420,66 @@ class Manager:
         df = pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
         if write_parquet:
             io.write_df(df=df, filepath=path_final)
-        main_cols = ["job_idx", "group_id", "pdb_id"]
-        all_type_cols = sorted([col for col in df.columns if col.startswith("t_all-")])
-        per_type_cols = sorted([col for col in df.columns if col not in main_cols and col not in all_type_cols])
-        all_cols = main_cols + all_type_cols + per_type_cols
-        df_final = df[all_cols].sort_values(main_cols).reset_index(drop=True)
-        return df_final
+        self._add_f1_score(summary=df)
+        return df
+
+    def _add_f1_score(self, summary: pd.DataFrame, char_dist: float = 2) -> None:
+        """Calculate precision, sensitivity and F1 scores to each job in the summary DataFrame.
+
+        The calculated values are added to the summary DataFrame as new columns.
+
+        Parameters
+        ----------
+        summary
+            Summary DataFrame containing job results.
+        char_dist
+            Characteristic distance for generating weights for the F1 score.
+        """
+        for feature_type in ["all"] + self.field_params["ligand_types"]:
+            col_type = f"t_{feature_type}"
+            n_r = summary[f"{col_type}-n"].astype(int)
+            for ligand_ref in ("all", "self"):
+                # In order for NaN values calculated by NumPy to be recognized by pandas,
+                # we have to cast the input columns to NumPy first.
+                # see: https://github.com/pandas-dev/pandas/issues/61758
+                dp_lt2 = summary[f"{col_type}-dp_lt2-l_{ligand_ref}"].astype(float)
+                n_l = summary[f"{col_type}-nl_{ligand_ref}"].astype(int)
+                d_mean = summary[f"{col_type}-d_mean-l_{ligand_ref}"].astype(float)
+
+                precision = dp_lt2 * n_l / n_r
+                sensitivity = dp_lt2
+                f1_score = (2 * precision * sensitivity / (precision + sensitivity)).fillna(0)
+                weights = np.maximum(0, 1 - d_mean / char_dist)
+                f1_score_weighted = f1_score * weights
+
+                summary[f"{col_type}-simple_score-l_{ligand_ref}"] = dp_lt2 / n_r
+                summary[f"{col_type}-precision-l_{ligand_ref}"] = precision
+                summary[f"{col_type}-sensitivity-l_{ligand_ref}"] = sensitivity
+                summary[f"{col_type}-f1-l_{ligand_ref}"] = f1_score
+                summary[f"{col_type}-f1_weighted-l_{ligand_ref}"] = f1_score_weighted
+        return
+
+    @staticmethod
+    def _group_mean(summary: pd.DataFrame, columns: Sequence[str]) -> pd.DataFrame:
+        """Calculate mean of all numeric columns in the summary DataFrame, grouped by the specified columns.
+
+        Parameters
+        ----------
+        columns
+            List of column names to group by.
+
+        Returns
+        -------
+        A new DataFrame with the group columns and the mean of each numeric column.
+        """
+        # Ensure grouping columns exist
+        missing = set(columns) - set(summary.columns)
+        if missing:
+            raise ValueError(f"Grouping columns not in DataFrame: {missing}")
+        # Identify numeric columns excluding the grouping columns
+        numeric_cols = [col for col in summary.columns if col not in ["job_name", "job_idx", "group_id", "pdb_id"]]
+        # Perform the groupby and mean aggregation
+        return summary.groupby(list(columns))[numeric_cols].mean().reset_index()
 
     def job_inputs(self, job_name: str | None = None) -> pd.DataFrame:
         """Get the inputs for a given job."""
