@@ -15,6 +15,7 @@ from t2fpharm.system import System
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
 from t2fpharm.input.pharm.cluster import PharmClusterInput, ClusteringFunction, CenterType, CenterTypeNoFunction, RadiusType
+from t2fpharm.input.pharm.cluster_agg import PharmClusterAggInput, AggLinkageType, AggLinkageMetricType
 from t2fpharm.input.pharm.cluster_cnn import PharmClusterCNNInput
 from t2fpharm.input.pharm.features import PharmFeaturesInput
 from t2fpharm.input.pharm.remove_overlaps import RemoveOverlapsInput
@@ -317,7 +318,7 @@ class Pharmacophore:
     def cluster(
         self,
         function: ClusteringFunction | dict[str, ClusteringFunction],
-        noise_as_singleton: bool = True,
+        noise_as_singleton: bool | dict[str, bool] = True,
         weights: pd.Series | np.ndarray | Sequence[float] | None = None,
         center_type: CenterType | dict[str, CenterType] = "average",
         radius_type: RadiusType | dict[str, RadiusType] = "average",
@@ -356,10 +357,13 @@ class Pharmacophore:
             which must be a 1D array/sequence of cluster labels as integers
             for each feature center in the input array.
             Negative labels are considered background/noise
-            and will not be included in the output pharmacophore.
+            and will not be included in the output pharmacophore,
+            unless `noise_as_singleton` is set to `True`.
         noise_as_singleton
             If `True`, noise features (i.e., those with negative labels)
             are each assigned a unique label and treated as a separate cluster.
+            This can be a single boolean value for all feature types,
+            or a dictionary mapping each feature type to a boolean value.
         weights
             Optional weights for each feature center.
             If provided, it must be a 1D array-like object
@@ -414,6 +418,7 @@ class Pharmacophore:
         """
         args = PharmClusterInput(
             function=function,
+            noise_as_singleton=noise_as_singleton,
             weights=weights,
             center_type=center_type,
             radius_type=radius_type,
@@ -437,8 +442,13 @@ class Pharmacophore:
             feature_type = group_idx[-1]
             centers = np.stack(group["center"].to_numpy())
             weights = group["_weights"].to_numpy(dtype=np.float64)
-            clustering_result = function[feature_type](centers, weights)
-            labels = np.asarray(clustering_result.labels)
+            if centers.shape[0] > 1:
+                clustering_result = function[feature_type](centers, weights)
+                labels = np.asarray(clustering_result.labels)
+            else:
+                # If only one center, assign it to a single cluster
+                clustering_result = None
+                labels = np.array([0], dtype=np.int32)
             if labels.ndim != 1:
                 raise ValueError(
                     f"Clustering function for feature type '{feature_type}' must return a 1D array of labels, "
@@ -454,7 +464,7 @@ class Pharmacophore:
                     f"Clustering function for feature type '{feature_type}' must return integer labels, "
                     f"but got dtype {labels.dtype}."
                 )
-            if noise_as_singleton:
+            if args.noise_as_singleton[feature_type]:
                 is_noise = labels < 0
                 new_label_start = labels.max() + 1
                 new_label_end = new_label_start + is_noise.sum()
@@ -480,7 +490,7 @@ class Pharmacophore:
                     if weights_sum_to_zero else
                     np.average(cluster_points, weights=cluster_weight, axis=0)
                 )
-                if clustering_result.centers is not None:
+                if clustering_result is not None and clustering_result.centers is not None:
                     cluster_centers["center_function"] = clustering_result.centers[label]
 
                 # Calculate center values
@@ -561,6 +571,55 @@ class Pharmacophore:
             extra=self.extra,
         )
 
+    def cluster_agg(
+        self,
+        distance_threshold: PositiveFloat | dict[str, PositiveFloat] | None = None,
+        n_clusters: PositiveInt | dict[str, PositiveInt] | None = None,
+        linkage: AggLinkageType | dict[str, AggLinkageType] = "complete",
+        metric: AggLinkageMetricType | dict[str, AggLinkageMetricType] = "euclidean",
+        memory: Any = None,
+        # Parameters for `self.cluster()`
+        noise_as_singleton: bool | dict[str, bool] = True,
+        weights: pd.Series | np.ndarray | Sequence[float] | None = None,
+        center_type: CenterTypeNoFunction | dict[str, CenterTypeNoFunction] = "average",
+        radius_type: RadiusType | dict[str, RadiusType] = "average",
+        per_instance: bool = True,
+    ) -> Self:
+        """Cluster pharmacophore features using the Agglomerative Clustering algorithm.
+
+        This method creates the clustering functions from the Agglomerative Clustering parameters
+        `distance_threshold`, `n_clusters`, `linkage`, `metric`, and `memory`,
+        and then calls the `Pharmacophore.cluster` method with these functions,
+        passing the other general clustering parameters as well.
+        The Agglomerative Clustering parameters are described below;
+        for other parameters, see the `Pharmacophore.cluster` method documentation.
+
+        Parameters
+        ----------
+        """
+        args = PharmClusterAggInput(
+            distance_threshold=distance_threshold,
+            n_clusters=n_clusters,
+            linkage=linkage,
+            metric=metric,
+            memory=memory,
+            noise_as_singleton=noise_as_singleton,
+            weights=weights,
+            center_type=center_type,
+            radius_type=radius_type,
+            per_instance=per_instance,
+            n_features=len(self.features),
+            feature_types=self.feature_types,
+        )
+        return self.cluster(
+            function=args.function,
+            noise_as_singleton=args.noise_as_singleton,
+            weights=args.weights,
+            center_type=args.center_type,
+            radius_type=args.radius_type,
+            per_instance=args.per_instance
+        )
+
     def cluster_cnn(
         self,
         max_distance: PositiveFloat | Sequence[PositiveFloat] | dict[str, PositiveFloat | Sequence[PositiveFloat]],
@@ -568,7 +627,7 @@ class Pharmacophore:
         min_members: PositiveInt | dict[str, PositiveInt] = 1,
         max_members: PositiveInt | dict[str, PositiveInt] | None = None,
         # Parameters for `self.cluster()`
-        noise_as_singleton: bool = True,
+        noise_as_singleton: bool | dict[str, bool] = True,
         weights: pd.Series | np.ndarray | Sequence[float] | None = None,
         center_type: CenterTypeNoFunction | dict[str, CenterTypeNoFunction] = "average",
         radius_type: RadiusType | dict[str, RadiusType] = "average",
@@ -639,6 +698,7 @@ class Pharmacophore:
             min_neighbors=min_neighbors,
             min_members=min_members,
             max_members=max_members,
+            noise_as_singleton=noise_as_singleton,
             weights=weights,
             center_type=center_type,
             radius_type=radius_type,
@@ -648,7 +708,7 @@ class Pharmacophore:
         )
         return self.cluster(
             function=args.function,
-            noise_as_singleton=noise_as_singleton,
+            noise_as_singleton=args.noise_as_singleton,
             weights=args.weights,
             center_type=args.center_type,
             radius_type=args.radius_type,
