@@ -237,10 +237,10 @@ class Manager:
             self._cache = {}
         return
 
-    def run_all(self):
+    def run_all(self, ref_only: bool = False):
         """Run all jobs defined in the job parameters."""
         for job_name in self.job_params:
-            self.run(job_name=job_name, ref_only=False)
+            self.run(job_name=job_name, ref_only=ref_only)
         return
 
     def run(self, job_name: str, ref_only: bool = False):
