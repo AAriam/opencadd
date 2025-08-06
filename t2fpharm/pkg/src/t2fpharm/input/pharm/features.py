@@ -106,5 +106,5 @@ class PharmFeaturesInput(BaseModel):
         main_cols = ['instance', 'type', 'label', 'center', 'radius']
         extra_cols = [col for col in df.columns if col not in main_cols]
         all_cols = main_cols + extra_cols
-        self.features = df[all_cols].convert_dtypes()
+        self.features = df[all_cols].convert_dtypes().sort_values(['instance', 'type', 'label']).reset_index(drop=True)
         return self
