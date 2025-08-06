@@ -5,6 +5,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import scipy.optimize
+import scipy.spatial
 
 import scids.functional.dist
 import scishow
@@ -129,6 +131,8 @@ class Pharmacophore:
                 "radius": "target_radius"
             }
         )
+
+        self._features_per_instance = self._features.groupby('instance')
 
         # DataFrame for cross-joining query features with target instances (see `match()` method)
         self._feature_instances_for_match = pd.DataFrame(
@@ -715,13 +719,13 @@ class Pharmacophore:
             per_instance=args.per_instance
         )
 
-    def match(
+    def match_greedy(
         self,
         query: Self | DataFrameLike,
         max_distance: float | Literal["radius_sum"] | None = "radius_sum",
         raise_missing_types: bool = False,
     ) -> pd.DataFrame:
-        """Match query pharmacophore features against the target pharmacophore.
+        """Match query pharmacophore features against this pharmacophore using a greedy nearest neighbor approach.
 
         For each feature (i.e. unique combination of `instance`, `type`, and `label`)
         in the input query pharmacophore, this method finds the closest feature
@@ -731,6 +735,11 @@ class Pharmacophore:
         If `max_distance` is specified, a `match` column is added
         indicating whether the distance is less than `max_distance`,
         which can be a fixed value or the sum of the radii.
+
+        Note that this method performs a greedy matching,
+        meaning that in each instance,
+        multiple query features may be matched
+        to the same target feature.
 
         Parameters
         ----------
@@ -844,6 +853,163 @@ class Pharmacophore:
         if max_distance is not None:
             final_cols.append('match')
         return best[final_cols].reset_index(drop=True)
+
+    def match_linear(
+        self,
+        query: Self | DataFrameLike,
+        max_distance: float | Literal["radius_sum"] | None = "radius_sum",
+        raise_missing_types: bool = False,
+    ) -> pd.DataFrame:
+        """Match query pharmacophore features against this pharmacophore using a linear (Hungarian) assignment approach.
+
+        For each feature (i.e. unique combination of `instance`, `type`, and `label`)
+        in the input query pharmacophore, this method finds the best matching feature
+        of the same type in each instance of the target pharmacophore (i.e. `self`), if any.
+        The best match is determined by minimizing the sum of distances
+        between the centers of the query and target features using the Hungarian algorithm.
+        Subsequently, for each pair, the distance between their centers
+        and the sum of their radii are computed.
+        If `max_distance` is specified, a `match` column is added
+        indicating whether the distance is less than `max_distance`,
+        which can be a fixed value or the sum of the radii.
+
+        Note that this method performs a linear (one-to-one) matching,
+        meaning that in each instance,
+        each query feature is matched to at most one target feature,
+        and vice versa.
+
+        Parameters
+        ----------
+        query
+            Query pharmacophore features to match against the target pharmacophore.
+            This can be a `Pharmacophore` instance or any object convertible to a DataFrame
+            with the same structure as the `features` DataFrame.
+        max_distance
+            Maximum distance between query and target features to consider a match.
+            If set to "radius_sum", the maximum distance is the sum of the radii
+            of the query and target features.
+            If set to `None`, no `match` column is added.
+        raise_missing_types
+            If `True`, raise an error if the query features contain types
+            not present in the target pharmacophore's feature types,
+            otherwise treat them as missing.
+
+        Returns
+        -------
+        DataFrame with the same rows as the query input,
+        containing the following columns:
+        - `instance`: Query feature instance identifier.
+        - `type`: Feature type.
+        - `label`: Query feature label.
+        - `target_instance`: Feature instance in self.
+           If no match is found, this will be `NaN`.
+        - `target_label`: Label of the matching feature in self.
+           If no match is found, this will be `NaN`.
+        - `distance`: Distance between the matched query and target feature centers.
+           If no match is found, this will be `NaN`.
+        - `radius_sum`: Sum of the radii of the matched query and target features.
+           If no match is found, this will be `NaN`.
+        - `match`: Boolean indicating if distance is less than `max_distance`.
+           Only present if `max_distance` is not `None`.
+        """
+        query_unverified = query.features if isinstance(query, Pharmacophore) else query
+        query = PharmFeaturesInput(
+            features=query_unverified,
+            feature_types=self.feature_types if raise_missing_types else None
+        ).features
+
+        # Put query row indices in a column for later reference
+        query = query.reset_index().rename(columns={'index': 'query_idx'})
+
+        # if there are no target features at all, just return the queries with NaNs
+        if self._features_for_match.empty:
+            df = query[['instance', 'type', 'label']].copy()
+            df['target_instance'] = np.nan
+            df['target_label']    = np.nan
+            df['distance']        = np.nan
+            df['radius_sum']      = np.nan
+            if max_distance is not None:
+                df['match'] = False
+            return df.reset_index(drop=True)
+
+        rows: list[dict[str, Any]] = []
+
+        for (query_instance, feature_type), subquery in query.groupby(
+            ["instance", "type"],
+            sort=False,
+        ):
+            subquery = subquery.reset_index(drop=True)
+            for target_instance, target_instance_features in self._features_per_instance:
+                subtarget = target_instance_features[target_instance_features['type'] == feature_type].reset_index(drop=True)
+                # If there are no features of this type in the target instance,
+                # add empty rows for each query feature
+                if subtarget.empty:
+                    for _, query_feature in subquery.iterrows():
+                        rows.append({
+                            'instance': query_instance,
+                            'type': feature_type,
+                            'label': query_feature['label'],
+                            'target_instance': target_instance,
+                            'target_label': np.nan,
+                            'distance': np.nan,
+                            'radius_sum': np.nan,
+                        })
+                    continue
+                query_centers = np.stack(subquery['center'].values)
+                target_centers = np.stack(subtarget['center'].values)
+                distances = scipy.spatial.distance.cdist(
+                    query_centers,
+                    target_centers,
+                    metric='euclidean'
+                )
+                # Solve the linear sum assignment problem
+                # https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.linear_sum_assignment.html
+                match_idx_query, match_idx_target = scipy.optimize.linear_sum_assignment(distances)
+                for query_idx, query_feature in subquery.iterrows():
+                    mask = match_idx_query == query_idx
+                    if not mask.any():
+                        # No match found for this query feature
+                        rows.append({
+                            'instance': query_instance,
+                            'type': feature_type,
+                            'label': query_feature['label'],
+                            'target_instance': target_instance,
+                            'target_label': np.nan,
+                            'distance': np.nan,
+                            'radius_sum': np.nan,
+                        })
+                        continue
+                    target_idx = match_idx_target[mask][0]
+                    target_feature = subtarget.iloc[target_idx]
+                    rows.append({
+                        'instance': query_instance,
+                        'type': feature_type,
+                        'label': query_feature['label'],
+                        'target_instance': target_instance,
+                        'target_label': target_feature['label'],
+                        'distance': distances[query_idx, target_idx],
+                        'radius_sum': query_feature['radius'] + target_feature['radius'],
+                    })
+        # Create DataFrame from collected rows
+        df = pd.DataFrame(rows)
+        # Ensure these cols always exist, even if df is empty
+        df['distance'] = df['distance'].astype(float)
+        df['radius_sum'] = df['radius_sum'].astype(float)
+        # Reorder columns
+        final_cols = [
+            'instance',
+            'type',
+            'label',
+            'target_instance',
+            'target_label',
+            'radius_sum',
+            'distance',
+        ]
+        if max_distance is not None:
+            distance_threshold = df['radius_sum'] if max_distance == "radius_sum" else max_distance
+            df["match"] = df['distance'] < distance_threshold
+            final_cols.append('match')
+        return df[final_cols].sort_values(["instance", "type", "label", "target_instance"]).reset_index(drop=True)
 
     def display(
         self,
@@ -973,6 +1139,27 @@ class Pharmacophore:
                 raise ValueError(f"Color must be a tuple of three values for feature '{feature}'")
         return
 
+    def new(
+        self,
+        features: DataFrameLike | None = None,
+        feature_types: set[str] | None = None,
+        inputs: Sequence[dict[str, Any]] | None = None,
+        name: str | None = None,
+        system: Any | None = None,
+        pocket: Pocket | None = None,
+        field: Field | None = None,
+        extra: dict[str, Any] | None = None,
+    ):
+        return Pharmacophore(
+            features=features if features is not None else self.features,
+            feature_types=feature_types if feature_types is not None else self.feature_types,
+            inputs=inputs if inputs is not None else self.inputs,
+            name=name if name is not None else self.name,
+            system=system if system is not None else self.system,
+            pocket=pocket if pocket is not None else self.pocket,
+            field=field if field is not None else self.field,
+            extra=extra if extra is not None else self.extra,
+        )
 
 def from_complex(
     pdb_files: str | bytes | Path | Sequence,
