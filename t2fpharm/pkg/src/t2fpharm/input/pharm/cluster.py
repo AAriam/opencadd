@@ -39,6 +39,7 @@ class PharmClusterInput(BaseModel):
     method: Literal["Pharmacophore.cluster"] = "Pharmacophore.cluster"
 
     function: dict[str, ClusteringFunction]
+    noise_as_singleton: dict[str, bool]
     weights: NDArray[np.float64]
     center_type: dict[str, CenterType]
     radius_type: dict[str, RadiusType]
@@ -50,6 +51,7 @@ class PharmClusterInput(BaseModel):
     def _cluster_input(cls, values: dict[str, object]) -> dict[str, object]:
         for argname, value_validator in (
             ("function", callable),
+            ("noise_as_singleton", None),
             ("center_type", None),
             ("radius_type", None),
         ):
