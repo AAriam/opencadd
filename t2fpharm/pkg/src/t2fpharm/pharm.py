@@ -589,17 +589,17 @@ class Pharmacophore:
         radius_type: RadiusType | dict[str, RadiusType] = "average",
         per_instance: bool = True,
     ) -> Self:
-        """Cluster pharmacophore features using the Agglomerative Clustering algorithm.
+        """Cluster pharmacophore features using a [hierarchical agglomerative clustering](https://scikit-learn.org/stable/modules/clustering.html#hierarchical-clustering) algorithm.
 
-        This method creates the clustering functions from the Agglomerative Clustering parameters
+        This method creates the clustering functions from the agglomerative clustering parameters
         `distance_threshold`, `n_clusters`, `linkage`, `metric`, and `memory`,
         and then calls the `Pharmacophore.cluster` method with these functions,
         passing the other general clustering parameters as well.
-        The Agglomerative Clustering parameters are described below;
-        for other parameters, see the `Pharmacophore.cluster` method documentation.
 
-        Parameters
-        ----------
+        For the agglomerative clustering parameters,
+        see the documentation for the underlying clustering routine
+        [`sklearn.cluster.AgglomerativeClustering`](https://scikit-learn.org/stable/modules/generated/sklearn.cluster.AgglomerativeClustering.html#sklearn.cluster.AgglomerativeClustering).
+        For other parameters, see the `Pharmacophore.cluster` method documentation.
         """
         args = PharmClusterAggInput(
             distance_threshold=distance_threshold,
@@ -719,27 +719,21 @@ class Pharmacophore:
             per_instance=args.per_instance
         )
 
-    def match_greedy(
+    def match(
         self,
         query: Self | DataFrameLike,
+        algorithm: Literal["greedy", "linear"] = "linear",
         max_distance: float | Literal["radius_sum"] | None = "radius_sum",
+        max_distance_inclusive: bool = True,
         raise_missing_types: bool = False,
     ) -> pd.DataFrame:
-        """Match query pharmacophore features against this pharmacophore using a greedy nearest neighbor approach.
+        """Match a query pharmacophore against this pharmacophore.
 
         For each feature (i.e. unique combination of `instance`, `type`, and `label`)
-        in the input query pharmacophore, this method finds the closest feature
-        of the same type in each instance of the target pharmacophore (i.e. `self`), if any.
-        Subsequently, for each pair, the distance between their centers
+        in the input query pharmacophore, this method finds the best matching feature
+        of the same type in each instance of the target pharmacophore (i.e. self), if any.
+        Subsequently, for each matched pair, the distance between their centers
         and the sum of their radii are computed.
-        If `max_distance` is specified, a `match` column is added
-        indicating whether the distance is less than `max_distance`,
-        which can be a fixed value or the sum of the radii.
-
-        Note that this method performs a greedy matching,
-        meaning that in each instance,
-        multiple query features may be matched
-        to the same target feature.
 
         Parameters
         ----------
@@ -747,11 +741,42 @@ class Pharmacophore:
             Query pharmacophore features to match against the target pharmacophore.
             This can be a `Pharmacophore` instance or any object convertible to a DataFrame
             with the same structure as the `features` DataFrame.
+        algorithm
+            Matching algorithm to use:
+
+            - "greedy": Greedy nearest neighbor matching.
+
+              For each feature in the query pharmacophore,
+              this algorithm finds the closest feature of the same type
+              in each instance of the target pharmacophore, if any.
+              This means that in each query–target instance pair,
+              multiple query features may be matched
+              to the same target feature.
+
+            - "linear": [Linear sum assignment](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.linear_sum_assignment.html)
+              (Hungarian algorithm).
+
+              For each feature in the query pharmacophore,
+              this algorithm finds the best matching feature of the same type
+              in each instance of the target pharmacophore, if any.
+              The best match is determined by minimizing the sum of distances
+              between the centers of the query and target features.
+              This means that in each query–target instance pair,
+              each query feature is matched to at most one target feature,
+              and vice versa.
         max_distance
             Maximum distance between query and target features to consider a match.
-            If set to "radius_sum", the maximum distance is the sum of the radii
-            of the query and target features.
-            If set to `None`, no `match` column is added.
+            If specified, a column named "match" is added to the output DataFrame,
+            indicating whether the distance between matching features
+            falls within the given threshold.
+            This can be a fixed value (float) or the string "radius_sum",
+            which indicates that the maximum distance is the sum of the radii
+            of the matched query and target features.
+            If set to `None`, no "match" column is added.
+        max_distance_inclusive
+            If `True`, the distance is considered a match
+            if it is less than or equal to `max_distance`,
+            otherwise it must be strictly less than `max_distance`.
         raise_missing_types
             If `True`, raise an error if the query features contain types
             not present in the target pharmacophore's feature types,
@@ -759,8 +784,7 @@ class Pharmacophore:
 
         Returns
         -------
-        DataFrame with the same rows as the query input,
-        containing the following columns:
+        DataFrame containing the following columns:
         - `instance`: Query feature instance identifier.
         - `type`: Feature type.
         - `label`: Query feature label.
@@ -774,6 +798,9 @@ class Pharmacophore:
            If no match is found, this will be `NaN`.
         - `match`: Boolean indicating if distance is less than `max_distance`.
            Only present if `max_distance` is not `None`.
+
+        The DataFrame thus contains N rows for each row in the query,
+        where N is the number of instances in the target pharmacophore.
         """
         query_unverified = query.features if isinstance(query, Pharmacophore) else query
         query = PharmFeaturesInput(
@@ -794,14 +821,43 @@ class Pharmacophore:
             if max_distance is not None:
                 df['match'] = False
             return df.reset_index(drop=True)
+        if algorithm == "greedy":
+            matches = self._match_greedy(query=query)
+        elif algorithm == "linear":
+            matches = self._match_linear(query=query)
+        else:
+            raise ValueError(f"Unknown matching algorithm '{algorithm}'. Supported: 'greedy', 'linear'.")
+        # Reorder columns
+        final_cols = [
+            'instance',
+            'type',
+            'label',
+            'target_instance',
+            'target_label',
+            'radius_sum',
+            'distance',
+        ]
+        if max_distance is not None:
+            distance_threshold = matches['radius_sum'] if max_distance == "radius_sum" else max_distance
+            matches["match"] = (
+                (matches['distance'] <= distance_threshold)
+                if max_distance_inclusive else
+                (matches['distance'] < distance_threshold)
+            )
+            final_cols.append('match')
+        return matches[final_cols].sort_values(["instance", "type", "label", "target_instance"]).reset_index(drop=True)
 
+    def _match_greedy(self, query: pd.DataFrame) -> pd.DataFrame:
+        """Match a query pharmacophore against this pharmacophore using a greedy nearest neighbor approach."""
         # Cross-join ligand × instance
         # This creates a DataFrame with all combinations of query features and target instances
         query['_key'] = 1
         cross = query.merge(self._feature_instances_for_match, on='_key').drop(columns=['_key'])
 
         # Merge with target features on instance & type
-        # This will add target feature data to each query × instance pair
+        # This will add target feature data to each query × target-instance pair,
+        # repeating each query × target-instance row
+        # for each target feature of the same type in that instance.
         merged = cross.merge(
             self._features_for_match,
             on=['target_instance', 'type'],
@@ -811,22 +867,14 @@ class Pharmacophore:
         # Ensure these cols always exist, even if merged is empty
         merged['radius_sum'] = np.nan
         merged['distance'] = np.nan
-        if max_distance is not None:
-            merged['match'] = False
 
-        # Compute distances where feature exists
+        # Compute distances where matching features exist
         mask = merged['target_label'].notna()
         if mask.any():
             query_centers = np.stack(merged.loc[mask, 'center'].values)
             target_centers = np.stack(merged.loc[mask, 'target_center'].values)
             merged.loc[mask, 'distance'] = np.linalg.norm(query_centers - target_centers, axis=1)
             merged.loc[mask, "radius_sum"] = merged.loc[mask, 'radius'] + merged.loc[mask, 'target_radius']
-            if max_distance is not None:
-                merged.loc[mask, 'match'] = merged.loc[mask, 'distance'] < (
-                    merged.loc[mask, 'radius_sum']
-                    if max_distance == "radius_sum" else
-                    max_distance
-                )
 
         # Defaults for missing-feature cases
         merged['distance'] = merged['distance'].astype(float)
@@ -839,107 +887,20 @@ class Pharmacophore:
             .sort_values(['query_idx', 'target_instance', 'dist_sort'])
             .drop_duplicates(['query_idx', 'target_instance'], keep='first')
         )
+        return best
 
-        # Reorder & return
-        final_cols = [
-            'instance',
-            'type',
-            'label',
-            'target_instance',
-            'target_label',
-            'radius_sum',
-            'distance',
-        ]
-        if max_distance is not None:
-            final_cols.append('match')
-        return best[final_cols].reset_index(drop=True)
-
-    def match_linear(
-        self,
-        query: Self | DataFrameLike,
-        max_distance: float | Literal["radius_sum"] | None = "radius_sum",
-        raise_missing_types: bool = False,
-    ) -> pd.DataFrame:
-        """Match query pharmacophore features against this pharmacophore using a linear (Hungarian) assignment approach.
-
-        For each feature (i.e. unique combination of `instance`, `type`, and `label`)
-        in the input query pharmacophore, this method finds the best matching feature
-        of the same type in each instance of the target pharmacophore (i.e. `self`), if any.
-        The best match is determined by minimizing the sum of distances
-        between the centers of the query and target features using the Hungarian algorithm.
-        Subsequently, for each pair, the distance between their centers
-        and the sum of their radii are computed.
-        If `max_distance` is specified, a `match` column is added
-        indicating whether the distance is less than `max_distance`,
-        which can be a fixed value or the sum of the radii.
-
-        Note that this method performs a linear (one-to-one) matching,
-        meaning that in each instance,
-        each query feature is matched to at most one target feature,
-        and vice versa.
-
-        Parameters
-        ----------
-        query
-            Query pharmacophore features to match against the target pharmacophore.
-            This can be a `Pharmacophore` instance or any object convertible to a DataFrame
-            with the same structure as the `features` DataFrame.
-        max_distance
-            Maximum distance between query and target features to consider a match.
-            If set to "radius_sum", the maximum distance is the sum of the radii
-            of the query and target features.
-            If set to `None`, no `match` column is added.
-        raise_missing_types
-            If `True`, raise an error if the query features contain types
-            not present in the target pharmacophore's feature types,
-            otherwise treat them as missing.
-
-        Returns
-        -------
-        DataFrame with the same rows as the query input,
-        containing the following columns:
-        - `instance`: Query feature instance identifier.
-        - `type`: Feature type.
-        - `label`: Query feature label.
-        - `target_instance`: Feature instance in self.
-           If no match is found, this will be `NaN`.
-        - `target_label`: Label of the matching feature in self.
-           If no match is found, this will be `NaN`.
-        - `distance`: Distance between the matched query and target feature centers.
-           If no match is found, this will be `NaN`.
-        - `radius_sum`: Sum of the radii of the matched query and target features.
-           If no match is found, this will be `NaN`.
-        - `match`: Boolean indicating if distance is less than `max_distance`.
-           Only present if `max_distance` is not `None`.
-        """
-        query_unverified = query.features if isinstance(query, Pharmacophore) else query
-        query = PharmFeaturesInput(
-            features=query_unverified,
-            feature_types=self.feature_types if raise_missing_types else None
-        ).features
-
-        # Put query row indices in a column for later reference
-        query = query.reset_index().rename(columns={'index': 'query_idx'})
-
-        # if there are no target features at all, just return the queries with NaNs
-        if self._features_for_match.empty:
-            df = query[['instance', 'type', 'label']].copy()
-            df['target_instance'] = np.nan
-            df['target_label']    = np.nan
-            df['distance']        = np.nan
-            df['radius_sum']      = np.nan
-            if max_distance is not None:
-                df['match'] = False
-            return df.reset_index(drop=True)
-
+    def _match_linear(self, query: pd.DataFrame) -> pd.DataFrame:
+        """Match a query pharmacophore against this pharmacophore using a linear sum assignment approach."""
         rows: list[dict[str, Any]] = []
-
+        # Iterate over each instance–type combination in the query
         for (query_instance, feature_type), subquery in query.groupby(
             ["instance", "type"],
             sort=False,
         ):
             subquery = subquery.reset_index(drop=True)
+            # Iterate over each target instance
             for target_instance, target_instance_features in self._features_per_instance:
+                # Select features of the same type in the target instance
                 subtarget = target_instance_features[target_instance_features['type'] == feature_type].reset_index(drop=True)
                 # If there are no features of this type in the target instance,
                 # add empty rows for each query feature
@@ -955,8 +916,10 @@ class Pharmacophore:
                             'radius_sum': np.nan,
                         })
                     continue
+                # Calculate distances between query and target features of the same type in this instance pair
                 query_centers = np.stack(subquery['center'].values)
                 target_centers = np.stack(subtarget['center'].values)
+                # https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.distance.cdist.html#scipy.spatial.distance.cdist
                 distances = scipy.spatial.distance.cdist(
                     query_centers,
                     target_centers,
@@ -965,6 +928,7 @@ class Pharmacophore:
                 # Solve the linear sum assignment problem
                 # https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.linear_sum_assignment.html
                 match_idx_query, match_idx_target = scipy.optimize.linear_sum_assignment(distances)
+                # Iterate over each query feature in this instance–type combination
                 for query_idx, query_feature in subquery.iterrows():
                     mask = match_idx_query == query_idx
                     if not mask.any():
@@ -990,26 +954,10 @@ class Pharmacophore:
                         'distance': distances[query_idx, target_idx],
                         'radius_sum': query_feature['radius'] + target_feature['radius'],
                     })
-        # Create DataFrame from collected rows
         df = pd.DataFrame(rows)
-        # Ensure these cols always exist, even if df is empty
         df['distance'] = df['distance'].astype(float)
         df['radius_sum'] = df['radius_sum'].astype(float)
-        # Reorder columns
-        final_cols = [
-            'instance',
-            'type',
-            'label',
-            'target_instance',
-            'target_label',
-            'radius_sum',
-            'distance',
-        ]
-        if max_distance is not None:
-            distance_threshold = df['radius_sum'] if max_distance == "radius_sum" else max_distance
-            df["match"] = df['distance'] < distance_threshold
-            final_cols.append('match')
-        return df[final_cols].sort_values(["instance", "type", "label", "target_instance"]).reset_index(drop=True)
+        return df.convert_dtypes()
 
     def display(
         self,
@@ -1160,6 +1108,7 @@ class Pharmacophore:
             field=field if field is not None else self.field,
             extra=extra if extra is not None else self.extra,
         )
+
 
 def from_complex(
     pdb_files: str | bytes | Path | Sequence,
