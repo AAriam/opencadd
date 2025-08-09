@@ -18,7 +18,6 @@ class PharmClusterCNNInput(PharmClusterInput):
 
     max_distance: dict[str, PositiveFloat | PositiveFloatTuple]
     min_neighbors: dict[str, PositiveFloat | PositiveIntTuple]
-    min_members: dict[str, PositiveInt]
     max_members: dict[str, PositiveInt | None]
     function: dict[str, ClusteringFunction]
     center_type: dict[str, CenterTypeNoFunction]
@@ -29,7 +28,6 @@ class PharmClusterCNNInput(PharmClusterInput):
         for argname, none_allowed in (
             ("max_distance", False),
             ("min_neighbors", False),
-            ("min_members", False),
             ("max_members", True),
         ):
             values[argname] = validator.validate_input_dict(
@@ -46,7 +44,6 @@ class PharmClusterCNNInput(PharmClusterInput):
                 cnn_function,
                 max_distance=values["max_distance"][feature_type],
                 min_neighbors=values["min_neighbors"][feature_type],
-                min_members=values["min_members"][feature_type],
                 max_members=values["max_members"][feature_type],
             )
             functions[feature_type] = function
@@ -65,13 +62,12 @@ def cnn_function(
     weights: np.ndarray,
     max_distance: PositiveFloat | Sequence[PositiveFloat],
     min_neighbors: PositiveInt | Sequence[PositiveInt],
-    min_members: PositiveInt,
     max_members: PositiveInt | None,
 ) -> ClusteringResult:
     labels = scids.pointcloud.from_array(centers).cluster_cnn(
         max_distance=max_distance,
         min_neighbors=min_neighbors,
-        min_members=min_members,
+        min_members=1,
         max_members=max_members,
     )
     if np.any(labels < 0):
