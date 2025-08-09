@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from pathlib import Path
-import warnings
 
 import pandas as pd
 
@@ -13,13 +12,12 @@ from t2fpharm_study.io import write_pharm_df
 if TYPE_CHECKING:
     from typing import Any, Literal
     from t2fpharm import Modeler
-    from t2fpharm_study.typing import PDBID
 
 
 def run(
     modeler: Modeler,
-    ligand_pharms: dict[PDBID, Pharmacophore],
-    method: Literal["largest_peaks", "cnn"],
+    ligand_pharm: Pharmacophore,
+    method: Literal["agg", "cnn", "largest_peaks"],
     job: dict[str, Any],
     dirpath_features: Path | str | None = None,
     dirpath_matches: Path | str | None = None,
@@ -29,7 +27,7 @@ def run(
     try:
         summaries, pharms, matches = _run(
             modeler=modeler,
-            ligand_pharms=ligand_pharms,
+            ligand_pharm=ligand_pharm,
             method=method,
             job=job,
             dirpath_features=dirpath_features,
@@ -50,8 +48,8 @@ def run(
 
 def _run(
     modeler: Modeler,
-    ligand_pharms: dict[PDBID, Pharmacophore],
-    method: Literal["largest_peaks", "cnn"],
+    ligand_pharm: Pharmacophore,
+    method: Literal["agg", "cnn", "largest_peaks"],
     job: dict[str, Any],
     dirpath_features: Path | str | None = None,
     dirpath_matches: Path | str | None = None,
@@ -78,7 +76,7 @@ def _run(
         )
         summary, pharm, match = _run_single(
             pharm=pharm,
-            ligand_pharms=ligand_pharms,
+            ligand_pharm=ligand_pharm,
             target_pdb_id=job["pdb_id"],
             group_id=job["group_id"],
             job_idx=job["job_idx"],
@@ -90,23 +88,42 @@ def _run(
         pharms.append(pharm)
         matches.append(match)
         return summaries, pharms, matches
-    pharm_base = modeler.cnn(
-        max_distance=job["max_distance"],
-        min_neighbors=job["min_neighbors"],
-        min_members=1,
-        max_members=job["max_members"],
-        filter_function=job.get("filter_function"),
-        filter_radius=job.get("filter_radius"),
-        filter_extension_mode="constant",
-        filter_extension_constant_value=0,
-        filter_gaussian_sigma=job.get("filter_gaussian_sigma"),
-        filter_percentile=job.get("filter_percentile", 0),
-        peak_type=job.get("peak_type", "min"),
-        best_per_point=job["best_per_point"],
-        threshold_value=job.get("threshold_value"),
-        threshold_percentile=job.get("threshold_percentile"),
-        threshold_include_equal=False,
-    )
+    if method == "agg":
+        pharm_base = modeler.agg(
+            distance_threshold=job["distance_threshold"],
+            min_members=1,
+            filter_function=job.get("filter_function"),
+            filter_radius=job.get("filter_radius"),
+            filter_extension_mode="constant",
+            filter_extension_constant_value=0,
+            filter_gaussian_sigma=job.get("filter_gaussian_sigma"),
+            filter_percentile=job.get("filter_percentile", 0),
+            peak_type=job.get("peak_type", "min"),
+            best_per_point=job["best_per_point"],
+            threshold_value=job.get("threshold_value"),
+            threshold_percentile=job.get("threshold_percentile"),
+            threshold_include_equal=False,
+        )
+    elif method == "cnn":
+        pharm_base = modeler.cnn(
+            max_distance=job["max_distance"],
+            min_neighbors=job["min_neighbors"],
+            min_members=1,
+            max_members=job["max_members"],
+            filter_function=job.get("filter_function"),
+            filter_radius=job.get("filter_radius"),
+            filter_extension_mode="constant",
+            filter_extension_constant_value=0,
+            filter_gaussian_sigma=job.get("filter_gaussian_sigma"),
+            filter_percentile=job.get("filter_percentile", 0),
+            peak_type=job.get("peak_type", "min"),
+            best_per_point=job["best_per_point"],
+            threshold_value=job.get("threshold_value"),
+            threshold_percentile=job.get("threshold_percentile"),
+            threshold_include_equal=False,
+        )
+    else:
+        raise ValueError(f"Unknown method: {method}. Supported methods are 'agg', 'cnn', and 'largest_peaks'.")
     features = pharm_base.features
     job_idx = job["job_idx"]
     for min_members in job["min_members_dicts"]:
@@ -124,7 +141,7 @@ def _run(
             )
             summary, pharm, match = _run_single(
                 pharm=pharm,
-                ligand_pharms=ligand_pharms,
+                ligand_pharm=ligand_pharm,
                 target_pdb_id=job["pdb_id"],
                 group_id=job["group_id"],
                 job_idx=job_idx,
@@ -141,7 +158,7 @@ def _run(
 
 def _run_single(
     pharm: Pharmacophore,
-    ligand_pharms: dict[PDBID, Pharmacophore],
+    ligand_pharm: Pharmacophore,
     target_pdb_id: str,
     group_id: str,
     job_idx: int,
@@ -154,19 +171,32 @@ def _run_single(
         feature_types=pharm.feature_types,
         include_radii=include_radii,
     )
-    matches = _match_df(
-        target_pharm=pharm,
-        ligand_pharms=ligand_pharms,
+    matches = (
+        pharm.match(
+            query=ligand_pharm,
+            algorithm="linear",
+            max_distance=None
+        )
+        .drop(columns=["instance", "target_instance", "radius_sum"])
+        .rename(columns={
+            "label": "ligand_label",
+            "target_label": "target_label-linear",
+            "distance": "distance-linear",
+        })
     )
-    matches["target_pdb_id"] = target_pdb_id
+    matches_greedy = pharm.match(
+        query=ligand_pharm,
+        algorithm="greedy",
+        max_distance=None
+    )
+    matches["target_label-greedy"] = matches_greedy["target_label"]
+    matches["distance-greedy"] = matches_greedy["distance"]
     matches_summary = _match_summary(matches)
 
-    pharm_summary["pdb_id"] = target_pdb_id
+    pharm_summary["job_idx"] = job_idx
     pharm_summary["group_id"] = group_id
+    pharm_summary["pdb_id"] = target_pdb_id
     summary = pharm_summary | matches_summary
-
-    summary["job_idx"] = job_idx
-    matches["job_idx"] = job_idx
 
     if dirpath_features:
         write_pharm_df(
@@ -191,8 +221,8 @@ def _pharm_summary(
     include_radii: bool,
 ):
     n_features = len(features)
-    summary = {"t_all-n": n_features} | {
-        f"t_{feature_type}-n": int(features["type"].eq(feature_type).sum())
+    summary = {"t_all-n_pred": n_features} | {
+        f"t_{feature_type}-n_pred": int(features["type"].eq(feature_type).sum())
         for feature_type in feature_types
     }
     if n_features == 0:
@@ -235,83 +265,46 @@ def _pharm_summary_feature_type(
     return summary
 
 
-def _match_df(
-    target_pharm: Pharmacophore,
-    ligand_pharms: dict[PDBID, Pharmacophore],
-) -> pd.DataFrame:
-    """Calculate matches between receptor and ligand pharmacophores."""
-    def calculate(
-        target_pharm: Pharmacophore,
-        ligand_pharm: Pharmacophore
-    ) -> pd.DataFrame:
-        return (
-            target_pharm.match(ligand_pharm, max_distance=None)
-            .drop(columns=["instance", "target_instance", "radius_sum"])
-            .rename(columns={"label": "ligand_label"})
-        )
-    matches_dfs = []
-    for ligand_pdb_id, ligand_pharm in ligand_pharms.items():
-        matches = calculate(target_pharm=target_pharm, ligand_pharm=ligand_pharm)
-        matches["ligand_pdb_id"] = ligand_pdb_id
-        matches_dfs.append(matches)
-    with warnings.catch_warnings():
-        # Ignore 'The behavior of DataFrame concatenation with empty or all-NA entries is deprecated.'
-        warnings.simplefilter("ignore", FutureWarning)
-        match_df = pd.concat(matches_dfs, ignore_index=True)
-    return match_df
-
-
 def _match_summary(matches: pd.DataFrame) -> dict[str, Any]:
-    matches_total = _match_summary_ligand_type(
-        matches,
-        ligand_type="all",
-    )
-    matches_self = _match_summary_ligand_type(
-        matches[matches["ligand_pdb_id"] == matches["target_pdb_id"]],
-        ligand_type="self",
-    )
-    return matches_total | matches_self
-
-
-def _match_summary_ligand_type(
-    matches: pd.DataFrame,
-    ligand_type: str,
-) -> dict[str, Any]:
-    out = _match_summary_feature_type(
-        matches,
-        ligand_type=ligand_type,
-        feature_type="all",
-    )
-    for feature_type in matches["type"].unique():
-        out_type = _match_summary_feature_type(
-            matches,
-            ligand_type=ligand_type,
-            feature_type=feature_type,
+    summary = {}
+    for match_type in ("linear", "greedy"):
+        summary.update(
+            _match_summary_single(
+                matches,
+                match_type=match_type,
+                feature_type="all",
+            )
         )
-        out.update(out_type)
-    return out
+        for feature_type in matches["type"].unique():
+            summary.update(
+                _match_summary_single(
+                    matches[matches["type"] == feature_type],
+                    match_type=match_type,
+                    feature_type=feature_type,
+                )
+            )
+    return summary
 
 
-def _match_summary_feature_type(
+def _match_summary_single(
     matches: pd.DataFrame,
-    ligand_type: str,
+    match_type: Literal["linear", "greedy"],
     feature_type: str,
 ) -> dict[str, Any]:
     def name(dist_type: str) -> str:
         if dist_type in ("min", "max", "mean", "median"):
-            return f"t_{feature_type}-d_{dist_type}-l_{ligand_type}"
-        return f"t_{feature_type}-dp_{dist_type}-l_{ligand_type}"
+            return f"t_{feature_type}-d_{dist_type}-m_{match_type}"
+        return f"t_{feature_type}-dn_{dist_type}-m_{match_type}"
 
-    n_ligand_features = len(matches)
-    dists = matches["distance"]
+    dists = matches[f"distance-{match_type}"]
     return {
-        f"t_{feature_type}-nl_{ligand_type}": n_ligand_features,
+        f"t_{feature_type}-n_ref": len(matches),
         name("min"): float(dists.min()),
         name("max"): float(dists.max()),
         name("mean"): float(dists.mean()) if dists.notna().any() else float("nan"),
         name("median"): float(dists.median()) if dists.notna().any() else float("nan"),
-        name("inf"): float(dists.isna().sum()) / n_ligand_features,
-        name("lt1"): float((dists < 1.0).sum()) / n_ligand_features,
-        name("lt2"): float((dists < 2.0).sum()) / n_ligand_features,
-        name("lt3"): float((dists < 3.0).sum()) / n_ligand_features,
+        name("inf"): float(dists.isna().sum()),
+        name("lt1"): float((dists < 1.0).sum()),
+        name("lt2"): float((dists < 2.0).sum()),
+        name("lt3"): float((dists < 3.0).sum()),
     }
