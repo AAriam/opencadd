@@ -10,6 +10,7 @@ from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
 from t2fpharm.pharm import Pharmacophore
 from t2fpharm.input.modeler import ModelerLargestPeaksInput, ModelerSimpleInput
+from t2fpharm.input.pharm.cluster_agg import AggLinkageType, AggLinkageMetricType
 from t2fpharm.typing import PositiveInt, PositiveFloat
 
 
@@ -84,6 +85,79 @@ class Modeler:
     def system(self) -> Any | None:
         return self._system
 
+    def agg(
+        self,
+        *,
+        distance_threshold: PositiveFloat | dict[str, PositiveFloat] | None = None,
+        n_clusters: PositiveInt | dict[str, PositiveInt] | None = None,
+        linkage: AggLinkageType | dict[str, AggLinkageType] = "complete",
+        metric: AggLinkageMetricType | dict[str, AggLinkageMetricType] = "euclidean",
+        memory: Any = None,
+        min_members: PositiveInt | dict[str, PositiveInt] = 1,
+        noise_as_singleton: bool | dict[str, bool] = True,
+        center_type: Literal["function", "midpoint", "mean", "average"] | dict[str, Literal["function", "midpoint", "mean", "average"]] = "average",
+        radius_type: Literal["average", "mean", "max", "min"] = "max",
+        # Parameters for `self.simple`
+        filter_function: FilterFunction | dict[str, FilterFunction] | None = None,
+        filter_radius: PositiveFloat | dict[str, PositiveFloat] | None = None,
+        filter_extension_mode: FilterExtensionMode | dict[str, FilterExtensionMode] = "constant",
+        filter_extension_constant_value: float | dict[str, float] = 0,
+        filter_gaussian_sigma: PositiveFloat | dict[str, PositiveFloat] | None = None,
+        filter_percentile: float | dict[str, float] = 50,
+        peak_type: Literal["min", "max"] | dict[str, Literal["min", "max"]] = "min",
+        best_per_point: bool | dict[str, bool] = False,
+        threshold_value: float | dict[str, float] | None = None,
+        threshold_percentile: float | dict[str, float] | None = None,
+        threshold_include_equal: bool | dict[str, bool] = False,
+    ) -> Pharmacophore:
+        """Perceive pharmacophore features using a hierarchical agglomerative clustering algorithm.
+
+        This method is equivalent to calling `Modeler.simple()`
+        to create an initial pharmacophore,
+        followed by calling `Pharmacophore.cluster_agg()`
+        to cluster the feature centers.
+        For more information on the algorithm and parameters,
+        see the documentation of those methods.
+        """
+        pharm = self.simple(
+            filter_function=filter_function,
+            filter_radius=filter_radius,
+            filter_extension_mode=filter_extension_mode,
+            filter_extension_constant_value=filter_extension_constant_value,
+            filter_gaussian_sigma=filter_gaussian_sigma,
+            filter_percentile=filter_percentile,
+            peak_type=peak_type,
+            best_per_point=best_per_point,
+            threshold_value=threshold_value,
+            threshold_percentile=threshold_percentile,
+            threshold_include_equal=threshold_include_equal,
+        )
+
+        weights = pharm.features["value"].copy()
+        # Make sure all weights are either >= 0 or <= 0
+        for feature_type in pharm.features["type"].unique():
+            type_mask = pharm.features["type"] == feature_type
+            feature_weights = weights[type_mask]
+            ge0 = feature_weights.ge(0)
+            le0 = feature_weights.le(0)
+            if not (ge0.all() or le0.all()):
+                feature_peak_type = pharm.inputs[0]["peak_type"][feature_type]
+                indices = ge0[ge0].index if feature_peak_type == "min" else le0[le0].index
+                weights.loc[indices] = 0
+        return pharm.cluster_agg(
+            distance_threshold=distance_threshold,
+            n_clusters=n_clusters,
+            linkage=linkage,
+            metric=metric,
+            memory=memory,
+            min_members=min_members,
+            noise_as_singleton=noise_as_singleton,
+            weights=weights,
+            center_type=center_type,
+            radius_type=radius_type,
+            per_instance=True,
+        )
+
     def cnn(
         self,
         *,
@@ -91,6 +165,7 @@ class Modeler:
         min_neighbors: PositiveInt | Sequence[PositiveInt] | dict[str, PositiveInt | Sequence[PositiveInt]],
         min_members: PositiveInt | dict[str, PositiveInt] = 1,
         max_members: PositiveInt | dict[str, PositiveInt] | None = None,
+        noise_as_singleton: bool | dict[str, bool] = True,
         center_type: Literal["function", "midpoint", "mean", "average"] | dict[str, Literal["function", "midpoint", "mean", "average"]] = "average",
         radius_type: Literal["average", "mean", "max", "min"] = "max",
         # Parameters for `self.simple`
@@ -160,6 +235,7 @@ class Modeler:
             min_neighbors=min_neighbors,
             min_members=min_members,
             max_members=max_members,
+            noise_as_singleton=noise_as_singleton,
             weights=weights,
             center_type=center_type,
             radius_type=radius_type,
