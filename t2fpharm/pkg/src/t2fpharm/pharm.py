@@ -322,6 +322,7 @@ class Pharmacophore:
     def cluster(
         self,
         function: ClusteringFunction | dict[str, ClusteringFunction],
+        min_members: PositiveInt | dict[str, PositiveInt] = 1,
         noise_as_singleton: bool | dict[str, bool] = True,
         weights: pd.Series | np.ndarray | Sequence[float] | None = None,
         center_type: CenterType | dict[str, CenterType] = "average",
@@ -343,11 +344,14 @@ class Pharmacophore:
         to compute the center and radius of each cluster,
         allowing flexibility in how clusters are represented.
 
+        Other than the `weights` and `per_instance` arguments,
+        all other arguments can be a single value for all feature types,
+        or a dictionary mapping each feature type to a value.
+
         Parameters
         ----------
         function
-            Either a single clustering function for all feature types,
-            or a dictionary mapping each feature type to a clustering function.
+            Clustering function(s) to use.
             Each function is called with two positional arguments:
             1. A 2D numpy array of shape `(n_features, 3)`
                containing the coordinates of feature centers.
@@ -363,11 +367,13 @@ class Pharmacophore:
             Negative labels are considered background/noise
             and will not be included in the output pharmacophore,
             unless `noise_as_singleton` is set to `True`.
+        min_members
+            Minimum number of members required to form a cluster.
+            Clusters with fewer members are discarded.
         noise_as_singleton
             If `True`, noise features (i.e., those with negative labels)
             are each assigned a unique label and treated as a separate cluster.
-            This can be a single boolean value for all feature types,
-            or a dictionary mapping each feature type to a boolean value.
+            This only applies if `min_members` is set to 1 for the feature type.
         weights
             Optional weights for each feature center.
             If provided, it must be a 1D array-like object
@@ -422,6 +428,7 @@ class Pharmacophore:
         """
         args = PharmClusterInput(
             function=function,
+            min_members=min_members,
             noise_as_singleton=noise_as_singleton,
             weights=weights,
             center_type=center_type,
@@ -480,6 +487,9 @@ class Pharmacophore:
             feature_radius_type = radius_type[feature_type]
             for label in unique_labels:
                 label_mask = labels == label
+                if label_mask.sum() < args.min_members[feature_type]:
+                    # Skip clusters with fewer members than required
+                    continue
                 cluster_points = centers[label_mask]
                 cluster_weight = weights[label_mask]
                 weights_sum_to_zero = np.sum(cluster_weight) == 0
@@ -583,6 +593,7 @@ class Pharmacophore:
         metric: AggLinkageMetricType | dict[str, AggLinkageMetricType] = "euclidean",
         memory: Any = None,
         # Parameters for `self.cluster()`
+        min_members: PositiveInt | dict[str, PositiveInt] = 1,
         noise_as_singleton: bool | dict[str, bool] = True,
         weights: pd.Series | np.ndarray | Sequence[float] | None = None,
         center_type: CenterTypeNoFunction | dict[str, CenterTypeNoFunction] = "average",
@@ -607,6 +618,7 @@ class Pharmacophore:
             linkage=linkage,
             metric=metric,
             memory=memory,
+            min_members=min_members,
             noise_as_singleton=noise_as_singleton,
             weights=weights,
             center_type=center_type,
@@ -617,6 +629,7 @@ class Pharmacophore:
         )
         return self.cluster(
             function=args.function,
+            min_members=args.min_members,
             noise_as_singleton=args.noise_as_singleton,
             weights=args.weights,
             center_type=args.center_type,
@@ -712,6 +725,7 @@ class Pharmacophore:
         )
         return self.cluster(
             function=args.function,
+            min_members=args.min_members,
             noise_as_singleton=args.noise_as_singleton,
             weights=args.weights,
             center_type=args.center_type,
