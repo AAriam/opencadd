@@ -50,6 +50,7 @@ class Manager:
         dirpath_field: Path | str,
         dirpath_ligand_plip: Path | str,
         dirpath_ligand_features: Path | str,
+        dirpath_ref_features: Path | str,
         dirpath_jobs: Path | str,
         dirname_job_pharms: str,
         dirname_job_matches: str,
@@ -76,6 +77,7 @@ class Manager:
             "field": dirpath_field,
             "ligand_plip": dirpath_ligand_plip,
             "ligand_features": dirpath_ligand_features,
+            "ref_features": dirpath_ref_features,
 
             "results": dirpath_jobs,
 
@@ -93,6 +95,7 @@ class Manager:
             "field": "npz",
             "ligand_plip": "json",
             "ligand_features": "json",
+            "ref_features": "json",
             "results_job_inputs": "json",
             "results_summary": "json",
             "results_pharm": "json",
@@ -222,7 +225,7 @@ class Manager:
             self.pocket(pdb_id)
             self.field(pdb_id)
             self.modeler(pdb_id)
-            self.ligand_pharmacophore(pdb_id)
+            self.ref_pharmacophore(pdb_id)
             self.affinity(pdb_id)
             if pdb_raw:
                 self.pdb_raw(pdb_id)
@@ -237,13 +240,13 @@ class Manager:
             self._cache = {}
         return
 
-    def run_all(self, ref_only: bool = False):
+    def run_all(self, ref_only: bool = True):
         """Run all jobs defined in the job parameters."""
         for job_name in self.job_params:
             self.run(job_name=job_name, ref_only=ref_only)
         return
 
-    def run(self, job_name: str, ref_only: bool = False):
+    def run(self, job_name: str, ref_only: bool = True):
         def keep_row(pdb_id: str, job_idx: int) -> bool:
             """Check if the entire job batch is completed."""
             # generate all the slots in this batch
@@ -289,7 +292,6 @@ class Manager:
         self.caching(enabled=True)
 
         # Prepare jobs
-        ligand_pharms: dict[PDBID, t2fpharm.pharm_ligand.LigandPharmacophore] = {}
         futures = []
         ray.init(ignore_reinit_error=True)
         with tqdm(
@@ -297,31 +299,25 @@ class Manager:
             desc="Creating jobs",
             unit="job"
         ) as pbar:
-            for group_id, group in all_jobs.groupby("group_id"):
-                ligand_pharms = ray.put(
-                    {
-                        pdb_id: self.ligand_pharmacophore(pdb_id)
-                        for pdb_id in self.group_pdb_ids(group_id)
-                    }
-                )
-                for pdb_id, pdb_group in group.groupby("pdb_id"):
-                    modeler = ray.put(self.modeler(pdb_id))
-                    if not caching_was_enabled:
-                        self._cache = {}
-                    pdb_group_jobs = pdb_group.to_dict(orient="records")
-                    for job in pdb_group_jobs:
-                        remote_job = _remote_job_runner.remote(
-                            modeler=modeler,
-                            ligand_pharms=ligand_pharms,
-                            method=method,
-                            job=job,
-                            dirpath_features=dirpath_features,
-                            dirpath_matches=dirpath_matches,
-                            return_pharm=False,
-                            return_matches=False,
-                        )
-                        futures.append(remote_job)
-                        pbar.update(batch_size_per_job)
+            for pdb_id, pdb_group in all_jobs.groupby("pdb_id"):
+                modeler = ray.put(self.modeler(pdb_id))
+                ligand_pharm = ray.put(self.ref_pharmacophore(pdb_id))
+                if not caching_was_enabled:
+                    self._cache = {}
+                pdb_group_jobs = pdb_group.to_dict(orient="records")
+                for job in pdb_group_jobs:
+                    remote_job = _remote_job_runner.remote(
+                        modeler=modeler,
+                        ligand_pharm=ligand_pharm,
+                        method=method,
+                        job=job,
+                        dirpath_features=dirpath_features,
+                        dirpath_matches=dirpath_matches,
+                        return_pharm=False,
+                        return_matches=False,
+                    )
+                    futures.append(remote_job)
+                    pbar.update(batch_size_per_job)
 
         # Restore caching state
         self.caching(enabled=caching_was_enabled)
@@ -437,26 +433,25 @@ class Manager:
         """
         for feature_type in ["all"] + self.field_params["ligand_types"]:
             col_type = f"t_{feature_type}"
-            n_r = summary[f"{col_type}-n"].astype(int)
-            for ligand_ref in ("all", "self"):
-                # In order for NaN values calculated by NumPy to be recognized by pandas,
-                # we have to cast the input columns to NumPy first.
-                # see: https://github.com/pandas-dev/pandas/issues/61758
-                dp_lt2 = summary[f"{col_type}-dp_lt2-l_{ligand_ref}"].astype(float)
-                n_l = summary[f"{col_type}-nl_{ligand_ref}"].astype(int)
-                d_mean = summary[f"{col_type}-d_mean-l_{ligand_ref}"].astype(float)
+            # In order for NaN values calculated by NumPy to be recognized by pandas,
+            # we have to cast the input columns to NumPy first.
+            # see: https://github.com/pandas-dev/pandas/issues/61758
+            n_predicted = summary[f"{col_type}-n_pred"].astype(int)
+            n_ref = summary[f"{col_type}-n_ref"].astype(int)
+            for match_type in ("greedy", "linear"):
+                true_pos = summary[f"{col_type}-dn_lt2-{match_type}"].astype(float)
+                mean_dist = summary[f"{col_type}-d_mean-{match_type}"].astype(float)
 
-                precision = dp_lt2 * n_l / n_r
-                sensitivity = dp_lt2
+                precision = (true_pos / n_predicted) if n_predicted > 0 else 0
+                sensitivity = true_pos / n_ref
                 f1_score = (2 * precision * sensitivity / (precision + sensitivity)).fillna(0)
-                weights = np.maximum(0, 1 - d_mean / char_dist)
+                weights = np.maximum(0, 1 - mean_dist / char_dist)
                 f1_score_weighted = f1_score * weights
 
-                summary[f"{col_type}-simple_score-l_{ligand_ref}"] = dp_lt2 / n_r
-                summary[f"{col_type}-precision-l_{ligand_ref}"] = precision
-                summary[f"{col_type}-sensitivity-l_{ligand_ref}"] = sensitivity
-                summary[f"{col_type}-f1-l_{ligand_ref}"] = f1_score
-                summary[f"{col_type}-f1_weighted-l_{ligand_ref}"] = f1_score_weighted
+                summary[f"{col_type}-precision-m_{match_type}"] = precision
+                summary[f"{col_type}-sensitivity-m_{match_type}"] = sensitivity
+                summary[f"{col_type}-f1-m_{match_type}"] = f1_score
+                summary[f"{col_type}-f1_weighted-m_{match_type}"] = f1_score_weighted
         return
 
     @staticmethod
@@ -858,8 +853,52 @@ class Manager:
             system=self.complex(pdb_id),
         )
 
-    def ligand_pharmacophore(self, pdb_id: str):
-        cached = self._cache.get(pdb_id, {}).get("ligand_pharm")
+    def ref_pharmacophore(self, pdb_id: str, include_extras: bool = True) -> t2fpharm.pharm.Pharmacophore:
+        cached = self._cache.get(pdb_id, {}).get("ref_pharm")
+        if cached:
+            return cached
+        filepath_ref_features = self.path("ref_features", pdb_id)
+        if filepath_ref_features.is_file():
+            features_data = pyserials.read.from_file(filepath_ref_features, toml_as_dict=True)
+            ref_pharm = t2fpharm.pharm.Pharmacophore(
+                features=features_data,
+                feature_types=self.field_params["ligand_types"],
+                system=self.complex(pdb_id) if include_extras else None,
+                pocket=self.pocket(pdb_id) if include_extras else None,
+            )
+        else:
+            # Get all complex-based pharmacophores for the group
+            complex_pharms = [self.complex_pharmacophore(pdb_id) for pdb_id in self.group_pdb_ids(self.group_id(pdb_id))]
+            # Merge all coomplex-based pharmacophores into one
+            merged_pharm = t2fpharm.pharm.merge(complex_pharms)
+            # Select only the features that are within the pocket
+            pocket = self.pocket(pdb_id)
+            merged_feats = merged_pharm.features
+            feat_centers = np.stack(merged_feats["center"])
+            feat_mask = pocket.point_coverage(feat_centers)
+            selected_feats = merged_feats[feat_mask]
+            filtered_pharm = merged_pharm.new(
+                features=selected_feats,
+                system=self.complex(pdb_id) if include_extras else None,
+                pocket=pocket if include_extras else None,
+            )
+            ref_pharm = filtered_pharm.cluster_agg(
+                distance_threshold=3,
+                min_members=1,
+                noise_as_singleton=True,
+                center_type="mean",
+                radius_type="max",
+                per_instance=False,
+            )
+            filepath_ref_features.write_text(
+                ref_pharm.features.to_json(orient="records", indent=4)
+            )
+        if self._cache_enabled:
+            self._cache.setdefault(pdb_id, {})["ref_pharm"] = ref_pharm
+        return ref_pharm
+
+    def complex_pharmacophore(self, pdb_id: str):
+        cached = self._cache.get(pdb_id, {}).get("complex_pharm")
         if cached:
             return cached
         filepath_ligand_plip = self.path("ligand_plip", pdb_id)
@@ -868,16 +907,15 @@ class Manager:
             plip_data = pyserials.read.from_file(filepath_ligand_plip, toml_as_dict=True)
             features_data = pyserials.read.from_file(filepath_ligand_features, toml_as_dict=True)
             plip_df = pd.DataFrame(plip_data)
-            ligand_pharm = t2fpharm.pharm.Pharmacophore(
+            complex_pharm = t2fpharm.pharm.Pharmacophore(
                 features=features_data,
+                feature_types=self.field_params["ligand_types"],
                 extra={"plip": caddpy.interaction.ProteinLigandInteractions(plip_df)},
                 system=self.complex(pdb_id),
-                pocket=self.pocket(pdb_id),
             )
         else:
-            ligand_pharm = t2fpharm.pharm.from_complex(
+            complex_pharm = t2fpharm.pharm.from_complex(
                 pdb_files=self.path("pdb_aligned", pdb_id),
-                pocket=self.pocket(pdb_id),
                 receptor=self.complex(pdb_id),
                 type_hbond_acceptor="OA",
                 type_hbond_donor="HD",
@@ -890,14 +928,14 @@ class Manager:
                 type_aromatic=None,
             )
             filepath_ligand_plip.write_text(
-                ligand_pharm.extra["plip"].all.to_json(orient="records", indent=4)
+                complex_pharm.extra["plip"].all.to_json(orient="records", indent=4)
             )
             filepath_ligand_features.write_text(
-                ligand_pharm.features.to_json(orient="records", indent=4)
+                complex_pharm.features.to_json(orient="records", indent=4)
             )
         if self._cache_enabled:
-            self._cache.setdefault(pdb_id, {})["ligand_pharm"] = ligand_pharm
-        return ligand_pharm
+            self._cache.setdefault(pdb_id, {})["complex_pharm"] = complex_pharm
+        return complex_pharm
 
     def affinity(self, pdb_id: str) -> dict:
         """Get affinity data for a given PDB ID and ligand."""
@@ -937,6 +975,7 @@ class Manager:
             "field",
             "ligand_plip",
             "ligand_features",
+            "ref_features",
             "results_job_inputs",
             "results_summary",
             "results_pharm",
