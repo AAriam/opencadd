@@ -301,7 +301,7 @@ class Manager:
         ) as pbar:
             for pdb_id, pdb_group in all_jobs.groupby("pdb_id"):
                 modeler = ray.put(self.modeler(pdb_id))
-                ligand_pharm = ray.put(self.ref_pharmacophore(pdb_id))
+                ligand_pharm = ray.put(self.ref_pharmacophore(pdb_id, include_extras=False))
                 if not caching_was_enabled:
                     self._cache = {}
                 pdb_group_jobs = pdb_group.to_dict(orient="records")
