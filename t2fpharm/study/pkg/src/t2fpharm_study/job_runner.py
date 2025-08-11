@@ -304,7 +304,7 @@ def _match_summary_single(
         name("mean"): float(dists.mean()) if dists.notna().any() else float("nan"),
         name("median"): float(dists.median()) if dists.notna().any() else float("nan"),
         name("inf"): float(dists.isna().sum()),
-        name("lt1"): float((dists < 1.0).sum()),
-        name("lt2"): float((dists < 2.0).sum()),
-        name("lt3"): float((dists < 3.0).sum()),
+        name("lt1"): float((dists <= 1.0).sum()),
+        name("lt2"): float((dists <= 2.0).sum()),
+        name("lt3"): float((dists <= 3.0).sum()),
     }
