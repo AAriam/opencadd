@@ -25,6 +25,7 @@ def manager(
     dirpath_field: Path | str = "field",
     dirpath_ligand_plip: Path | str = "ligand/plip",
     dirpath_ligand_features: Path | str = "ligand/features",
+    dirpath_ref_features: Path | str = "ref-features",
     dirpath_jobs: Path | str = "job",
     dirname_job_pharms: str = "pharm",
     dirname_job_matches: str = "match",
@@ -63,6 +64,8 @@ def manager(
         Path to the directory containing PLIP ligand data.
     dirpath_ligand_features
         Path to the directory containing ligand pharmacophore features data.
+    dirpath_ref_features
+        Path to the directory containing reference pharmacophore features data.
     dirpath_jobs
         Path to the directory containing job data.
     dirname_job_pharms
@@ -125,6 +128,7 @@ def manager(
         dirpath_field=dirpath_field,
         dirpath_ligand_plip=dirpath_ligand_plip,
         dirpath_ligand_features=dirpath_ligand_features,
+        dirpath_ref_features=dirpath_ref_features,
         dirpath_jobs=dirpath_jobs,
         dirname_job_pharms=dirname_job_pharms,
         dirname_job_matches=dirname_job_matches,
