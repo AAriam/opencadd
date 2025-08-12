@@ -1,4 +1,5 @@
 import scicoda
+import numpy as np
 
 
 class _DefaultMeta(type):
@@ -46,4 +47,4 @@ class Default(metaclass=_DefaultMeta):
 
     # Labeling
     EXTRACT_LABEL = True
-    EXTRACT_LABEL_MIN_POINTS = 350
+    EXTRACT_LABEL_MIN_VOLUME = (4/3) * np.pi * 2**3  # Volume of the circumsphere of a methane molecule in Ångströms³
