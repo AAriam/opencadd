@@ -10,11 +10,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 import operator
+import warnings
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import arrayer
+from numba import njit, prange, get_num_threads
 
 from caddpy.typing import JAXArray, Int, Bool, Float
 from caddpy import exception
@@ -68,6 +70,7 @@ class LigSite:
         self,
         field: Field,
         directions: Literal[1, 2, 3] | Sequence[Literal[1, 2, 3]] | np.ndarray = (1, 2, 3),
+        parallel: bool = True,
     ):
         # Validate inputs
         if field.field_ndim != 0:
@@ -86,13 +89,14 @@ class LigSite:
         )
         # Calculate distance of each grid point to the nearest xeno grid point
         # in each half direction, in units of corresponding distance vectors
-        ps_dist_int = field.nearest_target_distances(
-            direction_vectors=self._dir,
-            predicate=np.logical_xor,
+        ps_dist_int = self._calculate_ps_distances(
+            tensor=np.asarray(field.tensor),
+            dirs=np.asarray(self._dir),
+            parallel=parallel,
         )
         self._ps_dist_int = jnp.asarray(ps_dist_int)
         dir_lengths = np.linalg.norm(
-            self._dir[:, field.batch_ndim:] * field.grid.spacings,
+            self._dir * field.grid.spacings,
             axis=-1
         )
         # Multiply by direction vector lengths, to get the real distances.
@@ -345,7 +349,7 @@ class LigSite:
                 raise ValueError("Directions must be 1, 2, or 3.")
             if len(set(directions)) != len(directions):
                 raise ValueError("Directions must be unique.")
-            dir_vectors = field.grid_direction_vectors(dimensions=directions)
+            dir_vectors = field.grid.direction_vectors(dimensions=directions)
             assert dir_vectors.ndim == 2, "Direction vectors should be 2-dimensional."
             assert dir_vectors.shape[1] == 3, "Direction vectors should be 3D."
         elif directions.ndim == 2:
@@ -358,13 +362,7 @@ class LigSite:
                     message="Following direction vector pairs "
                             f"are linearly dependent: {linearly_dependents.tolist()}."
                 )
-            full_directions = np.concatenate([directions, -directions[::-1]], axis=0)
-            dir_vectors = np.pad(
-                full_directions,
-                pad_width=((0, 0), (field.batch_ndim, 0)),
-                mode="constant",
-                constant_values=0,
-            )
+            dir_vectors = np.concatenate([directions, -directions[::-1]], axis=0)
         else:
             raise ValueError("Directions must be 1D or 2D array-like.")
         if (ndirs := dir_vectors.shape[0]) % 2 != 0:
@@ -372,3 +370,131 @@ class LigSite:
         if not np.all(dir_vectors[:ndirs] + dir_vectors[-1:-(ndirs+1):-1] == 0):
             raise ValueError("The first half of the direction vectors should be the negative of the second half.")
         return jnp.asarray(dir_vectors)
+
+    @staticmethod
+    def _calculate_ps_distances(tensor: np.ndarray, dirs: np.ndarray, parallel: bool = True) -> jax.Array:
+        tensor = np.ascontiguousarray(tensor, dtype=np.bool_)
+        ndirs = int(dirs.shape[0])
+
+        # Batch (possibly empty) and spatial shapes
+        nx, ny, nz = tensor.shape[-3], tensor.shape[-2], tensor.shape[-1]
+        batch_shape = tensor.shape[:-3]
+        batch_size = int(np.prod(batch_shape))
+
+        # Flatten batch dimensions
+        tensor_reshaped = tensor.reshape(batch_size, nx, ny, nz)
+
+        # Output buffer
+        out = np.zeros((batch_size, nx, ny, nz, ndirs), dtype=np.uint32)
+
+        if parallel and get_num_threads() <= 1:
+            # If parallel is requested but only one thread is available, use serial kernel
+            warnings.warn(
+                "Parallel execution requested but only one thread is available. "
+                "Falling back to serial execution.",
+                UserWarning,
+            )
+            parallel = False
+        kernel = _ps_distance_parallel if parallel else _ps_distance_serial
+        kernel(tensor_reshaped, dirs, out)
+        # Reshape back to original batch shape
+        return out.reshape((*batch_shape, nx, ny, nz, ndirs))
+
+
+@njit(cache=True, parallel=True)
+def _ps_distance_parallel(
+    tensor: np.ndarray,
+    dirs: np.ndarray,
+    out: np.ndarray,
+) -> None:
+    nbatch, nx, ny, nz = tensor.shape
+    ndir = dirs.shape[0]
+    nloop = nbatch * nx
+    max_axis_size = max(nx, ny, nz)
+    for iloop in prange(nloop):
+        ibatch = iloop // nx
+        ix = iloop % nx
+        for iy in range(ny):
+            for iz in range(nz):
+                value = tensor[ibatch, ix, iy, iz]
+                for idir in range(ndir):
+                    dx = int(dirs[idir, 0])
+                    dy = int(dirs[idir, 1])
+                    dz = int(dirs[idir, 2])
+
+                    m_x = _axis_bound(nx, ix, dx, max_axis_size)
+                    m_y = _axis_bound(ny, iy, dy, max_axis_size)
+                    m_z = _axis_bound(nz, iz, dz, max_axis_size)
+                    max_steps = min(m_x, m_y, m_z)
+
+                    x = ix
+                    y = iy
+                    z = iz
+                    step = 0
+                    for m in range(1, max_steps + 1):
+                        x += dx
+                        y += dy
+                        z += dz
+                        if value != tensor[ibatch, x, y, z]:
+                            step = m
+                            break
+                    out[ibatch, ix, iy, iz, idir] = step
+    return
+
+
+@njit(cache=True, parallel=False)
+def _ps_distance_serial(
+    tensor: np.ndarray,
+    dirs: np.ndarray,
+    out: np.ndarray
+) -> None:
+    nbatch, nx, ny, nz = tensor.shape
+    ndir = dirs.shape[0]
+    max_axis_size = max(nx, ny, nz)
+    for ibatch in range(nbatch):
+        for ix in range(nx):
+            for iy in range(ny):
+                for iz in range(nz):
+                    value = tensor[ibatch, ix, iy, iz]
+                    for idir in range(ndir):
+                        dx = int(dirs[idir, 0])
+                        dy = int(dirs[idir, 1])
+                        dz = int(dirs[idir, 2])
+
+                        m_x = _axis_bound(nx, ix, dx, max_axis_size)
+                        m_y = _axis_bound(ny, iy, dy, max_axis_size)
+                        m_z = _axis_bound(nz, iz, dz, max_axis_size)
+                        max_steps = min(m_x, m_y, m_z)
+
+                        x = ix
+                        y = iy
+                        z = iz
+                        step = 0
+                        for m in range(1, max_steps + 1):
+                            x += dx
+                            y += dy
+                            z += dz
+                            if value != tensor[ibatch, x, y, z]:
+                                step = m
+                                break
+                        out[ibatch, ix, iy, iz, idir] = step
+    return
+
+
+@njit(inline='always')
+def _axis_bound(size: int, index: int, delta: int, max_size: int) -> int:
+    """Calculate the maximum in-bounds steps along one axis.
+
+    Parameters
+    ----------
+    size
+        Size of the axis, i.e., number of points along that axis.
+    index
+        Current index along the axis (0-based).
+    delta
+        Step size along the axis (positive or negative).
+    max_size
+        Maximum axis size among all axes; used to handle the case when `delta` is 0.
+    """
+    num = (size - 1 - index) * (delta > 0) + index * (delta < 0) + max_size * (delta == 0)
+    return num // (abs(delta) if delta != 0 else 1)
