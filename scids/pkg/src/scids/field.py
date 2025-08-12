@@ -217,9 +217,9 @@ class Field(dataset.DataSet):
             max_mult_dir = np.min(max_mult_axis, axis=-1)
         # Then, compare with user-input multipliers and take the smaller one in each direction.
         if vector_multipliers is None:
-            vector_multipliers = np.ones(direction_vectors.shape[0]) * np.max(self.tensor.shape)
+            vector_multipliers = np.full(shape=direction_vectors.shape[0], fill_value=np.max(self.tensor.shape))
         elif isinstance(vector_multipliers, int):
-            vector_multipliers = np.ones(direction_vectors.shape[0]) * vector_multipliers
+            vector_multipliers = np.full(shape=direction_vectors.shape[0], fill_value=vector_multipliers)
         max_mult = np.min((max_mult_dir, vector_multipliers), axis=0).astype(int) + 1
 
         # Loop through directions, and for each direction through multipliers, and calculate
