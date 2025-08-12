@@ -45,6 +45,7 @@ class Detector:
         opening_iterations: int = Default.EXTRACT_OPEN_ITER,
         opening_mask: np.ndarray | None = None,
         opening_brute_force: bool = False,
+        min_volume: float = Default.EXTRACT_LABEL_MIN_VOLUME,
     ):
         # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.binary_opening.html
         mask_opened = sp.ndimage.binary_opening(
@@ -78,6 +79,12 @@ class Detector:
 
         # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.label.html
         label_tensor, num_features = sp.ndimage.label(mask_opened)
+        num_points_per_label = jnp.bincount(label_tensor.ravel())
+        for label, count in enumerate(num_points_per_label):
+            pocket_volume = count * self.field.grid.point_volume
+            if pocket_volume < min_volume:
+                label_tensor[label_tensor == label] = 0
+                num_features -= 1
         dtype = arrayer.dtype.smallest_integer(minimum=0, maximum=num_features)
         return Pockets(
             grid=self.field.grid,
