@@ -219,7 +219,7 @@ class Grid:
         uniq_sq = np.array(unique_vals)
         return np.sqrt(uniq_sq)
 
-    def nearest_point(self, points: ArrayLike) -> tuple[np.ndarray, np.ndarray]:
+    def nearest_point(self, points: ArrayLike) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Find the nearest grid point for each point in the input.
 
         Parameters
