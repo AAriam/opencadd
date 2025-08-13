@@ -630,7 +630,7 @@ class Manager:
                 self.pdb_fixed(pdb_id)
             pdb_fixed_str = filepath_pdb_fixed.read_text()
             if self.dataset.loc[pdb_id, "is_ref"]:
-                pdb_aligned_str = pdb_fixed_str
+                pdb_aligned_str = str(t2fpharm.system.from_pdb(pdb_fixed_str).minimize_aabb().to_pdb())
             else:
                 group_id = self.dataset.loc[pdb_id, "group_id"]
                 is_group_ref = (self.dataset["group_id"] == group_id) & self.dataset["is_ref"]
