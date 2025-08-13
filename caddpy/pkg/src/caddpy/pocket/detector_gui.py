@@ -1064,11 +1064,14 @@ class DetectorGUI(scishow.widgets.GUI):
             if pockets:
                 for pocket_name in self._ngl_current_pocket_names + self._ngl_current_pocket_box_names:
                     ngl.remove_component_by_name(pocket_name)
+                self._ngl_current_pocket_names.clear()
+                self._ngl_current_pocket_box_names.clear()
                 for _, pocket in self._pockets.pockets.iterrows():
                     base_name = f"{self._ngl_name_pocket} {pocket.label}"
                     pocket_name = f"{base_name} ({round(pocket.volume)})"
                     box_name = f"{base_name} Box"
                     self._ngl_current_pocket_names.append(pocket_name)
+                    self._ngl_current_pocket_box_names.append(box_name)
                     pocket.pocket.display(
                         nglwidget=ngl,
                         name=pocket_name,
