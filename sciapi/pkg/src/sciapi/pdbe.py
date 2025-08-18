@@ -57,65 +57,197 @@ class PDBeAPI:
         )
         return
 
-    def ligand_sites(self, uniprot: str, explode: bool = False) -> dict:
-        """Get ligand binding site residues for a UniProt accession.
+    def ligand_sites(self, uniprot: str, explode: bool = False) -> dict[str, Any]:
+        """Get ligand binding site residues for a UniProt entry.
 
         Parameters
         ----------
         uniprot
-            UniProt accession, e.g., "P12345".
+            UniProt accession code, e.g., "P12345".
+        explode
+            Explode the data into a flat dictionary.
+
+        Returns
+        -------
+        Dictionary with ligand binding site residues.
+        If `explode` is `False`, the data will be returned as a nested dictionary
+        with the following key-value pairs:
+        - "sequence" (str): Sequence of the entity (available for polymeric entities only).
+          Usually there is one character per sequence position,
+          but not if single-letter-code is actually multiple characters.
+          Therefore, this string might be longer than the length field suggests.
+        - "length" (int): Length of the sequence.
+        - "dataType" (str): Type of data provided in the section, i.e., "LIGAND BINDING SITES".
+        - "data" (list of dicts): List of ligand binding site residue information.
+          Each dictionary corresponds to a unique ligand, and contains the following key-value pairs:
+          - "name" (str): IUPAC name of the ligand.
+          - "accession" (str): Accession code of the ligand.
+          - "additionalData" (dict): Additional data about the ligand, including:
+            - "numAtoms" (int): Number of atoms in the ligand.
+            - "scaffoldId" (str): Scaffold ID of the ligand.
+            - "coFactorId" (str): Co-factor ID of the ligand.
+            - "reactionId" (str): Reaction ID of the ligand.
+            - "chemblId" (str): ChEMBL ID of the ligand.
+            - "drugBankId" (str): DrugBank ID of the ligand.
+            - "targetUniProts" (list of str): List of UniProt IDs for the targets of the ligand.
+            - "pdbEntries" (list of str): List of PDB IDs for the entries containing the ligand.
+        - "residues" (list of dicts): List of residues interacting with the ligand.
+          Each dictionary contains the following key-value pairs:
+          - "startIndex" (int): Starting residue number as an mmcif-style residue index (within entity or 'struct_asym_id') in case of PDB.
+          - "startCode" (str): Amino acid three-letter code for the residue in startIndex.
+          - "endIndex" (int): Ending residue number as an mmcif-style residue index (within entity or 'struct_asym_id') in case of PDB.
+          - "endCode" (str): Amino acid three-letter code for the residue in endIndex.
+          - "indexType" (str): Name of the database for the "startIndex" and "endIndex" (e.g., "PDB", "UniProt").
+          - "allPDBEntries" (list of str): List of all PDB entries containing the residue.
+          - "interactingPDBEntries" (list of dicts): List of PDB entries where the ligand interacts with the specified residues.
+            Each dictionary contains the following key-value pairs:
+            - "pdbId" (str): PDB ID of the entry.
+            - "entityId" (int): Entity ID within the PDB entry as an mmcif-style molecule number.
+            - "chainIds" (str): Chain ID of the best chain within the PDB entry as an mmcif-style 'auth_asym_id'.
+
+        If `explode` is `True`, the same dictionary is returned,
+        but the "data" field is flattened/exploded into a list of dictionaries,
+        where each dictionary contains all the terminal keys mentioned above under "data",
+        i.e., "name", "accession", "numAtoms", "scaffoldId", "coFactorId",
+        "reactionId", "chemblId", "drugBankId", "targetUniProts", "pdbEntries",
+        "startIndex", "startCode", "endIndex", "endCode", "indexType", "allPDBEntries",
+        "pdbId", "entityId", and "chainIds".
+        The "data" field can thus be used directly to create a table such as a `pandas.DataFrame`.
+
+        References
+        ----------
+        - [PDBe Graph API documentation: UniProt - Get ligand binding residues for a UniProt accession](https://www.ebi.ac.uk/pdbe/graph-api/pdbe_doc/#api-UniProt-GetUNPLigandSites)
         """
         response = self.request(endpoint=f"graph-api/uniprot/ligand_sites/{uniprot}")
-        data = response[uniprot.upper()]
-        if not explode:
+        data = response.get(uniprot.upper(), {})
+        if not explode or not data:
             return data
-        rows = []
+        data_flat = []
         for ligand in data["data"]:
-            lig_id = ligand["accession"]
-            lig_name = ligand["name"]
-            lig_atom_count = ligand["additionalData"]["numAtoms"]
-            lig_scaffold_id = ligand["additionalData"]["scaffoldId"]
-            lig_cofactor_id = ligand["additionalData"]["coFactorId"]
-            lig_reaction_id = ligand["additionalData"]["reactionId"]
-            lig_chembl_id = ligand["additionalData"]["chemblId"]
-            lig_drugbank_id = ligand["additionalData"]["drugBankId"]
-            lig_target_uniprot_codes = ligand["additionalData"]["targetUniProts"]
-            lig_pdb_ids = ligand["additionalData"]["pdbEntries"]
-            for residue in ligand["residues"]:
-                res_start_name = residue["startCode"]
-                res_start_num = residue["startIndex"]
-                res_end_name = residue["endCode"]
-                res_end_num = residue["endIndex"]
-                res_num_db = residue["indexType"]
-                for pdb in residue["interactingPDBEntries"]:
+            accession = ligand["accession"]
+            name = ligand["name"]
+            num_atoms = ligand["additionalData"]["numAtoms"]
+            scaffold_id = ligand["additionalData"]["scaffoldId"]
+            cofactor_id = ligand["additionalData"]["coFactorId"]
+            reaction_id = ligand["additionalData"]["reactionId"]
+            chembl_id = ligand["additionalData"]["chemblId"]
+            drugbank_id = ligand["additionalData"]["drugBankId"]
+            target_uniprots = ligand["additionalData"]["targetUniProts"]
+            pdb_entries = ligand["additionalData"]["pdbEntries"]
+            for target_residue in ligand["residues"]:
+                start_code = target_residue["startCode"]
+                start_index = target_residue["startIndex"]
+                end_code = target_residue["endCode"]
+                end_index = target_residue["endIndex"]
+                index_type = target_residue["indexType"]
+                all_pdb_entries = target_residue["allPDBEntries"]
+                for pdb in target_residue["interactingPDBEntries"]:
                     row = {
-                        "res_start_name": res_start_name,
-                        "res_start_num": res_start_num,
-                        "res_end_name": res_end_name,
-                        "res_end_num": res_end_num,
-                        "res_num_db": res_num_db,
-                        "pdb_id": pdb["pdbId"],
-                        "entity_id": pdb["entityId"],
-                        "chain_id": pdb["chainIds"],
-                        "lig_id": lig_id,
-                        "lig_name": lig_name,
-                        "lig_atom_count": lig_atom_count,
-                        "lig_scaffold_id": lig_scaffold_id,
-                        "lig_cofactor_id": lig_cofactor_id,
-                        "lig_reaction_id": lig_reaction_id,
-                        "lig_chembl_id": lig_chembl_id,
-                        "lig_drugbank_id": lig_drugbank_id,
-                        "lig_target_uniprot_codes": lig_target_uniprot_codes,
-                        "lig_pdb_ids": lig_pdb_ids,
+                        "name": name,
+                        "accession": accession,
+                        "numAtoms": num_atoms,
+                        "scaffoldId": scaffold_id,
+                        "coFactorId": cofactor_id,
+                        "reactionId": reaction_id,
+                        "chemblId": chembl_id,
+                        "drugBankId": drugbank_id,
+                        "targetUniProts": target_uniprots,
+                        "pdbEntries": pdb_entries,
+                        "startIndex": start_index,
+                        "startCode": start_code,
+                        "endIndex": end_index,
+                        "endCode": end_code,
+                        "indexType": index_type,
+                        "allPDBEntries": all_pdb_entries,
+                        "pdbId": pdb["pdbId"],
+                        "entityId": pdb["entityId"],
+                        "chainIds": pdb["chainIds"],
                     }
-                    rows.append(row)
+                    data_flat.append(row)
         return {
-            "residues": rows,
-            "unp_seq": data["sequence"],
-            "unp_seq_len": data["length"],
+            "sequence": data["sequence"],
+            "length": data["length"],
+            "dataType": data["dataType"],
+            "data": data_flat,
         }
 
-    def sifts_pdb_uniprot(self, pdb_id: str, explode: bool = False) -> dict:
+    def pdb_residue_listing(self, pdb_id: str, explode: bool = False) -> list[dict[str, Any]]:
+        response = self.request(endpoint=f"api/pdb/entry/residue_listing/{pdb_id}")
+        data = response.get(pdb_id.lower(), {}).get("molecules", [])
+        if not explode or not data:
+            return data
+        data_flat = []
+        for molecule in data:
+            entity_id = molecule["entity_id"]
+            for chain in molecule["chains"]:
+                chain_id = chain["chain_id"]
+                struct_asym_id = chain["struct_asym_id"]
+                for residue in chain["residues"]:
+                    entry = {
+                        "entity_id": entity_id,
+                        "chain_id": chain_id,
+                        "struct_asym_id": struct_asym_id,
+                        "residue_name": residue["residue_name"],
+                        "residue_number": residue["residue_number"],
+                        "author_residue_number": residue["author_residue_number"],
+                        "author_insertion_code": residue["author_insertion_code"],
+                        "observed_ratio": residue["observed_ratio"],
+                    }
+                    data_flat.append(entry)
+        return data_flat
+
+    def pdb_modified_residues(
+        self,
+        pdb_id: str | Sequence[str],
+        explode: bool = False
+    ) -> dict | list[dict[str, Any]]:
+        single_pdb_id = False
+        if isinstance(pdb_id, str):
+            single_pdb_id = True
+            pdb_id = [pdb_id]
+        response = self.request(
+            endpoint="api/pdb/entry/modified_AA_or_NA",
+            verb="post",
+            data=",".join(pdb_id),
+        )
+        if single_pdb_id:
+            return response.get(pdb_id[0].lower(), [])
+        if not explode or not response:
+            return response
+        data_flat = []
+        for pdb_id, residues in response.items():
+            pdb_id = pdb_id.upper()
+            for residue in residues:
+                data_flat.append({"pdb_id": pdb_id} | residue)
+        return data_flat
+
+    def pdb_mutated_residues(
+        self,
+        pdb_id: str | Sequence[str],
+        explode: bool = False
+    ) -> dict | list[dict[str, Any]]:
+        single_pdb_id = False
+        if isinstance(pdb_id, str):
+            single_pdb_id = True
+            pdb_id = [pdb_id]
+        response = self.request(
+            endpoint="api/pdb/entry/mutated_AA_or_NA",
+            verb="post",
+            data=",".join(pdb_id),
+        )
+        if not explode or not response:
+            if single_pdb_id:
+                return response.get(pdb_id[0].lower(), [])
+            return response
+        data_flat = []
+        for pdb_id, residues in response.items():
+            pdb_id = pdb_id.upper()
+            for residue in residues:
+                details = {f"mutation_{k}": v for k, v in residue.pop("mutation_details", {}).items()}
+                data_flat.append({"pdb_id": pdb_id} | residue | details)
+        return data_flat
+
+    def sifts_pdb_uniprot(self, pdb_id: str, explode: bool = False, expand: bool = False) -> dict | list[dict]:
         """Get [SIFTS](https://www.ebi.ac.uk/pdbe/docs/sifts/index.html) mappings from a PDB structure to UniProt.
 
         Parameters
@@ -124,53 +256,107 @@ class PDBeAPI:
             PDB ID of the structure.
         explode
             Explode the mappings into a flat dictionary.
+        expand
+            Expand the mappings to include all residues in each range.
+            This only applies if `explode` is also `True`.
+
+        Returns
+        -------
+        Dictionary with ligand binding site residues.
+        If `explode` is `False`, the data will be returned as a nested dictionary
+        where each key is a UniProt accession code and the value is a dictionary
+        with the following key-value pairs:
+        - "name" (str): Name of the UniProt entry, e.g., "CDK2_HUMAN".
+        - "identifier" (str): UniProt identifier (usually same as name), e.g., "CDK2_HUMAN".
+        - "mappings" (list of dicts): List of mappings from UniProt to PDB.
+          Each dictionary contains the following key-value pairs:
+          - "entity_id" (int): Entity ID in the PDB entry.
+          - "chain_id" (str): Chain ID in the PDB entry.
+          - "struct_asym_id" (str): Structural asymmetry ID in the PDB entry.
+          - "unp_start" (int): Starting residue number in the UniProt entry.
+          - "unp_end" (int): Ending residue number in the UniProt entry.
+          - "start" (dict): Starting residue information in the PDB entry.
+            This is a dictionary with the following key-value pairs:
+            - "residue_number" (int): Residue number in the PDB entry.
+            - "author_residue_number" (int): Author residue number in the PDB entry.
+            - "author_insertion_code" (str): Author insertion code in the PDB entry.
+          - "end" (dict): Ending residue information in the PDB entry.
+            This is a dictionary with the same structure as "start".
+
+        If `explode` is `True` and `expand` is `False`, a list of dictionaries is returned,
+        where each dictionary contains all the terminal keys mentioned above,
+        i.e., "accession", "name", "identifier", "entity_id", "chain_id",
+        "struct_asym_id", "unp_start", "unp_end",
+        "start_residue_number", "start_author_residue_number", "start_author_insertion_code",
+        "end_residue_number", "end_author_residue_number", "end_author_insertion_code".
+
+        If both `explode` and `expand` are `True`, a list of dictionaries is returned
+        where each dictionary contains the keys
+        "accession", "name", "identifier", "entity_id", "chain_id", "struct_asym_id",
+        "unp_residue_number", "pdb_residue_number".
+
+        References
+        ----------
+        - [PDBe SIFTS API documentation: SIFTS Mappings (PDB -> UniProt)](https://www.ebi.ac.uk/pdbe/api/sifts.html#sifts_apidiv_call_1_calltitle)
         """
         response = self.request(endpoint=f"api/mappings/uniprot/{pdb_id}")
-        data = response[pdb_id.lower()]["UniProt"]
-        if not explode:
+        data = response.get(pdb_id.lower(), {}).get("UniProt", {})
+        if not explode or not data:
             return data
-        exploded = {
-            "unp_code": [],
-            "unp_id": [],
-            "unp_name": [],
-            "unp_res_num": [],
-            "pdb_entity_id": [],
-            "pdb_chain_id": [],
-            "pdb_struct_asym_id": [],
-            "pdb_res_num": [],
-            "pdb_res_num_author": [],
-        }
+        data_flat = []
+        if not expand:
+            for uniprot_accession, uniprot_data in data.items():
+                name = uniprot_data.get("name")
+                identifier = uniprot_data.get("identifier")
+                for mapping in uniprot_data["mappings"]:
+                    entry = {
+                        "accession": uniprot_accession,
+                        "name": name,
+                        "identifier": identifier,
+                        "entity_id": mapping["entity_id"],
+                        "chain_id": mapping["chain_id"],
+                        "struct_asym_id": mapping["struct_asym_id"],
+                        "unp_start": mapping["unp_start"],
+                        "unp_end": mapping["unp_end"],
+                        "start_residue_number": mapping["start"]["residue_number"],
+                        "start_author_residue_number": mapping["start"]["author_residue_number"],
+                        "start_author_insertion_code": mapping["start"]["author_insertion_code"],
+                        "end_residue_number": mapping["end"]["residue_number"],
+                        "end_author_residue_number": mapping["end"]["author_residue_number"],
+                        "end_author_insertion_code": mapping["end"]["author_insertion_code"],
+                    }
+                    data_flat.append(entry)
+            return data_flat
         for uniprot_accession, uniprot_data in data.items():
-            uniprot_name = uniprot_data.get("name")
-            uniprot_id = uniprot_data.get("identifier")
+            name = uniprot_data.get("name")
+            identifier = uniprot_data.get("identifier")
             for mapping in uniprot_data["mappings"]:
-                pdb_entity_id = mapping["entity_id"]
-                pdb_chain_id = mapping["chain_id"]
-                pdb_struct_asym_id = mapping["struct_asym_id"]
+                entity_id = mapping["entity_id"]
+                chain_id = mapping["chain_id"]
+                struct_asym_id = mapping["struct_asym_id"]
                 pdb_start_res_num = mapping["start"].get("residue_number")
                 pdb_start_author_res_num = mapping["start"].get("author_residue_number")
                 for pdb_res_num_offset, uniprot_residue_num in enumerate(range(mapping["unp_start"], mapping["unp_end"] + 1)):
-                    exploded["unp_code"].append(uniprot_accession)
-                    exploded["unp_id"].append(uniprot_id)
-                    exploded["unp_name"].append(uniprot_name)
-                    exploded["unp_res_num"].append(uniprot_residue_num)
-
-                    exploded["pdb_entity_id"].append(pdb_entity_id)
-                    exploded["pdb_chain_id"].append(pdb_chain_id)
-                    exploded["pdb_struct_asym_id"].append(pdb_struct_asym_id)
-                    exploded["pdb_res_num"].append(
-                        pdb_start_res_num + pdb_res_num_offset if pdb_start_res_num is not None else None
-                    )
-                    exploded["pdb_res_num_author"].append(
-                        pdb_start_author_res_num + pdb_res_num_offset if pdb_start_author_res_num is not None else None
-                    )
-        return exploded
+                    entry = {
+                        "accession": uniprot_accession,
+                        "name": name,
+                        "identifier": identifier,
+                        "entity_id": entity_id,
+                        "chain_id": chain_id,
+                        "struct_asym_id": struct_asym_id,
+                        "unp_residue_number": uniprot_residue_num,
+                        "pdb_residue_number": pdb_start_res_num + pdb_res_num_offset,
+                        "pdb_author_residue_number": pdb_start_author_res_num + pdb_res_num_offset if pdb_start_author_res_num is not None else None,
+                    }
+                    data_flat.append(entry)
+        return data_flat
 
     def request(
         self,
         endpoint: str,
         verb: Literal["post", "get"] | None = None,
         headers: dict[str, str] | None = None,
+        data: Any | None = None,
         json: dict[str, Any] | None = None,
     ) -> dict | list:
         """Submit a request to the PDBe web API.
@@ -197,10 +383,11 @@ class PDBeAPI:
         API response as a JSON decoded dictionary/list.
         """
         if verb is None:
-            verb = "post" if json is not None else "get"
+            verb = "post" if json is not None or data is not None else "get"
         return pl.http.request(
             url=self._base_url / endpoint,
             verb=verb.upper(),
+            data=data,
             json=json,
             headers=headers,
             response_type="json",
