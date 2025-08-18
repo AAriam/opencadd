@@ -101,7 +101,8 @@ class StructureFinder:
             ["score_total", "pdb_id", "chain_id"],
             ascending=[False, True, True],
         ).reset_index(drop=True)
-        self._scores = scores
+        cols = ["pdb_id", "chain_id", "score_total", "score_coverage", "score_modification", "score_mutation"]
+        self._scores = scores[cols]
         return self._scores
 
     @property
