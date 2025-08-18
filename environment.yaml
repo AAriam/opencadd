@@ -36,9 +36,10 @@ dependencies:
     - pkgdata ==0.1.2
     - plip ==2.4.0
     - pylinks ==0.1.0
-    - pyserials ==0.1.1
+    - pyserials ==0.1.2
     - pyshellman ==0.1.0
     - ray ==2.48.0
+    - rcsb-api ==1.3.0
 
     - -e caddpy/pkg
     - -e sciapi/pkg
