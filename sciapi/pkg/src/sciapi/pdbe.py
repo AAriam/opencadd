@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pylinks as pl
+from pylinks.exception.api import WebAPIPersistentStatusCodeError
 
 
 if TYPE_CHECKING:
@@ -205,11 +206,20 @@ class PDBeAPI:
         if isinstance(pdb_id, str):
             single_pdb_id = True
             pdb_id = [pdb_id]
-        response = self.request(
-            endpoint="api/pdb/entry/modified_AA_or_NA",
-            verb="post",
-            data=",".join(pdb_id),
-        )
+        try:
+            response = self.request(
+                endpoint="api/pdb/entry/modified_AA_or_NA",
+                verb="post",
+                data=",".join(pdb_id),
+            )
+        except WebAPIPersistentStatusCodeError as e:
+            if e.response.status_code == 404 and e.response.reason == "Not Found":
+                # PDBe raises 404 Not Found for entries that do not have modified residues.
+                if single_pdb_id or explode:
+                    return []
+                return {}
+            else:
+                raise e
         if single_pdb_id:
             return response.get(pdb_id[0].lower(), [])
         if not explode or not response:
@@ -230,11 +240,20 @@ class PDBeAPI:
         if isinstance(pdb_id, str):
             single_pdb_id = True
             pdb_id = [pdb_id]
-        response = self.request(
-            endpoint="api/pdb/entry/mutated_AA_or_NA",
-            verb="post",
-            data=",".join(pdb_id),
-        )
+        try:
+            response = self.request(
+                endpoint="api/pdb/entry/mutated_AA_or_NA",
+                verb="post",
+                data=",".join(pdb_id),
+            )
+        except WebAPIPersistentStatusCodeError as e:
+            if e.response.status_code == 404 and e.response.reason == "Not Found":
+                # PDBe raises 404 Not Found for entries that do not have mutated residues.
+                if single_pdb_id or explode:
+                    return []
+                return {}
+            else:
+                raise e
         if not explode or not response:
             if single_pdb_id:
                 return response.get(pdb_id[0].lower(), [])
@@ -349,6 +368,82 @@ class PDBeAPI:
                         "pdb_author_residue_number": pdb_start_author_res_num + pdb_res_num_offset if pdb_start_author_res_num is not None else None,
                     }
                     data_flat.append(entry)
+        return data_flat
+
+    def validation_global_percentiles(
+        self,
+        pdb_id: str | Sequence[str],
+        explode: bool = False
+    ) -> dict | list[dict[str, Any]]:
+        single_pdb_id = False
+        if isinstance(pdb_id, str):
+            single_pdb_id = True
+            pdb_id = [pdb_id]
+        response = self.request(
+            endpoint="api/validation/global-percentiles/entry",
+            verb="post",
+            data=",".join(pdb_id),
+        )
+        if not explode or not response:
+            if single_pdb_id:
+                return response.get(pdb_id[0].lower(), {})
+            return response
+        data_flat = []
+        for pdb_id, data in response.items():
+            row = {"pdb_id": pdb_id.upper()}
+            for metric_name, value_dict in data.items():
+                for value_type, value in value_dict.items():
+                    row[f"{metric_name}_{value_type}"] = value
+            data_flat.append(row)
+        return data_flat
+
+    def validation_residuewise_outlier_summary(
+        self,
+        pdb_id: str | Sequence[str],
+        explode: bool = False
+    ) -> dict | list[dict[str, Any]]:
+        single_pdb_id = False
+        if isinstance(pdb_id, str):
+            single_pdb_id = True
+            pdb_id = [pdb_id]
+        response = self.request(
+            endpoint="api/validation/residuewise_outlier_summary/entry",
+            verb="post",
+            data=",".join(pdb_id),
+        )
+        if not explode or not response:
+            if single_pdb_id:
+                return response.get(pdb_id[0].lower(), {}).get("molecules", [])
+            return response
+        data_flat = []
+        for pdb_id, data in response.items():
+            pdb_id = pdb_id.upper()
+            for molecule in data.get("molecules", []):
+                entity_id = molecule["entity_id"]
+                for chain in molecule["chains"]:
+                    chain_id = chain["chain_id"]
+                    struct_asym_id = chain["struct_asym_id"]
+                    for model in chain["models"]:
+                        model_id = model["model_id"]
+                        for residue in model["residues"]:
+                            residue_number = residue["residue_number"]
+                            author_residue_number = residue["author_residue_number"]
+                            author_insertion_code = residue["author_insertion_code"]
+                            alt_code = residue["alt_code"]
+                            for outlier_type in residue["outlier_types"]:
+                                entry = {
+                                    "pdb_id": pdb_id,
+                                    "entity_id": entity_id,
+                                    "chain_id": chain_id,
+                                    "struct_asym_id": struct_asym_id,
+                                    "model_id": model_id,
+                                    "residue_number": residue_number,
+                                    "author_residue_number": author_residue_number,
+                                    "author_insertion_code": author_insertion_code,
+                                    "alt_code": alt_code,
+                                    "outlier_type": outlier_type,
+                                }
+                                data_flat.append(entry)
         return data_flat
 
     def request(
