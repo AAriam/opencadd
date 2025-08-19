@@ -38,6 +38,9 @@ ARTIFACT_LIGAND_IDS = (
     "NA",
     "NH4",
     "NO3",
+    "OLA",  # oleic acid (from membrane)
+    "OLB",  # oleic acid (from membrane)
+    "OLC",  # 1-oleoyl-R-glycerol (from membrane)
     "PEG",
     "PGE",
     "PO4",
@@ -55,7 +58,8 @@ class StructureFinder:
         uniprot: str,
         *,
         artifact_ligand_ids: Sequence[str] = ARTIFACT_LIGAND_IDS,
-        min_ligand_atoms: int = 10,
+        ligand_min_carbons: int = 6,
+        ligand_min_unique_elements: int = 4,
         min_pocket_residues: int = 7,
         min_pocket_residue_prevalence: float = 0.8,
         resolution_range: tuple[float, float] = (0.48, 70),
@@ -67,7 +71,8 @@ class StructureFinder:
     ):
         self._uniprot = uniprot
         self._artifact_ligand_ids = set(artifact_ligand_ids)
-        self._min_ligand_atoms = min_ligand_atoms
+        self._ligand_min_carbons = ligand_min_carbons
+        self._ligand_min_unique_elements = ligand_min_unique_elements
         self._min_pocket_residues = min_pocket_residues
         self._min_pocket_residue_prevalence = min_pocket_residue_prevalence
         self._resolution_range = resolution_range
@@ -123,7 +128,7 @@ class StructureFinder:
             if len(residue_list) == 10:
                 break
             res_num = residue["pdb_residue_number"]
-            if np.isna(res_num):
+            if pd.isna(res_num):
                 continue
             res = rcsbapi.search.StructMotifResidue(
                 chain_id=residue["struct_asym_id"],
@@ -190,6 +195,30 @@ class StructureFinder:
     @property
     def sites(self) -> pd.DataFrame:
         """Binding site information."""
+        def filter_ligands(df: pd.DataFrame) -> pd.Index:
+            """Get cc_id values whose groups meet element-count criteria.
+
+            This function groups rows by ``cc_id``
+            and returns the unique ``cc_id`` values for which:
+            1. there are at least 5 rows where ``element == "C"``, and
+            2. there are more than 3 unique ``element`` values in that group.
+
+            Parameters
+            ----------
+            df
+                Input dataframe with at least the columns ``'cc_id'`` and ``'element'``.
+                ``'cc_id'`` may be any hashable dtype (e.g., int, str, category).
+                ``'element'`` is compared as a string to the literal ``"C"`` (case-sensitive).
+
+            Returns
+            -------
+            Subset of available ``cc_id`` values that satisfy both criteria.
+            """
+            carbon_count = df["element"].eq("C").groupby(df["cc_id"], sort=False).sum()
+            unique_element_count = df.groupby("cc_id", sort=False)["element"].nunique(dropna=True)
+            mask = carbon_count.ge(self._ligand_min_carbons) & unique_element_count.ge(self._ligand_min_unique_elements)
+            return set(mask.index[mask])
+
         if self._sites is not None:
             return self._sites
         column_name_map = {
@@ -199,6 +228,7 @@ class StructureFinder:
             "endIndex": "res_end_num",
             "accession": "lig_id",
             "numAtoms": "lig_atom_count",
+            "scaffoldId": "lig_scaffold_id",
             "pdbId": "pdb_id",
             "entityId": "entity_id",
             "chainIds": "chain_id",
@@ -211,8 +241,12 @@ class StructureFinder:
         df = df[
             (df["res_num_db"] == "UNIPROT") &
             (~df["lig_id"].isin(self._artifact_ligand_ids)) &
-            (df["lig_atom_count"] >= self._min_ligand_atoms)
+            (df["lig_atom_count"] >= self._ligand_min_carbons)
         ]
+        lig_atoms_rows = self._pdbe.compound_atoms(df["lig_id"].unique(), explode=True)
+        lig_atoms = pd.DataFrame(lig_atoms_rows)
+        acceptable_ligand_ids = filter_ligands(lig_atoms)
+        df = df[df["lig_id"].isin(acceptable_ligand_ids)]
         if df.empty:
             raise ValueError("No binding sites found for the given UniProt ID with the specified criteria.")
         df["pdb_id"] = df["pdb_id"].str.upper()
