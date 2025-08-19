@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-import sciapi
 import numpy as np
 import pandas as pd
 import rcsbapi.data
 import rcsbapi.search
+import scipy.spatial
 import pyserials
+import sciapi
+import scifile
 
 if TYPE_CHECKING:
     from typing import Sequence
@@ -60,6 +62,7 @@ class StructureFinder:
         artifact_ligand_ids: Sequence[str] = ARTIFACT_LIGAND_IDS,
         ligand_min_carbons: int = 6,
         ligand_min_unique_elements: int = 4,
+        ligand_max_center_dist: float = 6.0,
         min_pocket_residues: int = 7,
         min_pocket_residue_prevalence: float = 0.8,
         resolution_range: tuple[float, float] = (0.48, 70),
@@ -73,6 +76,7 @@ class StructureFinder:
         self._artifact_ligand_ids = set(artifact_ligand_ids)
         self._ligand_min_carbons = ligand_min_carbons
         self._ligand_min_unique_elements = ligand_min_unique_elements
+        self._ligand_max_center_dist = ligand_max_center_dist
         self._min_pocket_residues = min_pocket_residues
         self._min_pocket_residue_prevalence = min_pocket_residue_prevalence
         self._resolution_range = resolution_range
@@ -108,16 +112,20 @@ class StructureFinder:
     def best_entry(self) -> tuple[str, str, str]:
         """Best PDB ID based on the total score."""
         best = self.scores.iloc[0]
-        best_pdb_id = best["pdb_id"]
-        best_chain_id = best["chain_id"]
-        best_ligand_id = self._select_ligand(best_pdb_id)
-        return best_pdb_id, best_chain_id, best_ligand_id
+        pdb_id = best["pdb_id"]
+        ligand = self._select_ligand(pdb_id)
+        out = {
+            "pdb_id": pdb_id,
+            "chain_id": best["chain_id"],
+        }
+        return out | ligand
 
     @property
     def similar_entries(self):
         if self._similar_entries is not None:
             return self._similar_entries
-        best_pdb_id, *_ = self.best_entry
+        best_entry = self.best_entry
+        best_pdb_id = best_entry["pdb_id"]
         site_residues = self.site_residues.merge(
             self.residue_map(best_pdb_id),
             on="unp_residue_number",
@@ -153,8 +161,11 @@ class StructureFinder:
 
         for pdb_id in list(query()):
             chain_id = self.scores[self.scores["pdb_id"]==pdb_id].sort_values("score_total", ascending=False).iloc[0]["chain_id"]
-            ligand_id = self._select_ligand(pdb_id)
-            similar_entries.append({"pdb_id": pdb_id, "chain_id": chain_id, "ligand_id": ligand_id})
+            ligand = self._select_ligand(pdb_id)
+            if np.linalg.norm(ligand["ligand_center"] - best_entry["ligand_center"]) > self._ligand_max_center_dist:
+                print(f"Skipping {pdb_id} due to ligand center distance: {ligand['ligand_center']}")
+                continue
+            similar_entries.append({"pdb_id": pdb_id, "chain_id": chain_id} | ligand)
         if not similar_entries:
             raise ValueError("No similar entries found for the best PDB ID.")
         self._similar_entries = pd.DataFrame(similar_entries)
@@ -794,7 +805,7 @@ class StructureFinder:
             for chain_id in self.residue_map(pdb_id=pdb_id)["chain_id"].unique()
         ]
 
-    def _select_ligand(self, pdb_id: str) -> str:
+    def _select_ligand(self, pdb_id: str) -> tuple[tuple[str, str, int], np.ndarray]:
         """Return lig_id of the (lig_id, chain_id) group with most range hits.
 
         A row is a "hit" if at least one integer from `common_nums` lies within
@@ -817,7 +828,7 @@ class StructureFinder:
 
         Returns
         -------
-        str | None
+        ligand_chain_id, ligand_id, ligand_res_num
             The `lig_id` of the (lig_id, chain_id) group with the largest number
             of hit rows, or None if `sites` has no rows.
 
@@ -830,22 +841,49 @@ class StructureFinder:
         """
         sites = self.sites[self.sites["pdb_id"] == pdb_id]
         unique_lig_ids = sites["lig_id"].unique()
-        if len(unique_lig_ids) == 1:
-            return unique_lig_ids[0]
-
-        starts = sites["res_start_num"].to_numpy(dtype=np.int64, copy=False)
-        ends = sites["res_end_num"].to_numpy(dtype=np.int64, copy=False)
-
-        left = np.searchsorted(self.selected_site_residues, starts, side="left")
-        right = np.searchsorted(self.selected_site_residues, ends, side="right")  # inclusive end
-        in_bounds = (right - left) > 0
-
-        # Count hits per (lig_id, chain_id)
-        counts = (
-            sites.assign(__hit=in_bounds)
-            .groupby(["lig_id", "chain_id"], sort=False)["__hit"]
-            .sum()
+        pdb = scifile.pdb.read(sciapi.pdb.file.entry(pdb_id, file_format="pdb"))
+        atom = pdb.atom.rename(columns={"res_seq":"pdb_residue_number"})
+        lig_atom = atom[atom["res_name"].isin(unique_lig_ids)]
+        lig_groups = lig_atom.groupby(["chain_id", "res_name", "pdb_residue_number"], sort=False)
+        if lig_groups.ngroups == 1:
+            for key, df in lig_groups:
+                coords = df.loc[:, ["x", "y", "z"]].to_numpy(dtype=float, copy=False)
+                center = np.mean(coords, axis=0)
+                return {
+                    "ligand_chain_id": key[0],
+                    "ligand_id": key[1],
+                    "ligand_res_num": key[2],
+                    "ligand_center": center,
+                }
+        resmap = self.residue_map(pdb_id)
+        site_res = resmap[resmap["unp_residue_number"].isin(self.selected_site_residues)]
+        site_res = site_res.merge(
+            atom[["chain_id", "pdb_residue_number", "x", "y", "z"]],
+            on=["chain_id", "pdb_residue_number"],
+            how="left"
         )
-        # Pick the group with the maximum hits (first occurrence on ties)
-        top_group = counts.idxmax()
-        return top_group[0]
+        site_coords = site_res[["x","y","z"]]
+        site_coords = site_coords[site_coords.notna().any(axis=1)]
+        site_coords = site_coords.to_numpy(dtype=float)
+        kdtree = scipy.spatial.KDTree(site_coords)
+
+        best_key: tuple[str, str, int] | None = None
+        best_mean = np.inf
+        best_center = None
+        for key, df in lig_groups:
+            coords = df.loc[:, ["x", "y", "z"]].to_numpy(dtype=float, copy=False)
+            dists, _ = kdtree.query(coords, k=1)
+            mean = np.mean(dists)
+            if mean < best_mean:
+                best_mean = mean
+                best_key = key
+                best_center = np.mean(coords, axis=0)
+
+        if best_key is None or not np.isfinite(best_mean):
+            raise ValueError("No valid groups with finite coordinates were found.")
+        return {
+            "ligand_chain_id": best_key[0],
+            "ligand_id": best_key[1],
+            "ligand_res_num": best_key[2],
+            "ligand_center": best_center,
+        }
