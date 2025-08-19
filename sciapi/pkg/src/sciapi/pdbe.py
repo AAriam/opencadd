@@ -58,6 +58,42 @@ class PDBeAPI:
         )
         return
 
+    def compound_atoms(self, cc_id: str | Sequence[str], explode: bool = False) -> dict | list[dict[str, Any]]:
+        """Get compound atoms for a chemical component identifier (CC ID).
+
+        Parameters
+        ----------
+        cc_id
+            Chemical component identifier, e.g., "HOH" for water.
+            Can be a single CC ID or a list of CC IDs.
+        explode
+            Explode the data into a flat dictionary.
+
+        Returns
+        -------
+        Dictionary with compound atoms.
+        """
+        single_id = False
+        if isinstance(cc_id, str):
+            single_id = True
+            cc_id = [cc_id]
+        response = self.request(
+            endpoint="api/pdb/compound/atoms",
+            verb="post",
+            data=",".join(cc_id),
+        )
+        if single_id or not explode:
+            if single_id:
+                return response.get(cc_id[0].upper(), [])
+            return response
+
+        data_flat = []
+        for cc_id, atoms in response.items():
+            cc_id = cc_id.upper()
+            for atom in atoms:
+                data_flat.append({"cc_id": cc_id} | atom)
+        return data_flat
+
     def ligand_sites(self, uniprot: str, explode: bool = False) -> dict[str, Any]:
         """Get ligand binding site residues for a UniProt entry.
 
@@ -202,9 +238,9 @@ class PDBeAPI:
         pdb_id: str | Sequence[str],
         explode: bool = False
     ) -> dict | list[dict[str, Any]]:
-        single_pdb_id = False
+        single_id = False
         if isinstance(pdb_id, str):
-            single_pdb_id = True
+            single_id = True
             pdb_id = [pdb_id]
         try:
             response = self.request(
@@ -215,12 +251,12 @@ class PDBeAPI:
         except WebAPIPersistentStatusCodeError as e:
             if e.response.status_code == 404 and e.response.reason == "Not Found":
                 # PDBe raises 404 Not Found for entries that do not have modified residues.
-                if single_pdb_id or explode:
+                if single_id or explode:
                     return []
                 return {}
             else:
                 raise e
-        if single_pdb_id:
+        if single_id:
             return response.get(pdb_id[0].lower(), [])
         if not explode or not response:
             return response
