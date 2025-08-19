@@ -5,6 +5,8 @@ import sciapi
 import numpy as np
 import pandas as pd
 import rcsbapi.data
+import rcsbapi.search
+import pyserials
 
 if TYPE_CHECKING:
     from typing import Sequence
@@ -53,14 +55,22 @@ class StructureFinder:
         uniprot: str,
         *,
         artifact_ligand_ids: Sequence[str] = ARTIFACT_LIGAND_IDS,
-        minimum_ligand_atoms: int = 10,
+        min_ligand_atoms: int = 10,
+        min_pocket_residues: int = 7,
+        min_pocket_residue_prevalence: float = 0.8,
+        resolution_range: tuple[float, float] = (0.48, 70),
         score_weight_coverage: float = 1,
         score_weight_modification: float = 1,
         score_weight_mutation: float = 1,
+        score_weight_outlier: float = 1,
+        score_weight_resolution: float = 1,
     ):
         self._uniprot = uniprot
         self._artifact_ligand_ids = set(artifact_ligand_ids)
-        self._minimum_ligand_atoms = minimum_ligand_atoms
+        self._min_ligand_atoms = min_ligand_atoms
+        self._min_pocket_residues = min_pocket_residues
+        self._min_pocket_residue_prevalence = min_pocket_residue_prevalence
+        self._resolution_range = resolution_range
 
         self._pdbe = sciapi.pdbe()
 
@@ -68,19 +78,82 @@ class StructureFinder:
         self._sites = None
         self._sequence_length = None
         self._site_residues = None
+        self._selected_site_residues = None
         self._residue_weights = None
         self._modified_residues = None
         self._mutated_residues = None
+        self._outlier_residues = None
+        self._bound_entry_details = None
         self._all_pdb_ids = None
+        self._bound_pdb_ids = None
         self._compatible_pdb_ids = None
         self._default_residue_weight = None
+        self._similar_entries = None
         self._residue_map: dict[str, pd.DataFrame] = {}
         self._score_weight = {
             "score_coverage": score_weight_coverage,
             "score_modification": score_weight_modification,
             "score_mutation": score_weight_mutation,
+            "score_outlier": score_weight_outlier,
+            "score_resolution": score_weight_resolution,
         }
         return
+
+    @property
+    def best_entry(self) -> tuple[str, str, str]:
+        """Best PDB ID based on the total score."""
+        best = self.scores.iloc[0]
+        best_pdb_id = best["pdb_id"]
+        best_chain_id = best["chain_id"]
+        best_ligand_id = self._select_ligand(best_pdb_id)
+        return best_pdb_id, best_chain_id, best_ligand_id
+
+    @property
+    def similar_entries(self):
+        if self._similar_entries is not None:
+            return self._similar_entries
+        best_pdb_id, *_ = self.best_entry
+        site_residues = self.site_residues.merge(
+            self.residue_map(best_pdb_id),
+            on="unp_residue_number",
+            how="left",
+        ).convert_dtypes()
+        residue_list = []
+        for _, residue in site_residues.iterrows():
+            if len(residue_list) == 10:
+                break
+            res_num = residue["pdb_residue_number"]
+            if np.isna(res_num):
+                continue
+            res = rcsbapi.search.StructMotifResidue(
+                chain_id=residue["struct_asym_id"],
+                label_seq_id=res_num,
+                struct_oper_id="1",
+            )
+            residue_list.append(res)
+        allowed_pdb_ids = self.compatible_pdb_ids[:]
+        allowed_pdb_ids.remove(best_pdb_id)
+        query = rcsbapi.search.StructMotifQuery(
+            entry_id=best_pdb_id,
+            residue_ids=residue_list,
+            backbone_distance_tolerance=1,
+            side_chain_distance_tolerance=1,
+            angle_tolerance=1,
+            rmsd_cutoff=2,
+            atom_pairing_scheme="ALL",
+            motif_pruning_strategy="KRUSKAL",
+            allowed_structures=allowed_pdb_ids,
+        )
+        similar_entries = []
+
+        for pdb_id in list(query()):
+            chain_id = self.scores[self.scores["pdb_id"]==pdb_id].sort_values("score_total", ascending=False).iloc[0]["chain_id"]
+            ligand_id = self._select_ligand(pdb_id)
+            similar_entries.append({"pdb_id": pdb_id, "chain_id": chain_id, "ligand_id": ligand_id})
+        if not similar_entries:
+            raise ValueError("No similar entries found for the best PDB ID.")
+        self._similar_entries = pd.DataFrame(similar_entries)
+        return self._similar_entries
 
     @property
     def scores(self) -> pd.DataFrame:
@@ -90,7 +163,13 @@ class StructureFinder:
         scores = pd.concat(
             [
                 df.set_index(["pdb_id", "chain_id"])
-                for df in (self._score_coverage(), self._score_modification(), self._score_mutation())
+                for df in (
+                    self._score_coverage(),
+                    self._score_modification(),
+                    self._score_mutation(),
+                    self._score_outlier(),
+                    self._score_resolution(),
+                )
             ],
             axis=1
         ).reset_index()
@@ -101,7 +180,10 @@ class StructureFinder:
             ["score_total", "pdb_id", "chain_id"],
             ascending=[False, True, True],
         ).reset_index(drop=True)
-        cols = ["pdb_id", "chain_id", "score_total", "score_coverage", "score_modification", "score_mutation"]
+        cols = [
+            "pdb_id", "chain_id", "score_total",
+            "score_coverage", "score_modification", "score_mutation", "score_outlier", "score_resolution"
+        ]
         self._scores = scores[cols]
         return self._scores
 
@@ -129,10 +211,11 @@ class StructureFinder:
         df = df[
             (df["res_num_db"] == "UNIPROT") &
             (~df["lig_id"].isin(self._artifact_ligand_ids)) &
-            (df["lig_atom_count"] >= self._minimum_ligand_atoms)
+            (df["lig_atom_count"] >= self._min_ligand_atoms)
         ]
         if df.empty:
             raise ValueError("No binding sites found for the given UniProt ID with the specified criteria.")
+        df["pdb_id"] = df["pdb_id"].str.upper()
         self._sites = df[list(column_name_map.values())].sort_values("res_start_num").reset_index(drop=True)
         return self._sites
 
@@ -171,7 +254,23 @@ class StructureFinder:
         if self._modified_residues is not None:
             return self._modified_residues
         modified_residues_rows = self._pdbe.pdb_modified_residues(self.compatible_pdb_ids, explode=True)
-        self._modified_residues = pd.DataFrame(modified_residues_rows)
+        self._modified_residues = pd.DataFrame(
+            modified_residues_rows,
+            columns=[
+                "pdb_id",
+                "chain_id",
+                "author_residue_number",
+                "author_insertion_code",
+                "chem_comp_id",
+                "alternate_conformers",
+                "entity_id",
+                "struct_asym_id",
+                "residue_number",
+                "chem_comp_name",
+                "description",
+                "weight",
+            ]
+        )
         return self._modified_residues
 
     @property
@@ -180,8 +279,53 @@ class StructureFinder:
         if self._mutated_residues is not None:
             return self._mutated_residues
         mutated_residues_rows = self._pdbe.pdb_mutated_residues(self.compatible_pdb_ids, explode=True)
-        self._mutated_residues = pd.DataFrame(mutated_residues_rows)
+        self._mutated_residues = pd.DataFrame(
+            mutated_residues_rows,
+            columns=[
+                "pdb_id",
+                "entity_id",
+                "chain_id",
+                "author_residue_number",
+                "author_insertion_code",
+                "chem_comp_id",
+                "struct_asym_id",
+                "residue_number",
+                "mutation_from",
+                "mutation_to",
+                "mutation_type",
+            ]
+        )
         return self._mutated_residues
+
+    @property
+    def outlier_residues(self) -> pd.DataFrame:
+        """Outlier residues in compatible PDB entries."""
+        if self._outlier_residues is not None:
+            return self._outlier_residues
+        outlier_rows = self._pdbe.validation_residuewise_outlier_summary(self.compatible_pdb_ids, explode=True)
+        df = pd.DataFrame(outlier_rows)
+        required_columns = [
+            'pdb_id', 'entity_id', 'chain_id', 'struct_asym_id', 'model_id',
+            'residue_number', 'author_residue_number', 'author_insertion_code',
+            'alt_code', 'outlier_type',
+        ]
+        missing = [c for c in required_columns if c not in df.columns]
+        if missing:
+            raise KeyError(f"Missing required columns: {missing}")
+        has_single_model = df.groupby("pdb_id")["model_id"].nunique() == 1
+        if not has_single_model.all():
+            raise ValueError(f"Multiple models found for PDB IDs: {has_single_model[~has_single_model].index.tolist()}")
+
+        keys = [c for c in required_columns if c != 'outlier_type']
+        df = (
+            df.groupby(keys, dropna=False, sort=False)
+            .size()
+            .rename('outlier_type_ratio')
+            .reset_index()
+        )
+        df['outlier_type_ratio'] = df['outlier_type_ratio'] / 11  # Normalize by total number of possible outlier types
+        self._outlier_residues = df[keys + ['outlier_type_ratio']]
+        return self._outlier_residues
 
     @property
     def residue_weights(self) -> pd.DataFrame:
@@ -258,31 +402,93 @@ class StructureFinder:
         return self._all_pdb_ids
 
     @property
+    def selected_site_residues(self) -> np.ndarray:
+        """UniProt residue numbers of selected residues in the binding sites."""
+        if self._selected_site_residues is not None:
+            return self._selected_site_residues
+        len_by_prevalence = len(self.site_residues[self.site_residues["prevalence"] >= self._min_pocket_residue_prevalence])
+        min_residues = max(self._min_pocket_residues, len_by_prevalence)
+        self._selected_site_residues = self.site_residues[:min_residues]["unp_residue_number"].to_numpy()
+        return self._selected_site_residues
+
+    @property
+    def bound_pdb_ids(self) -> list[str]:
+        """Subset of `self.all_pdb_ids` that have a ligand bound in the main binding site."""
+        if self._bound_pdb_ids is not None:
+            return self._bound_pdb_ids
+
+        starts = self.sites["res_start_num"].to_numpy()
+        ends = self.sites["res_end_num"].to_numpy()
+        # Candidate is the first common number ≥ start; check if it exists and ≤ end.
+        left = np.searchsorted(self.selected_site_residues, starts, side="left")
+        right = np.searchsorted(self.selected_site_residues, ends, side="right")  # inclusive end
+        in_bounds = (right - left) > 0
+        bound_pdb_ids = self.sites[pd.Series(in_bounds, index=self.sites.index)]["pdb_id"].unique()
+        self._bound_pdb_ids = np.strings.upper(bound_pdb_ids.astype(str)).tolist()
+        return self._bound_pdb_ids
+
+    @property
     def compatible_pdb_ids(self) -> list[str]:
         """Subset of `self.all_pdb_ids` that are compatible with the PDB file format."""
         if self._compatible_pdb_ids is not None:
             return self._compatible_pdb_ids
+        df = self.bound_entry_details
+        compatibles = df[
+            df["pdbx_database_status.pdb_format_compatible"] &
+            (df["rcsb_entry_info.deposited_model_count"] == 1) &
+            (df["rcsb_entry_info.resolution_combined"].notna())
+        ]
+        if compatibles.empty:
+            raise ValueError("No compatible PDB entries found with the specified criteria.")
+        self._compatible_pdb_ids = compatibles["pdb_id"].tolist()
+        return self._compatible_pdb_ids
+
+    @property
+    def bound_entry_details(self) -> pd.DataFrame:
+        """Details of compatible PDB entries."""
+        if self._bound_entry_details is not None:
+            return self._bound_entry_details
+        data_attributes = [
+            "pdbx_database_status.pdb_format_compatible",
+            "rcsb_entry_info.deposited_model_count",
+            "rcsb_entry_info.resolution_combined",
+        ]
         query = rcsbapi.data.DataQuery(
             input_type="entries",
-            input_ids=self.all_pdb_ids,
-            return_data_list=["pdbx_database_status.pdb_format_compatible"]
+            input_ids=self.bound_pdb_ids,
+            return_data_list=list(data_attributes)
         )
         query.exec()
         results = query.get_response()
-        self._compatible_pdb_ids = []
-        for entry in results["data"]["entries"]:
-            compatibility_flag = entry["pdbx_database_status"]["pdb_format_compatible"]
-            if compatibility_flag not in ("Y", "N"):
-                raise ValueError(
-                    f"Unexpected compatibility flag '{compatibility_flag}' for PDB ID {entry['rcsb_id']}. "
-                    "Expected 'Y' or 'N'."
-                )
-            if compatibility_flag == "Y":
-                self._compatible_pdb_ids.append(entry["rcsb_id"])
-        return self._compatible_pdb_ids
+        df = pd.DataFrame(pyserials.flatten(results["data"]["entries"]))
+        required_columns = set(data_attributes + ["rcsb_id"])
+        missing_columns = required_columns - set(df.columns)
+        if missing_columns:
+            raise ValueError(
+                f"Bound entry details dataframe missing required columns: {sorted(missing_columns)}. "
+                f"Required columns: {sorted(required_columns)}. "
+                f"Available columns: {sorted(df.columns)}"
+            )
+        compatibility_flags = df["pdbx_database_status.pdb_format_compatible"].to_numpy(dtype=str, copy=False)
+        flag_is_known = np.isin(compatibility_flags, ["Y", "N"])
+        if not flag_is_known.all():
+            raise ValueError(
+                "Unexpected values in 'pdbx_database_status.pdb_format_compatible'. "
+                f"Expected only 'Y' and 'N', got: {compatibility_flags[~flag_is_known].tolist()} "
+                f"for PDB IDs: {df.loc[~flag_is_known, 'rcsb_id'].tolist()}"
+            )
+        df["pdbx_database_status.pdb_format_compatible"] = df["pdbx_database_status.pdb_format_compatible"] == "Y"
+        # If multiple resolutions are present for an entry, take the mean.
+        df['rcsb_entry_info.resolution_combined'] = df['rcsb_entry_info.resolution_combined'].apply(
+            lambda v: float(np.mean(v)) if isinstance(v, (list, tuple, np.ndarray)) else v
+        ).astype(float)
+        df.rename(columns={"rcsb_id": "pdb_id"}, inplace=True)
+        self._bound_entry_details = df
+        return self._bound_entry_details
 
     def residue_map(self, pdb_id: str) -> pd.DataFrame:
         """Get the SIFTS residue mapping for a given PDB ID."""
+        pdb_id = pdb_id.upper()
         residue_map = self._residue_map.get(pdb_id)
         if residue_map is not None:
             return residue_map
@@ -293,6 +499,19 @@ class StructureFinder:
         if missing_columns:
             raise ValueError(f"Residue map dataframe missing required columns: {sorted(missing_columns)}")
         residue_map = residue_map[residue_map["accession"] == self._uniprot]
+        residue_map = residue_map.merge(
+            self.residue_weights,
+            on="unp_residue_number",
+            how="left",
+            validate="m:1",
+        )
+        # Some proteins (like UniProt P00734) have chains with different residues (e.g., short and long variants).
+        # In such cases, we need to select the chain that contains the pocket residues.
+        pocket_cov_by_chain = residue_map.groupby("chain_id")["weight"].sum()
+        max_cov_mask = (pocket_cov_by_chain - pocket_cov_by_chain.max()).abs() <= 1e-6  # Allow small numerical errors
+        max_cov_chain_ids = set(pocket_cov_by_chain.index[max_cov_mask])
+        residue_map = residue_map[residue_map["chain_id"].isin(max_cov_chain_ids)]
+
         self._residue_map[pdb_id] = residue_map
         return residue_map
 
@@ -317,6 +536,22 @@ class StructureFinder:
         rows = []
         for pdb_id in self.compatible_pdb_ids:
             chain_scores = self._calculate_modification_score(pdb_id=pdb_id, mutation=True)
+            rows.extend(chain_scores)
+        return pd.DataFrame(rows)
+
+    def _score_outlier(self) -> pd.DataFrame:
+        """Calculate residue outlier scores for all compatible PDB entries."""
+        rows = []
+        for pdb_id in self.compatible_pdb_ids:
+            chain_scores = self._calculate_outlier_score(pdb_id=pdb_id)
+            rows.extend(chain_scores)
+        return pd.DataFrame(rows)
+
+    def _score_resolution(self) -> pd.DataFrame:
+        """Calculate resolution scores for all compatible PDB entries."""
+        rows = []
+        for pdb_id in self.compatible_pdb_ids:
+            chain_scores = self._calculate_resolution_score(pdb_id=pdb_id)
             rows.extend(chain_scores)
         return pd.DataFrame(rows)
 
@@ -369,18 +604,10 @@ class StructureFinder:
         # Merge to attach unp_residue_number to the listing via (chain_id, pdb_residue_number)
         residue_map = self.residue_map(pdb_id=pdb_id)
         listing = listing.merge(
-            residue_map[["chain_id", "pdb_residue_number", "unp_residue_number"]],
+            residue_map[["chain_id", "pdb_residue_number", "unp_residue_number", "weight"]],
             on=["chain_id", "pdb_residue_number"],
             how="left",
             validate="m:m",  # allow potential duplication; see Notes
-        )
-
-        # Merge with weights
-        listing = listing.merge(
-            self.residue_weights[["unp_residue_number", "weight"]],
-            on="unp_residue_number",
-            how="left",
-            validate="m:1",
         )
 
         # Replace missing weights with 0
@@ -431,15 +658,7 @@ class StructureFinder:
         residue_map["key"] = list(zip(residue_map["chain_id"], residue_map["pdb_residue_number"]))
         modified_residues["key"] = list(zip(modified_residues["chain_id"], modified_residues["residue_number"]))
         residue_map["not_modified"] = (~residue_map["key"].isin(modified_residues["key"])).astype(int)
-        residue_map = residue_map.drop(columns="key")
-
-        # Merge with weights
-        listing = residue_map.merge(
-            self.residue_weights[["unp_residue_number", "weight"]],
-            on="unp_residue_number",
-            how="left",
-            validate="m:1",
-        )
+        listing = residue_map.drop(columns="key")
 
         # Replace missing weights with 0
         listing["weight"] = pd.to_numeric(listing["weight"], errors="coerce")
@@ -470,3 +689,129 @@ class StructureFinder:
                 score = float(score)  # type: ignore[assignment]
             result.append({"pdb_id": pdb_id, "chain_id": cid, f"score_{mod_type}": score})
         return result
+
+    def _calculate_outlier_score(self, pdb_id: str) -> list[dict[str, float | None]]:
+        def _safe_divide(n: float, d: float) -> float | None:
+            return (n / d) if d and np.isfinite(n) and np.isfinite(d) else None
+
+        residue_map = self.residue_map(pdb_id=pdb_id).copy()
+
+        outlier_residues = self.outlier_residues[self.outlier_residues["pdb_id"] == pdb_id].copy()
+        outlier_residues = (
+            outlier_residues[["chain_id", "residue_number", "outlier_type_ratio"]]
+            .rename(columns={"residue_number": "pdb_residue_number"})
+        )
+
+        merged = residue_map.merge(
+            outlier_residues,
+            on=["chain_id", "pdb_residue_number"],
+            how="left",
+            copy=False
+        )
+        merged["nonoutlier_ratio"] = 1.0 - merged["outlier_type_ratio"].fillna(0.0)
+        listing = merged.drop(columns=["outlier_type_ratio"])
+
+        # Replace missing weights with 0
+        listing["weight"] = pd.to_numeric(listing["weight"], errors="coerce")
+        listing.loc[~np.isfinite(listing["weight"]), "weight"] = 0
+
+        # If there is no data left, return all chains with None
+        unique_chains = sorted(pd.unique(residue_map["chain_id"]))
+        if listing.empty:
+            return [{"chain_id": cid, f"score_outlier": None} for cid in unique_chains]
+
+        # Compute weighted averages per chain
+        listing["wx"] = listing["weight"] * listing["nonoutlier_ratio"]
+        grouped = listing.groupby("chain_id", dropna=False, sort=True).agg(
+            wsum=("wx", "sum"),
+            wtot=("weight", "sum"),
+        )
+
+        scores_map: dict[str, float | None] = {
+            chain_id: _safe_divide(row["wsum"], row["wtot"]) for chain_id, row in grouped.iterrows()
+        }
+
+        # Ensure all chains that appear in residue_map are represented
+        result: list[dict[str, float]] = []
+        for cid in unique_chains:
+            score = scores_map.get(cid, None)
+            # Normalize to float (or None) if present
+            if isinstance(score, (np.floating,)):
+                score = float(score)  # type: ignore[assignment]
+            result.append({"pdb_id": pdb_id, "chain_id": cid, f"score_outlier": score})
+        return result
+
+    def _calculate_resolution_score(self, pdb_id: str) -> list[dict[str, float | None]]:
+        def score(res):
+            lower, upper = self._resolution_range
+            if res < lower:
+                return 1.0
+            if res > upper:
+                return 0.0
+            return (upper - res) / (upper - lower)
+        entry_df = self.bound_entry_details
+        resolution = entry_df[entry_df["pdb_id"] == pdb_id]["rcsb_entry_info.resolution_combined"].iloc[0]
+        return [
+            {
+                "pdb_id": pdb_id,
+                "chain_id": chain_id,
+                "score_resolution": score(resolution),
+            }
+            for chain_id in self.residue_map(pdb_id=pdb_id)["chain_id"].unique()
+        ]
+
+    def _select_ligand(self, pdb_id: str) -> str:
+        """Return lig_id of the (lig_id, chain_id) group with most range hits.
+
+        A row is a "hit" if at least one integer from `common_nums` lies within
+        the inclusive interval [res_start_num, res_end_num]. Rows are grouped by
+        (lig_id, chain_id); we count hits per group and return the `lig_id` of the
+        group with the highest count. In case of ties, the first occurring group
+        in Pandas' order is chosen. If `sites` is empty, return None.
+
+        Parameters
+        ----------
+        sites
+            DataFrame with columns:
+            - 'res_start_num' (int): inclusive start of the residue range.
+            - 'res_end_num' (int): inclusive end of the residue range.
+            - 'lig_id': ligand identifier (any hashable/label-like).
+            - 'chain_id': chain identifier (any hashable/label-like).
+        common_nums
+            Iterable of integers to test for membership within row intervals.
+            Duplicates are ignored; order does not matter.
+
+        Returns
+        -------
+        str | None
+            The `lig_id` of the (lig_id, chain_id) group with the largest number
+            of hit rows, or None if `sites` has no rows.
+
+        Notes
+        -----
+        Implementation uses a vectorized binary search:
+        For each row, find the first `common_num` >= start; if it exists and is
+        <= end, the row is a hit. Complexity ~ O(N log M), with N rows and
+        M unique `common_nums`.
+        """
+        sites = self.sites[self.sites["pdb_id"] == pdb_id]
+        unique_lig_ids = sites["lig_id"].unique()
+        if len(unique_lig_ids) == 1:
+            return unique_lig_ids[0]
+
+        starts = sites["res_start_num"].to_numpy(dtype=np.int64, copy=False)
+        ends = sites["res_end_num"].to_numpy(dtype=np.int64, copy=False)
+
+        left = np.searchsorted(self.selected_site_residues, starts, side="left")
+        right = np.searchsorted(self.selected_site_residues, ends, side="right")  # inclusive end
+        in_bounds = (right - left) > 0
+
+        # Count hits per (lig_id, chain_id)
+        counts = (
+            sites.assign(__hit=in_bounds)
+            .groupby(["lig_id", "chain_id"], sort=False)["__hit"]
+            .sum()
+        )
+        # Pick the group with the maximum hits (first occurrence on ties)
+        top_group = counts.idxmax()
+        return top_group[0]
