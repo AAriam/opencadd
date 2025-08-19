@@ -1,6 +1,6 @@
 pocket:
   grid_spacing: 0.3
-  ligand_radii_offset: 2.7
+  ligand_radii_offset: 1.5
   opening_radius: 1
   erosion_radius: 0
 field:
@@ -326,3 +326,107 @@ job:
     filter_mean: true
     filter_percentiles: null
     filter_gaussian_sigma_multipliers: [0.25, 0.5, 0.75, 1]
+
+  grid_search-cnn_1_1:
+    method: cnn
+    max_distance_base: *radius_vdw
+    max_distance_multipliers: [0.5, 1, 1.5, 2]
+    min_neighbors_start_percents: [1, 5, 10, 15]
+    min_neighbors_list_lengths: [5, 10, 15]
+    min_members_percents: [1, 5, 10, 20, 30, 40, 50]
+    max_members_radius: *radius_vdw
+    max_members_multipliers: [1, 1.5, 2]
+    best_per_points: [true, false]
+    threshold_values: [0]
+    threshold_percentiles: [1, 5, 10, 20, 30, 40]
+    center_types: ["average", "mean", "midpoint"]
+  grid_search-lp_1_1:
+    method: largest_peaks
+    min_distance_base:
+      [HD, HD]: 1
+      [OA, OA]: 1
+      [e+, e+]: 1
+      [e-, e-]: 1
+      [C, C]: 1
+    min_distance_multipliers: [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
+    max_features_base:
+      HD: 1
+      OA: 1
+      C: 1
+      e+: 1
+      e-: 1
+    max_features_multipliers: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20]
+    threshold_values: [-0.05]
+    filter_none: true
+    filter_radius_base: *radius_vdw
+    filter_radius_multipliers: [0.5, 0.75, 1.0, 1.25, 1.5]
+    filter_mean: true
+    filter_percentiles: null
+    filter_gaussian_sigma_multipliers: [0.25, 0.5, 0.75, 1, 1.25]
+  grid_search-lp_2_1:
+    method: largest_peaks
+    min_distance_base:
+      [HD, HD]: 2
+      [HD, OA]: 1
+      [HD, e+]: 2
+      [HD, e-]: 1
+      [HD, C]: 2
+
+      [OA, OA]: 2
+      [OA, e+]: 1
+      [OA, e-]: 2
+      [OA, C]: 1
+
+      [e+, e+]: 2
+      [e+, e-]: 1
+      [e+, C]: 1
+
+      [e-, e-]: 2
+      [e-, C]: 1
+
+      [C, C]: 1
+    min_distance_multipliers: [1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3]
+    max_features_base:
+      HD: 2
+      OA: 3
+      C: 5
+      e+: 1
+      e-: 1
+    max_features_multipliers: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    priority_factors:
+      - {HD: 1, OA: 1, C: 1, e+: 1, e-: 1}
+      - {HD: 1, OA: 1, C: 1, e+: 0.75, e-: 0.75}
+      - {HD: 1, OA: 1, C: 1, e+: 0.50, e-: 0.50}
+      - {HD: 1, OA: 1, C: 1, e+: 0.25, e-: 0.25}
+      - {HD: 1, OA: 0.75, C: 1, e+: 0.50, e-: 0.50}
+      - {HD: 1, OA: 0.50, C: 1, e+: 0.25, e-: 0.25}
+    threshold_values: [0]
+    filter_none: true
+    filter_radius_base: *radius_vdw
+    filter_radius_multipliers: [0.5, 0.75, 1.0, 1.25, 1.5]
+    filter_mean: true
+    filter_percentiles: null
+    filter_gaussian_sigma_multipliers: [0.25, 0.5, 0.75, 1, 1.25]
+  test:
+    method: largest_peaks
+    min_distance_base:
+      [HD, HD]: 2.4
+      [OA, OA]: 3
+      [e+, e+]: 3
+      [e-, e-]: 3
+      [C, C]: 1.5
+    min_distance_multipliers: [1.25]
+    max_features_base:
+      HD: 2
+      OA: 4
+      C: 8
+      e+: 1
+      e-: 1
+    max_features_multipliers: [3]
+    threshold_values: [0]
+    filter_none: false
+    filter_radius_base: *radius_vdw
+    filter_radius_multipliers: [0.75]
+    filter_mean: false
+    filter_percentiles: null
+    filter_gaussian_sigma_multipliers: [0.75]
