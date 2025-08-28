@@ -1066,6 +1066,10 @@ class PDBParser:
 
     @staticmethod
     def _parse_field_charge(fields: np.ndarray):
+        # If sign is missing but number is present, assume '+' sign,
+        # otherwise, viewing `["", i]` as `(str, 2)` gives `["\x00i"]`
+        correction_mask = np.logical_and(fields[:, 0] == "", fields[:, 1] != "")
+        fields[correction_mask, 0] = "+"
         charges = fields.view(dtype=(str, 2)).reshape(-1).astype((str, 3))
         charges[charges == ""] = "nan"
         return charges.astype(np.double)
