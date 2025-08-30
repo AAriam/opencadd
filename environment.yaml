@@ -42,6 +42,7 @@ dependencies:
     - rcsb-api ==1.3.0
 
     - -e caddpy/pkg
+    - -e pdbfinder/pkg
     - -e sciapi/pkg
     - -e scicoda/pkg
     - -e scids/pkg
