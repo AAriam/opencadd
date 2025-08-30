@@ -139,10 +139,12 @@ class PDBFinder:
             return self._similar_entries
         best_entry = self.best_entry
         best_pdb_id = best_entry["pdb_id"]
+        best_struct_asym_id = best_entry["struct_asym_id"]
 
         resmap = self.residue_map(best_pdb_id)
         site_residues = resmap[
-            resmap["unp_residue_number"].isin(self.selected_site_residues)
+            (resmap["unp_residue_number"].isin(self.selected_site_residues)) &
+            (resmap["struct_asym_id"] == best_struct_asym_id)
         ].sort_values("weight", ascending=False).reset_index(drop=True).convert_dtypes()
 
         residue_list = []
@@ -154,12 +156,12 @@ class PDBFinder:
             if pd.isna(res_num):
                 continue
             res = rcsbapi.search.StructMotifResidue(
-                chain_id=residue["struct_asym_id"],
+                chain_id=best_struct_asym_id,
                 label_seq_id=res_num,
                 struct_oper_id="1",
             )
             residue_list.append(res)
-        allowed_pdb_ids = self.scores[self.scores["ligand_score"]]["pdb_id"].unique().tolist()
+        allowed_pdb_ids = self.scores[self.scores["score_ligand"] == True]["pdb_id"].unique().tolist()
         allowed_pdb_ids.remove(best_pdb_id)
         query = rcsbapi.search.StructMotifQuery(
             entry_id=best_pdb_id,
@@ -175,11 +177,11 @@ class PDBFinder:
         results = query(return_type="assembly", results_verbosity="verbose")
         results_flat = []
         for result in results:
-            pdb_id, assembly_id = result["identifier"].split(".")
+            pdb_id, assembly_id = result["identifier"].split("-")
             score = result["score"]
             for service in result["services"]:
                 service_type = service["service_type"]
-                for node in nodes:
+                for node in service["nodes"]:
                     node_id = node["node_id"]
                     original_score = node["original_score"]
                     norm_score = node["norm_score"]
@@ -188,7 +190,8 @@ class PDBFinder:
                         transformation = match["transformation"]
                         residue_types = match["residue_types"]
                         label_asym_ids = [elem["label_asym_id"] for elem in match["residue_ids"]]
-                        assert all([label_asym_ids[0] == laid for laid in label_asym_ids[1:]])
+                        if not all([label_asym_ids[0] == laid for laid in label_asym_ids[1:]]):
+                            continue
                         assert score == norm_score
                         results_flat.append({
                             "pdb_id": pdb_id,
@@ -926,6 +929,7 @@ class PDBFinder:
             df["y"] = df["y"].astype(float)
             df["z"] = df["z"].astype(float)
             return df.convert_dtypes()
+
         sites = self.sites[self.sites["pdb_id"] == pdb_id]
         unique_lig_ids = sites["lig_id"].unique()
         atom = pdb_atoms(pdb_id)
