@@ -14,7 +14,6 @@ import scipy.spatial
 import pyserials
 import sciapi
 import scifile
-import t2fpharm
 
 if TYPE_CHECKING:
     from typing import Sequence
@@ -79,6 +78,8 @@ class PDBFinder:
         score_weight_outlier: float = 1,
         score_weight_resolution: float = 1,
     ):
+        if min_pocket_residues < 3:
+            raise ValueError("min_pocket_residues must be at least 3.")
         self._uniprot = uniprot
         self._artifact_ligand_ids = set(artifact_ligand_ids)
         self._ligand_min_carbons = ligand_min_carbons
@@ -159,7 +160,10 @@ class PDBFinder:
                 struct_oper_id="1",
             )
             residue_list.append(res)
-        allowed_pdb_ids = self.scores[self.scores["score_ligand"] == True]["pdb_id"].unique().tolist()
+        allowed_pdb_ids = self.scores[
+            (self.scores["score_ligand"] == True) &
+            (self.scores["observed_site_residues"] >= 2)
+        ]["pdb_id"].unique().tolist()
         allowed_pdb_ids.remove(best_pdb_id)
         query = rcsbapi.search.StructMotifQuery(
             entry_id=best_pdb_id,
@@ -194,13 +198,14 @@ class PDBFinder:
                         results_flat.append({
                             "pdb_id": pdb_id,
                             "struct_asym_id": label_asym_ids[0],
-                            "score_match": match_score,
+                            "score_match": norm_score,
                         })
-        df = pd.DataFrame(results_flat)
-        df = (
-            df.sort_values("score_match", ascending=False)
-            .drop_duplicates(["pdb_id", "struct_asym_id"])
-        )
+        df = pd.DataFrame(results_flat).drop_duplicates()
+        # Different transformations may give different scores for the same chain; keep only the best score
+        df = df.loc[
+            df.groupby(["pdb_id", "struct_asym_id"])["score_match"].idxmax()
+        ].reset_index(drop=True)
+
         df = df.merge(
             self.scores,
             on=["pdb_id", "struct_asym_id"],
@@ -223,16 +228,37 @@ class PDBFinder:
         """Quality scores for PDB entries associated with the UniProt ID."""
         if self._scores is not None:
             return self._scores
+
+        rows_coverage = []
+        rows_modification = []
+        rows_mutation = []
+        rows_outlier = []
+        rows_resolution = []
+        rows_ligand = []
+
+        for pdb_id in tqdm(self.compatible_pdb_ids, desc="Calculating scores", unit="entry"):
+            try:
+                rows_coverage.extend(self._score_coverage(pdb_id))
+                rows_modification.extend(self._score_modification(pdb_id, mutation=False))
+                rows_mutation.extend(self._score_modification(pdb_id, mutation=True))
+                rows_outlier.extend(self._score_outlier(pdb_id))
+                rows_resolution.extend(self._score_resolution(pdb_id))
+                rows_ligand.extend(self._score_ligand(pdb_id))
+            except Exception as e:
+                raise RuntimeError(f"Error calculating score for PDB ID {pdb_id}: {e}") from e
+
         scores = pd.concat(
             [
-                df.set_index(["pdb_id", "chain_id"])
+                df.set_index(["pdb_id", "struct_asym_id", "chain_id"])
                 for df in (
-                    self._score_coverage(),
-                    self._score_modification(),
-                    self._score_mutation(),
-                    self._score_outlier(),
-                    self._score_resolution(),
-                    self._score_ligand(),
+                    pd.DataFrame(rows) for rows in (
+                        rows_coverage,
+                        rows_modification,
+                        rows_mutation,
+                        rows_outlier,
+                        rows_resolution,
+                        rows_ligand
+                    )
                 )
             ],
             axis=1
@@ -258,6 +284,7 @@ class PDBFinder:
             "score_outlier",
             "score_resolution",
             "score_ligand",
+            "observed_site_residues",
             "ligand_dist_min",
             "ligand_dist_mean",
             "ligand_dist_max",
@@ -511,7 +538,7 @@ class PDBFinder:
             return self._selected_site_residues
         len_by_prevalence = len(self.site_residues[self.site_residues["prevalence"] >= self._min_pocket_residue_prevalence])
         min_residues = max(self._min_pocket_residues, len_by_prevalence)
-        self._selected_site_residues = self.site_residues[:min_residues]["unp_residue_number"].to_numpy()
+        self._selected_site_residues = np.sort(self.site_residues[:min_residues]["unp_residue_number"].to_numpy())
         return self._selected_site_residues
 
     @property
@@ -665,94 +692,7 @@ class PDBFinder:
         self._residue_map[pdb_id] = residue_map.convert_dtypes()
         return residue_map
 
-    def _score_coverage(self) -> pd.DataFrame:
-        """Calculate coverage scores for all compatible PDB entries."""
-        rows = []
-        for pdb_id in tqdm(self.compatible_pdb_ids, desc="Calculating coverage scores", unit="entry"):
-            chain_scores = self._calculate_coverage_score(pdb_id=pdb_id)
-            rows.extend(chain_scores)
-        return pd.DataFrame(rows)
-
-    def _score_modification(self) -> pd.DataFrame:
-        """Calculate residue modification scores for all compatible PDB entries."""
-        rows = []
-        for pdb_id in tqdm(self.compatible_pdb_ids, desc="Calculating modification scores", unit="entry"):
-            chain_scores = self._calculate_modification_score(pdb_id=pdb_id, mutation=False)
-            rows.extend(chain_scores)
-        return pd.DataFrame(rows)
-
-    def _score_mutation(self) -> pd.DataFrame:
-        """Calculate residue mutation scores for all compatible PDB entries."""
-        rows = []
-        for pdb_id in tqdm(self.compatible_pdb_ids, desc="Calculating mutation scores", unit="entry"):
-            chain_scores = self._calculate_modification_score(pdb_id=pdb_id, mutation=True)
-            rows.extend(chain_scores)
-        return pd.DataFrame(rows)
-
-    def _score_outlier(self) -> pd.DataFrame:
-        """Calculate residue outlier scores for all compatible PDB entries."""
-        rows = []
-        for pdb_id in tqdm(self.compatible_pdb_ids, desc="Calculating outlier scores", unit="entry"):
-            chain_scores = self._calculate_outlier_score(pdb_id=pdb_id)
-            rows.extend(chain_scores)
-        return pd.DataFrame(rows)
-
-    def _score_resolution(self) -> pd.DataFrame:
-        """Calculate resolution scores for all compatible PDB entries."""
-        rows = []
-        for pdb_id in tqdm(self.compatible_pdb_ids, desc="Calculating resolution scores", unit="entry"):
-            chain_scores = self._calculate_resolution_score(pdb_id=pdb_id)
-            rows.extend(chain_scores)
-        return pd.DataFrame(rows)
-
-    def _score_ligand(self) -> pd.DataFrame:
-        """Calculate ligand scores for all compatible PDB entries."""
-        rows = []
-        for pdb_id in tqdm(self.compatible_pdb_ids, desc="Calculating ligand scores", unit="entry"):
-            try:
-                chain_scores = self._calculate_ligand_score(pdb_id=pdb_id)
-            except Exception as e:
-                raise RuntimeError(f"Error calculating ligand score for PDB ID {pdb_id}: {e}") from e
-            rows.extend(chain_scores)
-        df = pd.DataFrame(rows)
-        df["score_ligand"] = (
-            (df["ligand_dist_min"] <= self._ligand_min_dist_threshold) &
-            (df["ligand_dist_max"] <= self._ligand_max_dist_threshold)
-        )
-        return df
-
-    def _calculate_coverage_score(self, pdb_id: str) -> list[dict[str, float | None]]:
-        """Compute chain-wise coverage score as weighted average of observed residue ratios.
-
-        For each unique `chain_id` in `self.residue_map(pdb_id)`,
-        this method computes the weighted average of observed residue ratios in that chain.
-        Weights are determined by mapping each listing row's `(chain_id, pdb_residue_number)` to a
-        `unp_residue_number` via `residue_map`, then looking up `prevalence` for that
-        `unp_residue_number` in `site_residues`. If no prevalence is available for a row,
-        use half of the minimum prevalence found in `site_residues`.
-
-        Parameters
-        ----------
-        pdb_id
-            PDB ID of the structure being analyzed.
-
-        Returns
-        -------
-        list of dict
-            One dict per unique `chain_id` found in `self.residue_map(pdb_id)`, each:
-            `{"chain_id": <chain_id>, "completeness_score": <float|None>}`.
-            If a chain yields no valid weighted observations or total weight is zero,
-            `completeness_score` will be `None`.
-
-        Notes
-        ------
-        - Deterministic order: results are sorted by `chain_id` (ascending).
-        - If a `(chain_id, pdb_residue_number)` maps to multiple `unp_residue_number`s in
-          `residue_map`, rows will be duplicated during the merge (each mapping contributes).
-          If your data should be one-to-one, ensure `residue_map` uniqueness prior to calling.
-        - Rows with non-finite `observed_ratio` (NaN/inf) are excluded from the average.
-        """
-
+    def _score_coverage(self, pdb_id: str) -> list[dict[str, float | None]]:
         resmap = self.residue_map(pdb_id=pdb_id)
 
         # Get residue listing containing observed ratios for each available residue in the PDB structure
@@ -775,23 +715,31 @@ class PDBFinder:
         # set observed_ratio to 0 for residues not available in the listing
         merged.fillna({"observed_ratio": 0}, inplace=True)
 
+        merged["site_residue_is_observed"] = (
+            merged["unp_residue_number"].isin(self.selected_site_residues) &
+            merged["observed_ratio"].gt(0)
+        ).astype(int)
+
         # Compute weighted averages per chain
         merged["wx"] = merged["weight"] * merged["observed_ratio"]
-        grouped = merged.groupby("chain_id", dropna=False, sort=True).agg(
+        grouped = merged.groupby(["struct_asym_id", "chain_id"], dropna=False, sort=True).agg(
             wsum=("wx", "sum"),
             wtot=("weight", "sum"),
+            observed_site_residues=("site_residue_is_observed", "sum"),
         )
 
         result: list[dict[str, float]] = []
-        for chain_id, row in grouped.iterrows():
+        for (struct_asym_id, chain_id), row in grouped.iterrows():
             result.append({
                 "pdb_id": pdb_id,
+                "struct_asym_id": struct_asym_id,
                 "chain_id": chain_id,
                 "score_coverage": float(row["wsum"] / row["wtot"]),
+                "observed_site_residues": int(row["observed_site_residues"]),
             })
         return result
 
-    def _calculate_modification_score(self, pdb_id: str, mutation: bool) -> list[dict[str, float | None]]:
+    def _score_modification(self, pdb_id: str, mutation: bool) -> list[dict[str, float | None]]:
         mod_type = "mutation" if mutation else "modification"
 
         resmap = self.residue_map(pdb_id=pdb_id).copy()
@@ -805,21 +753,22 @@ class PDBFinder:
 
         # Compute weighted averages per chain
         resmap["wx"] = resmap["weight"] * resmap["not_modified"]
-        grouped = resmap.groupby("chain_id", dropna=False, sort=True).agg(
+        grouped = resmap.groupby(["struct_asym_id", "chain_id"], dropna=False, sort=True).agg(
             wsum=("wx", "sum"),
             wtot=("weight", "sum"),
         )
 
         result: list[dict[str, float]] = []
-        for chain_id, row in grouped.iterrows():
+        for (struct_asym_id, chain_id), row in grouped.iterrows():
             result.append({
                 "pdb_id": pdb_id,
+                "struct_asym_id": struct_asym_id,
                 "chain_id": chain_id,
                 f"score_{mod_type}": float(row["wsum"] / row["wtot"]),
             })
         return result
 
-    def _calculate_outlier_score(self, pdb_id: str) -> list[dict[str, float | None]]:
+    def _score_outlier(self, pdb_id: str) -> list[dict[str, float | None]]:
         resmap = self.residue_map(pdb_id=pdb_id).copy()
 
         outres = self.outlier_residues[self.outlier_residues["pdb_id"] == pdb_id].copy()
@@ -838,21 +787,22 @@ class PDBFinder:
 
         # Compute weighted averages per chain
         merged["wx"] = merged["weight"] * merged["nonoutlier_ratio"]
-        grouped = merged.groupby("chain_id", dropna=False, sort=True).agg(
+        grouped = merged.groupby(["struct_asym_id", "chain_id"], dropna=False, sort=True).agg(
             wsum=("wx", "sum"),
             wtot=("weight", "sum"),
         )
 
         result: list[dict[str, float]] = []
-        for chain_id, row in grouped.iterrows():
+        for (struct_asym_id, chain_id), row in grouped.iterrows():
             result.append({
                 "pdb_id": pdb_id,
+                "struct_asym_id": struct_asym_id,
                 "chain_id": chain_id,
                 "score_outlier": float(row["wsum"] / row["wtot"]),
             })
         return result
 
-    def _calculate_resolution_score(self, pdb_id: str) -> list[dict[str, float | None]]:
+    def _score_resolution(self, pdb_id: str) -> list[dict[str, float | None]]:
         def score(res):
             lower, upper = self._resolution_range
             if res < lower:
@@ -865,13 +815,16 @@ class PDBFinder:
         return [
             {
                 "pdb_id": pdb_id,
+                "struct_asym_id": struct_asym_id,
                 "chain_id": chain_id,
                 "score_resolution": score(resolution),
             }
-            for chain_id in self.residue_map(pdb_id=pdb_id)["chain_id"].unique()
+            for struct_asym_id, chain_id in self.residue_map(pdb_id=pdb_id)[
+                ["struct_asym_id", "chain_id"]
+            ].drop_duplicates().to_records(index=False)
         ]
 
-    def _calculate_ligand_score(self, pdb_id: str) -> tuple[tuple[str, str, int], np.ndarray]:
+    def _score_ligand(self, pdb_id: str) -> tuple[tuple[str, str, int], np.ndarray]:
         """Return lig_id of the (lig_id, chain_id) group with most range hits.
 
         A row is a "hit" if at least one integer from `common_nums` lies within
@@ -984,5 +937,6 @@ class PDBFinder:
                 "ligand_dist_min": best_dist_min,
                 "ligand_dist_mean": best_dist_mean,
                 "ligand_dist_max": best_dist_max,
+                "score_ligand": best_dist_min <= self._ligand_min_dist_threshold and best_dist_max <= self._ligand_max_dist_threshold,
             })
         return result
