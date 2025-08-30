@@ -369,8 +369,8 @@ class PDBeAPI:
                         "name": name,
                         "identifier": identifier,
                         "entity_id": mapping["entity_id"],
-                        "chain_id": mapping["chain_id"],
                         "struct_asym_id": mapping["struct_asym_id"],
+                        "chain_id": mapping["chain_id"],
                         "unp_start": mapping["unp_start"],
                         "unp_end": mapping["unp_end"],
                         "start_residue_number": mapping["start"]["residue_number"],
@@ -382,6 +382,14 @@ class PDBeAPI:
                     }
                     data_flat.append(entry)
             return data_flat
+        # This endpoint does not provide full author residue numbers,
+        # so we need to fetch those from the residue listing endpoint.
+        listing = self.pdb_residue_listing(pdb_id=pdb_id, explode=True)
+        # Create a mapping to avoid repeated searches.
+        pdb_to_author = {
+            (res["entity_id"], res["struct_asym_id"], res["residue_number"]): (res["author_residue_number"], res["author_insertion_code"])
+            for res in listing
+        }
         for uniprot_accession, uniprot_data in data.items():
             name = uniprot_data.get("name")
             identifier = uniprot_data.get("identifier")
@@ -389,19 +397,42 @@ class PDBeAPI:
                 entity_id = mapping["entity_id"]
                 chain_id = mapping["chain_id"]
                 struct_asym_id = mapping["struct_asym_id"]
-                pdb_start_res_num = mapping["start"].get("residue_number")
-                pdb_start_author_res_num = mapping["start"].get("author_residue_number")
-                for pdb_res_num_offset, uniprot_residue_num in enumerate(range(mapping["unp_start"], mapping["unp_end"] + 1)):
+                pdb_start_res_num = mapping["start"]["residue_number"]
+                pdb_end_res_num = mapping["end"]["residue_number"]
+                unp_start_res_num = mapping["unp_start"]
+                unp_end_res_num = mapping["unp_end"]
+
+                if unp_end_res_num - unp_start_res_num != pdb_end_res_num - pdb_start_res_num:
+                    raise ValueError(
+                        f"Cannot expand SIFTS mapping for PDB ID '{pdb_id}', entity '{entity_id}', chain '{chain_id}': "
+                        f"inconsistent residue ranges (UNP: {unp_start_res_num}-{unp_end_res_num}, PDB: {pdb_start_res_num}-{pdb_end_res_num})."
+                    )
+                for terminal in ("start", "end"):
+                    author_res_num = mapping[terminal].get("author_residue_number")
+                    if author_res_num is not None:
+                        author_ins_code = mapping[terminal].get("author_insertion_code", "")
+                        from_listing = pdb_to_author[(entity_id, struct_asym_id, mapping[terminal]["residue_number"])]
+                        if (author_res_num, author_ins_code) != from_listing:
+                            raise ValueError(
+                                f"Cannot expand SIFTS mapping for PDB ID '{pdb_id}', entity '{entity_id}', chain '{chain_id}': "
+                                f"{terminal} residue author number/insertion code mismatch (expected: {author_res_num}{author_ins_code}, "
+                                f"found: {from_listing[0]}{from_listing[1]})."
+                            )
+
+                for pdb_res_num_offset, uniprot_residue_num in enumerate(range(unp_start_res_num, unp_end_res_num + 1)):
+                    pdb_res_num = pdb_start_res_num + pdb_res_num_offset
+                    author_res = pdb_to_author[(entity_id, struct_asym_id, pdb_res_num)]
                     entry = {
                         "accession": uniprot_accession,
                         "name": name,
                         "identifier": identifier,
                         "entity_id": entity_id,
-                        "chain_id": chain_id,
                         "struct_asym_id": struct_asym_id,
+                        "chain_id": chain_id,
                         "unp_residue_number": uniprot_residue_num,
-                        "pdb_residue_number": pdb_start_res_num + pdb_res_num_offset,
-                        "pdb_author_residue_number": pdb_start_author_res_num + pdb_res_num_offset if pdb_start_author_res_num is not None else None,
+                        "pdb_residue_number": pdb_res_num,
+                        "pdb_author_residue_number": author_res[0],
+                        "pdb_author_insertion_code": author_res[1],
                     }
                     data_flat.append(entry)
         return data_flat
