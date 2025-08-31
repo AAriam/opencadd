@@ -220,7 +220,7 @@ class ComplexFinder:
         )
         if df.empty:
             raise ValueError("No similar entries found for the best PDB ID.")
-        self._similar_entries = df
+        self._similar_entries = df.convert_dtypes()
         return self._similar_entries
 
     @property
@@ -289,7 +289,7 @@ class ComplexFinder:
             "ligand_dist_mean",
             "ligand_dist_max",
         ]
-        self._scores = scores[cols]
+        self._scores = scores[cols].convert_dtypes()
         return self._scores
 
     @property
@@ -608,14 +608,22 @@ class ComplexFinder:
             return df
         residue_map_rows = self._pdbe.sifts_pdb_uniprot(pdb_id=pdb_id, explode=True, expand=True)
         df = pd.DataFrame(residue_map_rows)
-        required_columns = {"accession", "chain_id", "unp_residue_number", "pdb_residue_number"}
-        missing_columns = required_columns - set(df.columns)
+        required_columns = [
+            "accession",
+            "entity_id",
+            "struct_asym_id",
+            "chain_id",
+            "unp_residue_number",
+            "pdb_residue_number",
+            "pdb_author_residue_number",
+            "pdb_author_insertion_code",
+        ]
+        missing_columns = set(required_columns) - set(df.columns)
         if missing_columns:
             raise ValueError(f"Residue map dataframe missing required columns: {sorted(missing_columns)}")
         df = df[df["accession"] == self._uniprot]
-        df = df[
-            ["entity_id", "chain_id", "struct_asym_id", "unp_residue_number", "pdb_residue_number"]
-        ]
+        final_columns = [col for col in required_columns if col != "accession"]
+        df = df[final_columns]
 
 
         invariant_cols: list[str] = ["entity_id", "chain_id"]
@@ -661,7 +669,7 @@ class ComplexFinder:
         expanded = expanded.merge(per_chain, on="struct_asym_id", how="left")
 
         # Bring over pdb_residue_number from original data.
-        pdb_map = base[["struct_asym_id", "unp_residue_number", "pdb_residue_number"]]
+        pdb_map = base[[col for col in final_columns if col not in invariant_cols]]
         expanded = expanded.merge(
             pdb_map,
             on=["struct_asym_id", "unp_residue_number"],
@@ -674,7 +682,7 @@ class ComplexFinder:
         expanded["pdb_residue_number"] = expanded["pdb_residue_number"].astype("Int64")
 
         # Reorder columns to match input order where possible.
-        expanded = expanded[["entity_id", "chain_id", "struct_asym_id", "unp_residue_number", "pdb_residue_number"]]
+        expanded = expanded[final_columns]
 
         # Stable sort
         expanded = expanded.sort_values(
@@ -683,14 +691,13 @@ class ComplexFinder:
             ignore_index=True,
         )
 
-        residue_map = expanded.merge(
+        self._residue_map[pdb_id] = expanded.merge(
             self.residue_weights,
             on="unp_residue_number",
             how="left",
             validate="m:1",
-        )
-        self._residue_map[pdb_id] = residue_map.convert_dtypes()
-        return residue_map
+        ).convert_dtypes()
+        return self._residue_map[pdb_id]
 
     def _score_coverage(self, pdb_id: str) -> list[dict[str, float | None]]:
         resmap = self.residue_map(pdb_id=pdb_id)
