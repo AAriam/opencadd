@@ -486,17 +486,17 @@ class PDBeAPI:
         for pdb_id, data in response.items():
             pdb_id = pdb_id.upper()
             for molecule in data.get("molecules", []):
-                entity_id = molecule["entity_id"]
+                entity_id = str(molecule["entity_id"])
                 for chain in molecule["chains"]:
-                    chain_id = chain["chain_id"]
-                    struct_asym_id = chain["struct_asym_id"]
+                    chain_id = str(chain["chain_id"])
+                    struct_asym_id = str(chain["struct_asym_id"])
                     for model in chain["models"]:
-                        model_id = model["model_id"]
+                        model_id = int(model["model_id"])
                         for residue in model["residues"]:
-                            residue_number = residue["residue_number"]
-                            author_residue_number = residue["author_residue_number"]
-                            author_insertion_code = residue["author_insertion_code"]
-                            alt_code = residue["alt_code"]
+                            residue_number = int(residue["residue_number"])
+                            author_residue_number = int(residue["author_residue_number"])
+                            author_insertion_code = str(residue["author_insertion_code"])
+                            alt_code = str(residue["alt_code"])
                             for outlier_type in residue["outlier_types"]:
                                 entry = {
                                     "pdb_id": pdb_id,
@@ -508,7 +508,7 @@ class PDBeAPI:
                                     "author_residue_number": author_residue_number,
                                     "author_insertion_code": author_insertion_code,
                                     "alt_code": alt_code,
-                                    "outlier_type": outlier_type,
+                                    "outlier_type": str(outlier_type),
                                 }
                                 data_flat.append(entry)
         return data_flat
