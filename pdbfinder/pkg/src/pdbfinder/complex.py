@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import warnings
 from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
@@ -14,6 +15,7 @@ import scipy.spatial
 import pyserials
 import sciapi
 import scifile
+from sciapi.exception.pdbe import PDBeSIFTSMappingExpansionError
 
 if TYPE_CHECKING:
     from typing import Sequence
@@ -601,7 +603,17 @@ class ComplexFinder:
         ]
         if compatibles.empty:
             raise ValueError("No compatible PDB entries found with the specified criteria.")
-        self._compatible_pdb_ids = np.sort(compatibles["pdb_id"]).tolist()
+        compatible_pdb_ids = []
+        for pdb_id in compatibles["pdb_id"]:
+            try:
+                self.residue_map(pdb_id)  # Test if residue map can be retrieved
+                compatible_pdb_ids.append(pdb_id)
+            except PDBeSIFTSMappingExpansionError as e:
+                warnings.warn(f"Skipping PDB ID {pdb_id} due to SIFTS mapping expansion error: {e}", UserWarning)
+                continue
+        if not compatible_pdb_ids:
+            raise ValueError("No compatible PDB entries found after filtering for valid residue maps.")
+        self._compatible_pdb_ids = sorted(compatible_pdb_ids)
         return self._compatible_pdb_ids
 
     @property
@@ -655,7 +667,7 @@ class ComplexFinder:
         dfs = []
         cols = ["unp_residue_number", "weight", "pdb_residue_number", "pdb_author_residue_number", "pdb_author_insertion_code"]
         var_cols = [col for col in cols if col not in ("unp_residue_number", "weight")]
-        for pdb_id in self.all_pdb_ids:
+        for pdb_id in self.compatible_pdb_ids:
             entry_df = self.residue_map(pdb_id)
             for struct_asym_id in np.sort(entry_df["struct_asym_id"].unique()):
                 chain_df = entry_df[entry_df["struct_asym_id"] == struct_asym_id]
