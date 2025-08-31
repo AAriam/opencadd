@@ -344,6 +344,16 @@ class ComplexFinder:
 
         if self._sites is not None:
             return self._sites
+        column_dtype = {
+            "accession": "string",
+            "numAtoms": "Int64",
+            "startIndex": "Int64",
+            "endIndex": "Int64",
+            "indexType": "string",
+            "pdbId": "string",
+            "entityId": "string",
+            "chainIds": "string",
+        }
         column_name_map = {
             "startIndex": "res_start_num",
             "endIndex": "res_end_num",
@@ -354,7 +364,7 @@ class ComplexFinder:
         }
         sites = self._pdbe.ligand_sites(self._uniprot, explode=True)
         self._sequence_length = sites["length"]
-        df = pd.DataFrame(sites["data"])
+        df = self._cast_df(pd.DataFrame(sites["data"]), column_dtype)
         df.rename(columns=column_name_map, inplace=True)
         df = df[
             (df["indexType"] == "UNIPROT") &
@@ -372,7 +382,7 @@ class ComplexFinder:
         df = df.drop(columns=["res_start_num", "res_end_num"]).explode("unp_residue_number")
         self._sites = df[
             ["unp_residue_number", "ligand_id", "pdb_id", "chain_id"]
-        ].sort_values("unp_residue_number").reset_index(drop=True)
+        ].sort_values("unp_residue_number").reset_index(drop=True).convert_dtypes()
         return self._sites
 
     @property
@@ -398,7 +408,7 @@ class ComplexFinder:
         df = self.sites.value_counts("unp_residue_number").rename("prevalence").reset_index()
         df["prevalence"] = df["prevalence"] / self.sites.groupby(["ligand_id", "pdb_id"]).ngroups
         df = df[["unp_residue_number", "prevalence"]]
-        self._site_residues = df.sort_values("prevalence", ascending=False).reset_index(drop=True)
+        self._site_residues = df.sort_values("prevalence", ascending=False).reset_index(drop=True).convert_dtypes()
         return self._site_residues
 
     @property
@@ -406,23 +416,25 @@ class ComplexFinder:
         """Modified residues in compatible PDB entries."""
         if self._modified_residues is not None:
             return self._modified_residues
+        column_dtype = {
+            "pdb_id": "string",
+            "chain_id": "string",
+            "author_residue_number": "Int64",
+            "author_insertion_code": "string",
+            "chem_comp_id": "string",
+            "alternate_conformers": "Int64",
+            "entity_id": "string",
+            "struct_asym_id": "string",
+            "residue_number": "Int64",
+            "chem_comp_name": "string",
+            "description": "string",
+            "weight": "float64",
+        }
         modified_residues_rows = self._pdbe.pdb_modified_residues(self.compatible_pdb_ids, explode=True)
-        self._modified_residues = pd.DataFrame(
-            modified_residues_rows,
-            columns=[
-                "pdb_id",
-                "chain_id",
-                "author_residue_number",
-                "author_insertion_code",
-                "chem_comp_id",
-                "alternate_conformers",
-                "entity_id",
-                "struct_asym_id",
-                "residue_number",
-                "chem_comp_name",
-                "description",
-                "weight",
-            ]
+        self._modified_residues = (
+            pd.DataFrame(columns=list(column_dtype.keys())).astype(column_dtype)
+            if not modified_residues_rows else
+            self._cast_df(pd.DataFrame(modified_residues_rows), column_dtype)
         )
         return self._modified_residues
 
@@ -431,22 +443,24 @@ class ComplexFinder:
         """Mutated residues in compatible PDB entries."""
         if self._mutated_residues is not None:
             return self._mutated_residues
+        column_dtype = {
+            "pdb_id": "string",
+            "entity_id": "string",
+            "chain_id": "string",
+            "author_residue_number": "Int64",
+            "author_insertion_code": "string",
+            "chem_comp_id": "string",
+            "struct_asym_id": "string",
+            "residue_number": "Int64",
+            "mutation_from": "string",
+            "mutation_to": "string",
+            "mutation_type": "string",
+        }
         mutated_residues_rows = self._pdbe.pdb_mutated_residues(self.compatible_pdb_ids, explode=True)
-        self._mutated_residues = pd.DataFrame(
-            mutated_residues_rows,
-            columns=[
-                "pdb_id",
-                "entity_id",
-                "chain_id",
-                "author_residue_number",
-                "author_insertion_code",
-                "chem_comp_id",
-                "struct_asym_id",
-                "residue_number",
-                "mutation_from",
-                "mutation_to",
-                "mutation_type",
-            ]
+        self._mutated_residues = (
+            pd.DataFrame(columns=list(column_dtype.keys())).astype(column_dtype)
+            if not mutated_residues_rows else
+            self._cast_df(pd.DataFrame(mutated_residues_rows), column_dtype)
         )
         return self._mutated_residues
 
@@ -455,21 +469,31 @@ class ComplexFinder:
         """Outlier residues in compatible PDB entries."""
         if self._outlier_residues is not None:
             return self._outlier_residues
+        column_dtype = {
+            "pdb_id": "string",
+            "entity_id": "string",
+            "chain_id": "string",
+            "struct_asym_id": "string",
+            "model_id": "Int64",
+            "residue_number": "Int64",
+            "author_residue_number": "Int64",
+            "author_insertion_code": "string",
+            "alt_code": "string",
+            "outlier_type": "string",
+        }
         outlier_rows = self._pdbe.validation_residuewise_outlier_summary(self.compatible_pdb_ids, explode=True)
-        df = pd.DataFrame(outlier_rows)
-        required_columns = [
-            'pdb_id', 'entity_id', 'chain_id', 'struct_asym_id', 'model_id',
-            'residue_number', 'author_residue_number', 'author_insertion_code',
-            'alt_code', 'outlier_type',
-        ]
-        missing = [c for c in required_columns if c not in df.columns]
-        if missing:
-            raise KeyError(f"Missing required columns: {missing}")
+        if not outlier_rows:
+            self._outlier_residues = pd.DataFrame(
+                columns=list(column_dtype.keys()) + ["outlier_type_ratio"]
+            ).astype(column_dtype | {"outlier_type_ratio": "Float64"})
+            return self._outlier_residues
+        df = self._cast_df(pd.DataFrame(outlier_rows), column_dtype)
+
         has_single_model = df.groupby("pdb_id")["model_id"].nunique() == 1
         if not has_single_model.all():
             raise ValueError(f"Multiple models found for PDB IDs: {has_single_model[~has_single_model].index.tolist()}")
 
-        keys = [c for c in required_columns if c != 'outlier_type']
+        keys = [c for c in column_dtype.keys() if c != 'outlier_type']
         df = (
             df.groupby(keys, dropna=False, sort=False)
             .size()
@@ -477,7 +501,7 @@ class ComplexFinder:
             .reset_index()
         )
         df['outlier_type_ratio'] = df['outlier_type_ratio'] / 11  # Normalize by total number of possible outlier types
-        self._outlier_residues = df[keys + ['outlier_type_ratio']]
+        self._outlier_residues = df[keys + ['outlier_type_ratio']].convert_dtypes()
         return self._outlier_residues
 
     @property
@@ -543,7 +567,7 @@ class ComplexFinder:
                 best_idx = nearest_idxs[np.argmax(site_prevalences[nearest_idxs])]
                 weight = site_prevalences[best_idx] / min_dist
             weights.append(weight)
-        self._residue_weights = pd.DataFrame({"unp_residue_number": residues, "weight": weights})
+        self._residue_weights = pd.DataFrame({"unp_residue_number": residues, "weight": weights}).convert_dtypes()
         return self._residue_weights
 
     @property
@@ -551,7 +575,7 @@ class ComplexFinder:
         """List of all PDB IDs associated with the UniProt ID, and with a bound ligand."""
         if self._all_pdb_ids is not None:
             return self._all_pdb_ids
-        self._all_pdb_ids = np.sort(np.strings.upper(self.sites["pdb_id"].unique().astype(str))).tolist()
+        self._all_pdb_ids = sorted(self.sites["pdb_id"].unique().tolist())
         return self._all_pdb_ids
 
     @property
@@ -617,8 +641,8 @@ class ComplexFinder:
         df["pdbx_database_status.pdb_format_compatible"] = df["pdbx_database_status.pdb_format_compatible"] == "Y"
         # If multiple resolutions are present for an entry, take the mean.
         df['rcsb_entry_info.resolution_combined'] = df['rcsb_entry_info.resolution_combined'].apply(
-            lambda v: float(np.mean(v)) if isinstance(v, (list, tuple, np.ndarray)) else v
-        ).astype(float)
+            lambda v: float(np.mean(v)) if isinstance(v, (list, tuple, np.ndarray)) else float(v)
+        ).astype("Float64")
         df.rename(columns={"rcsb_id": "pdb_id"}, inplace=True)
         self._pdb_entry_details = df
         return self._pdb_entry_details
@@ -653,28 +677,23 @@ class ComplexFinder:
         df = self._residue_map.get(pdb_id)
         if df is not None:
             return df
+        column_dtype = {
+            "accession": "string",
+            "entity_id": "string",
+            "struct_asym_id": "string",
+            "chain_id": "string",
+            "unp_residue_number": "Int64",
+            "pdb_residue_number": "Int64",
+            "pdb_author_residue_number": "Int64",
+            "pdb_author_insertion_code": "string",
+        }
         residue_map_rows = self._pdbe.sifts_pdb_uniprot(pdb_id=pdb_id, explode=True, expand=True)
-        df = pd.DataFrame(residue_map_rows)
-        required_columns = [
-            "accession",
-            "entity_id",
-            "struct_asym_id",
-            "chain_id",
-            "unp_residue_number",
-            "pdb_residue_number",
-            "pdb_author_residue_number",
-            "pdb_author_insertion_code",
-        ]
-        missing_columns = set(required_columns) - set(df.columns)
-        if missing_columns:
-            raise ValueError(f"Residue map dataframe missing required columns: {sorted(missing_columns)}")
+        df = self._cast_df(pd.DataFrame(residue_map_rows), column_dtype)
         df = df[df["accession"] == self._uniprot]
-        final_columns = [col for col in required_columns if col != "accession"]
+        final_columns = [col for col in column_dtype if col != "accession"]
         df = df[final_columns]
 
-
         invariant_cols: list[str] = ["entity_id", "chain_id"]
-
         # Sanity check invariants: ensure per-chain constancy.
         varying: dict[str, Iterable[str]] = {}
         g = df.groupby("struct_asym_id", dropna=False)
@@ -995,3 +1014,17 @@ class ComplexFinder:
                 "unp_site_residue_numbers": np.sort(sites[sites["ligand_id"] == best_key[1]]["unp_residue_number"].unique())
             })
         return result
+
+    @staticmethod
+    def _cast_df(df: pd.DataFrame, col_dtype: dict[str, type | str]) -> pd.DataFrame:
+        for col, dtype in col_dtype.items():
+            if col not in df.columns:
+                raise KeyError(f"Column '{col}' not found in dataframe.")
+            dtype_lower = dtype.lower() if isinstance(dtype, str) else ""
+            if dtype not in (int, float) and not dtype_lower.startswith("int") and not dtype_lower.startswith("float"):
+                continue
+            try:
+                df[col] = pd.to_numeric(df[col], errors='raise').astype(dtype)
+            except Exception as e:
+                raise ValueError(f"Error converting column '{col}' to {dtype}: {e}")
+        return df.astype(col_dtype)
