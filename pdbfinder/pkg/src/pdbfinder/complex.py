@@ -551,7 +551,7 @@ class ComplexFinder:
         """List of all PDB IDs associated with the UniProt ID, and with a bound ligand."""
         if self._all_pdb_ids is not None:
             return self._all_pdb_ids
-        self._all_pdb_ids = np.strings.upper(self.sites["pdb_id"].unique().astype(str)).tolist()
+        self._all_pdb_ids = np.sort(np.strings.upper(self.sites["pdb_id"].unique().astype(str))).tolist()
         return self._all_pdb_ids
 
     @property
@@ -577,7 +577,7 @@ class ComplexFinder:
         ]
         if compatibles.empty:
             raise ValueError("No compatible PDB entries found with the specified criteria.")
-        self._compatible_pdb_ids = compatibles["pdb_id"].tolist()
+        self._compatible_pdb_ids = np.sort(compatibles["pdb_id"]).tolist()
         return self._compatible_pdb_ids
 
     @property
@@ -633,7 +633,7 @@ class ComplexFinder:
         var_cols = [col for col in cols if col not in ("unp_residue_number", "weight")]
         for pdb_id in self.all_pdb_ids:
             entry_df = self.residue_map(pdb_id)
-            for struct_asym_id in entry_df["struct_asym_id"].unique():
+            for struct_asym_id in np.sort(entry_df["struct_asym_id"].unique()):
                 chain_df = entry_df[entry_df["struct_asym_id"] == struct_asym_id]
                 chain_df = chain_df[cols]
                 chain_df = chain_df.rename(columns={col: f"{pdb_id}.{struct_asym_id}-{col}" for col in var_cols})
