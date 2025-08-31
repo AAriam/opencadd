@@ -770,11 +770,18 @@ class ComplexFinder:
 
         # Get residue listing containing observed ratios for each available residue in the PDB structure
         listing_rows = self._pdbe.pdb_residue_listing(pdb_id=pdb_id, explode=True)
-        listing = pd.DataFrame(listing_rows)
-        required_columns = {"chain_id", "struct_asym_id", "residue_number", "observed_ratio"}
-        missing_columns = required_columns - set(listing.columns)
-        if missing_columns:
-            raise ValueError(f"Residue listing dataframe missing required columns: {sorted(missing_columns)}")
+        listing = self._cast_df(
+            pd.DataFrame(listing_rows),
+            {
+                "entity_id": "string",
+                "chain_id": "string",
+                "struct_asym_id": "string",
+                "residue_number": "Int64",
+                "author_residue_number": "Int64",
+                "author_insertion_code": "string",
+                "observed_ratio": "Float64",
+            }
+        )
         listing.rename(
             columns={"residue_number": "pdb_residue_number"},
             inplace=True,
@@ -950,14 +957,22 @@ class ComplexFinder:
                     "z": cif["_atom_site.Cartn_z"],
                 }
             )
-            df["entity_id"] = df["entity_id"].astype(int)
             df.loc[df["pdb_residue_number"] == ".", "pdb_residue_number"] = -1
-            df["pdb_residue_number"] = df["pdb_residue_number"].astype(int)
-            df["pdb_author_residue_number"] = df["pdb_author_residue_number"].astype(int)
-            df["x"] = df["x"].astype(float)
-            df["y"] = df["y"].astype(float)
-            df["z"] = df["z"].astype(float)
-            return df.convert_dtypes()
+            return self._cast_df(
+                df,
+                {
+                    "entity_id": "string",
+                    "struct_asym_id": "string",
+                    "chain_id": "string",
+                    "res_name": "string",
+                    "author_res_name": "string",
+                    "pdb_residue_number": "Int64",
+                    "pdb_author_residue_number": "Int64",
+                    "x": "Float64",
+                    "y": "Float64",
+                    "z": "Float64",
+                }
+            )
 
         sites = self.sites[self.sites["pdb_id"] == pdb_id]
         unique_lig_ids = sites["ligand_id"].unique()
