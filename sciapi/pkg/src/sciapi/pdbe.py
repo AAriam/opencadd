@@ -354,7 +354,7 @@ class PDBeAPI:
         ----------
         - [PDBe SIFTS API documentation: SIFTS Mappings (PDB -> UniProt)](https://www.ebi.ac.uk/pdbe/api/sifts.html#sifts_apidiv_call_1_calltitle)
         """
-        response = self.request(endpoint=f"api/mappings/uniprot/{pdb_id}")
+        response = self.request(endpoint=f"api/mappings/uniprot_segments/{pdb_id}")
         data = response.get(pdb_id.lower(), {}).get("UniProt", {})
         if not explode or not data:
             return data
