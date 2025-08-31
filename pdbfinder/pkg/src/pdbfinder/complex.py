@@ -113,7 +113,7 @@ class ComplexFinder:
         self._compatible_pdb_ids = None
         self._default_residue_weight = None
         self._best_entry = None
-        self._similar_entries = None
+        self._residue_maps = None
         self._residue_map: dict[str, pd.DataFrame] = {}
         self._pdb_str: dict[str, str] = {}
         return
@@ -134,17 +134,14 @@ class ComplexFinder:
         }
         return self._best_entry
 
-    @property
-    def similar_entries(self):
-        if self._similar_entries is not None:
-            return self._similar_entries
-        best_entry = self.best_entry
-        best_pdb_id = best_entry["pdb_id"]
-        best_struct_asym_id = best_entry["struct_asym_id"]
+    def similar_entries(self, loc: int = 0) -> pd.DataFrame:
+        ref_entry = self.scores.loc[loc]
+        ref_pdb_id = ref_entry["pdb_id"]
+        ref_struct_asym_id = ref_entry["struct_asym_id"]
 
-        resmap = self.residue_map(best_pdb_id)
+        resmap = self.residue_map(ref_pdb_id)
         site_residues = resmap[
-            (resmap["struct_asym_id"] == best_struct_asym_id) &
+            (resmap["struct_asym_id"] == ref_struct_asym_id) &
             (resmap["unp_residue_number"].isin(self.selected_site_residues)) &
             (resmap["pdb_residue_number"].notna())
         ].sort_values("weight", ascending=False).reset_index(drop=True).convert_dtypes()
@@ -155,7 +152,7 @@ class ComplexFinder:
                 # PDB structure motif API has a limit of 10 residues per query
                 break
             res = rcsbapi.search.StructMotifResidue(
-                chain_id=best_struct_asym_id,
+                chain_id=ref_struct_asym_id,
                 label_seq_id=residue["pdb_residue_number"],
                 struct_oper_id="1",
             )
@@ -164,9 +161,8 @@ class ComplexFinder:
             (self.scores["score_ligand"] == True) &
             (self.scores["observed_site_residues"] >= 2)
         ]["pdb_id"].unique().tolist()
-        allowed_pdb_ids.remove(best_pdb_id)
         query = rcsbapi.search.StructMotifQuery(
-            entry_id=best_pdb_id,
+            entry_id=ref_pdb_id,
             residue_ids=residue_list,
             backbone_distance_tolerance=1,
             side_chain_distance_tolerance=1,
@@ -220,8 +216,34 @@ class ComplexFinder:
         )
         if df.empty:
             raise ValueError("No similar entries found for the best PDB ID.")
-        self._similar_entries = df.convert_dtypes()
-        return self._similar_entries
+        cols = [
+            "pdb_id",
+            "struct_asym_id",
+            "chain_id",
+            "ligand_chain_id",
+            "ligand_id",
+            "ligand_res_num",
+            "score_total",
+            "score_match",
+            "score_coverage",
+            "score_modification",
+            "score_mutation",
+            "score_outlier",
+            "score_resolution",
+            "score_ligand",
+            "observed_site_residues",
+            "ligand_dist_min",
+            "ligand_dist_mean",
+            "ligand_dist_max",
+            "unp_site_residue_numbers",
+        ]
+        df = (
+            df[cols]
+            .sort_values(["score_total", "score_match"], ascending=[False, False])
+            .reset_index(drop=True)
+            .convert_dtypes()
+        )
+        return df
 
     @property
     def scores(self) -> pd.DataFrame:
@@ -288,6 +310,7 @@ class ComplexFinder:
             "ligand_dist_min",
             "ligand_dist_mean",
             "ligand_dist_max",
+            "unp_site_residue_numbers",
         ]
         self._scores = scores[cols].convert_dtypes()
         return self._scores
@@ -324,7 +347,7 @@ class ComplexFinder:
         column_name_map = {
             "startIndex": "res_start_num",
             "endIndex": "res_end_num",
-            "accession": "lig_id",
+            "accession": "ligand_id",
             "numAtoms": "lig_atom_count",
             "pdbId": "pdb_id",
             "chainIds": "chain_id",
@@ -335,20 +358,20 @@ class ComplexFinder:
         df.rename(columns=column_name_map, inplace=True)
         df = df[
             (df["indexType"] == "UNIPROT") &
-            (~df["lig_id"].isin(self._artifact_ligand_ids)) &
+            (~df["ligand_id"].isin(self._artifact_ligand_ids)) &
             (df["lig_atom_count"] >= self._ligand_min_carbons)
         ]
-        lig_atoms_rows = self._pdbe.compound_atoms(df["lig_id"].unique(), explode=True)
+        lig_atoms_rows = self._pdbe.compound_atoms(df["ligand_id"].unique(), explode=True)
         lig_atoms = pd.DataFrame(lig_atoms_rows)
         acceptable_ligand_ids = filter_ligands(lig_atoms)
-        df = df[df["lig_id"].isin(acceptable_ligand_ids)]
+        df = df[df["ligand_id"].isin(acceptable_ligand_ids)]
         if df.empty:
             raise ValueError("No binding sites found for the given UniProt ID with the specified criteria.")
         df["pdb_id"] = df["pdb_id"].str.upper()
         df["unp_residue_number"] = df.apply(lambda row: list(range(row["res_start_num"], row["res_end_num"]+1)), axis=1)
         df = df.drop(columns=["res_start_num", "res_end_num"]).explode("unp_residue_number")
         self._sites = df[
-            ["unp_residue_number", "lig_id", "pdb_id", "chain_id"]
+            ["unp_residue_number", "ligand_id", "pdb_id", "chain_id"]
         ].sort_values("unp_residue_number").reset_index(drop=True)
         return self._sites
 
@@ -373,7 +396,7 @@ class ComplexFinder:
         if self._site_residues is not None:
             return self._site_residues
         df = self.sites.value_counts("unp_residue_number").rename("prevalence").reset_index()
-        df["prevalence"] = df["prevalence"] / self.sites.groupby(["lig_id", "pdb_id"]).ngroups
+        df["prevalence"] = df["prevalence"] / self.sites.groupby(["ligand_id", "pdb_id"]).ngroups
         df = df[["unp_residue_number", "prevalence"]]
         self._site_residues = df.sort_values("prevalence", ascending=False).reset_index(drop=True)
         return self._site_residues
@@ -600,9 +623,33 @@ class ComplexFinder:
         self._pdb_entry_details = df
         return self._pdb_entry_details
 
+    @property
+    def residue_maps(self) -> pd.DataFrame:
+        """Concatenated residue maps for all associated PDB IDs."""
+        if self._residue_maps is not None:
+            return self._residue_maps
+        dfs = []
+        cols = ["unp_residue_number", "weight", "pdb_residue_number", "pdb_author_residue_number", "pdb_author_insertion_code"]
+        var_cols = [col for col in cols if col not in ("unp_residue_number", "weight")]
+        for pdb_id in self.all_pdb_ids:
+            entry_df = self.residue_map(pdb_id)
+            for struct_asym_id in entry_df["struct_asym_id"].unique():
+                chain_df = entry_df[entry_df["struct_asym_id"] == struct_asym_id]
+                chain_df = chain_df[cols]
+                chain_df = chain_df.rename(columns={col: f"{pdb_id}.{struct_asym_id}-{col}" for col in var_cols})
+                dfs.append(chain_df)
+        merged = dfs[0]
+        for df in dfs[1:]:
+            merged = merged.merge(df, on=["unp_residue_number", "weight"], how="outer")
+        merged = merged.sort_values("unp_residue_number", ascending=True).reset_index(drop=True).convert_dtypes()
+        self._residue_maps = merged
+        return self._residue_maps
+
     def residue_map(self, pdb_id: str) -> pd.DataFrame:
         """Get the SIFTS residue mapping for a given PDB ID."""
         pdb_id = pdb_id.upper()
+        if pdb_id not in self.all_pdb_ids:
+            raise ValueError(f"PDB ID {pdb_id} is not in the list of associated PDB IDs.")
         df = self._residue_map.get(pdb_id)
         if df is not None:
             return df
@@ -832,11 +879,11 @@ class ComplexFinder:
         ]
 
     def _score_ligand(self, pdb_id: str) -> tuple[tuple[str, str, int], np.ndarray]:
-        """Return lig_id of the (lig_id, chain_id) group with most range hits.
+        """Return ligand_id of the (ligand_id, chain_id) group with most range hits.
 
         A row is a "hit" if at least one integer from `common_nums` lies within
         the inclusive interval [res_start_num, res_end_num]. Rows are grouped by
-        (lig_id, chain_id); we count hits per group and return the `lig_id` of the
+        (ligand_id, chain_id); we count hits per group and return the `ligand_id` of the
         group with the highest count. In case of ties, the first occurring group
         in Pandas' order is chosen. If `sites` is empty, return None.
 
@@ -846,7 +893,7 @@ class ComplexFinder:
             DataFrame with columns:
             - 'res_start_num' (int): inclusive start of the residue range.
             - 'res_end_num' (int): inclusive end of the residue range.
-            - 'lig_id': ligand identifier (any hashable/label-like).
+            - 'ligand_id': ligand identifier (any hashable/label-like).
             - 'chain_id': chain identifier (any hashable/label-like).
         common_nums
             Iterable of integers to test for membership within row intervals.
@@ -855,7 +902,7 @@ class ComplexFinder:
         Returns
         -------
         ligand_chain_id, ligand_id, ligand_res_num
-            The `lig_id` of the (lig_id, chain_id) group with the largest number
+            The `ligand_id` of the (ligand_id, chain_id) group with the largest number
             of hit rows, or None if `sites` has no rows.
 
         Notes
@@ -894,7 +941,7 @@ class ComplexFinder:
             return df.convert_dtypes()
 
         sites = self.sites[self.sites["pdb_id"] == pdb_id]
-        unique_lig_ids = sites["lig_id"].unique()
+        unique_lig_ids = sites["ligand_id"].unique()
         atom = pdb_atoms(pdb_id)
         resmap = self.residue_map(pdb_id)
         site_res = resmap[resmap["unp_residue_number"].isin(self.selected_site_residues)]
@@ -945,5 +992,6 @@ class ComplexFinder:
                 "ligand_dist_mean": best_dist_mean,
                 "ligand_dist_max": best_dist_max,
                 "score_ligand": best_dist_min <= self._ligand_min_dist_threshold and best_dist_max <= self._ligand_max_dist_threshold,
+                "unp_site_residue_numbers": np.sort(sites[sites["ligand_id"] == best_key[1]]["unp_residue_number"].unique())
             })
         return result
