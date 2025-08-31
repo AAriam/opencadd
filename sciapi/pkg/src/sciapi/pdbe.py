@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 import pylinks as pl
 from pylinks.exception.api import WebAPIPersistentStatusCodeError
 
+from sciapi.exception.pdbe import PDBeSIFTSMappingExpansionError
 
 if TYPE_CHECKING:
     from typing import Sequence, Any, Literal
@@ -403,7 +404,7 @@ class PDBeAPI:
                 unp_end_res_num = mapping["unp_end"]
 
                 if unp_end_res_num - unp_start_res_num != pdb_end_res_num - pdb_start_res_num:
-                    raise ValueError(
+                    raise PDBeSIFTSMappingExpansionError(
                         f"Cannot expand SIFTS mapping for PDB ID '{pdb_id}', entity '{entity_id}', chain '{chain_id}': "
                         f"inconsistent residue ranges (UNP: {unp_start_res_num}-{unp_end_res_num}, PDB: {pdb_start_res_num}-{pdb_end_res_num})."
                     )
@@ -413,7 +414,7 @@ class PDBeAPI:
                         author_ins_code = mapping[terminal].get("author_insertion_code", "")
                         from_listing = pdb_to_author[(entity_id, struct_asym_id, mapping[terminal]["residue_number"])]
                         if (author_res_num, author_ins_code) != from_listing:
-                            raise ValueError(
+                            raise PDBeSIFTSMappingExpansionError(
                                 f"Cannot expand SIFTS mapping for PDB ID '{pdb_id}', entity '{entity_id}', chain '{chain_id}': "
                                 f"{terminal} residue author number/insertion code mismatch (expected: {author_res_num}{author_ins_code}, "
                                 f"found: {from_listing[0]}{from_listing[1]})."
