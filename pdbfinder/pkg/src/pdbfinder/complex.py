@@ -258,7 +258,7 @@ class ComplexFinder:
         rows_resolution = []
         rows_ligand = []
 
-        for pdb_id in tqdm(self.compatible_pdb_ids, desc="Calculating scores", unit="entry"):
+        for pdb_id in tqdm(self.compatible_pdb_ids, desc=f"Calculating scores ({self._uniprot})", unit="entry"):
             try:
                 rows_coverage.extend(self._score_coverage(pdb_id))
                 rows_modification.extend(self._score_modification(pdb_id, mutation=False))
