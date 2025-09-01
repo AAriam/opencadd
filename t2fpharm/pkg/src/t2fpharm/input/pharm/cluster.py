@@ -67,7 +67,7 @@ class PharmClusterInput(BaseModel):
                 require_all_types=True,
             )
         values["noise_as_singleton"] = {
-            feature_type: values["min_members"]["feature_type"] == 1 and value is True
+            feature_type: values["min_members"][feature_type] == 1 and value is True
             for feature_type, value in values["noise_as_singleton"].items()
         }
         input_weights = values["weights"]
