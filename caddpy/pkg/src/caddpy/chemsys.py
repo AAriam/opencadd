@@ -698,7 +698,11 @@ def fix_pdb(
     pdb_fixed_buffer.seek(0)
     pdb_fixed_str = pdb_fixed_buffer.getvalue()
     pdb_fixed_valid_str = remove_nonpolymeric_ter_records(pdb_fixed_str)
-    return pdb_fixed_valid_str, missing_residues, nonstandard_residues, missing_atoms, missing_terminals
+    pdb_fixed_final_str = "\n".join(
+        line for line in pdb_fixed_valid_str.splitlines()
+        if not line.startswith("REMARK")
+    )
+    return pdb_fixed_final_str, missing_residues, nonstandard_residues, missing_atoms, missing_terminals
 
 
 def _read_single_pdb(file: scifile.pdb.PDBFile | Path | bytes | str) -> tuple[pd.DataFrame, np.ndarray]:
