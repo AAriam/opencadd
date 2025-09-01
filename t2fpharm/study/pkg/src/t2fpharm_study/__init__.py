@@ -14,8 +14,11 @@ def manager(
     dirpath_data: Path | str | None = None,
     *,
     filepath_inputs: Path | str  = "inputs.yaml",
+    filepath_pdb_entries: str = "structure/entries.parquet",
+    dirpath_pdb_data: Path | str = "structure/0-group-data",
     dirpath_pdb_raw: Path | str = "structure/1-pdb-raw",
     dirpath_pdb_fixed: Path | str = "structure/2-pdb-fixed",
+    dirpath_pdb_fix_data: Path | str = "structure/2-pdb-fix-data",
     dirpath_pdb_aligned: Path | str = "structure/3-pdb-aligned",
     dirpath_pdb_apo: Path | str = "structure/4-pdb-apo",
     dirpath_pdbqt: Path | str = "structure/5-pdbqt",
@@ -95,30 +98,20 @@ def manager(
             "group_name": group_data["name"],
             "uniprot_id": group_data.get("uniprot_id"),
         }
-        row = _make_structure(
-            group=group,
-            structure=group_data["ref_structure"],
-            is_ref=True
-        )
-        rows.append(row)
-        for structure_data in group_data.get("structures", []):
-            row = _make_structure(
-                group=group,
-                structure=structure_data,
-                is_ref=False
-            )
-            rows.append(row)
+        rows.append(group)
     df = pd.DataFrame(rows).convert_dtypes()
-    df.set_index("pdb_id", inplace=True, drop=False)
     return Manager(
-        dataset=df,
+        protein_groups=df,
         pocket_inputs=inputs["pocket"],
         field_inputs=inputs["field"],
         job_inputs=inputs["job"],
         group_color=group_color,
         dirpath_data=dirpath_data,
+        filepath_pdb_entries=filepath_pdb_entries,
+        dirpath_pdb_data=dirpath_pdb_data,
         dirpath_pdb_raw=dirpath_pdb_raw,
         dirpath_pdb_fixed=dirpath_pdb_fixed,
+        dirpath_pdb_fix_data=dirpath_pdb_fix_data,
         dirpath_pdb_aligned=dirpath_pdb_aligned,
         dirpath_pdb_apo=dirpath_pdb_apo,
         dirpath_pdbqt=dirpath_pdbqt,
@@ -133,19 +126,3 @@ def manager(
         dirname_job_pharms=dirname_job_pharms,
         dirname_job_matches=dirname_job_matches,
     )
-
-
-def _make_structure(
-    group: dict,
-    structure: dict,
-    is_ref: bool = False
-):
-    structure_full = group | {
-        "pdb_id": structure["pdb_id"].upper(),
-        "is_ref": is_ref,
-        "chain_id": structure.get("chain_id"),
-        "ligand_res_name": structure.get("ref_ligand", {}).get("res_name"),
-        "ligand_chain_id": structure.get("ref_ligand", {}).get("chain_id"),
-        "ligand_res_seq": structure.get("ref_ligand", {}).get("res_seq"),
-    }
-    return structure_full
