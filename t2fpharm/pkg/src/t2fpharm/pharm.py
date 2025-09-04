@@ -980,6 +980,7 @@ class Pharmacophore:
         feature_types: Sequence[str] | None = None,
         system: Any | Literal[False] | None = None,
         default_radius: float = 1.5,
+        min_radius: float = 1.0,
         show_box: bool = True,
         show_pocket: bool = True,
         show_fields: bool = False,
@@ -1056,7 +1057,7 @@ class Pharmacophore:
             radius = feature["radius"]
             nv.add_spheres(
                 coords=feature["center"],
-                radii=radius if radius and not overdide_radius else default_radius,
+                radii=max(radius, min_radius) if not overdide_radius else default_radius,
                 name=f"{name} Center",
                 colors=feature_color(feature["type"]),
                 representation_params=scishow.nglview.RepresentationParameters(
