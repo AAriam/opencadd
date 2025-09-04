@@ -114,10 +114,10 @@ class ChemicalSystem:
         positions = self.trajectory.points[..., selection, :]
         return self.new(composition=atoms, trajectory=positions)
 
-    def display(self, nglwidget: ngl.NGLWidget | None = None) -> ngl.NGLWidget:
+    def display(self, nglwidget: ngl.NGLWidget | None = None, name: str = "ChemicalSystem") -> ngl.NGLWidget:
         if nglwidget is None:
             nglwidget = scishow.nglview.NGLWidget()
-        nglwidget.add_trajectory(self, name="ChemicalSystem")
+        nglwidget.add_trajectory(self, name=name)
         nglwidget.display(gui=True)
         return nglwidget
 
