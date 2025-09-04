@@ -52,6 +52,18 @@ class PharmFeaturesInput(BaseModel):
             return arr
 
         df = self.features
+        if df.empty:
+            df = pd.DataFrame(
+                columns=['instance', 'type', 'label', 'center', 'radius']
+            ).astype({
+                'instance': 'Int64',
+                'type': 'string',
+                'label': 'Int64',
+                'center': 'object',
+                'radius': 'float64'
+            })
+            self.features = df
+            return self
 
         # Check required columns
         required_cols = {'type', 'center'}
