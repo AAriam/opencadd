@@ -15,6 +15,7 @@ from caddpy.pocket.detector import Detector
 from caddpy.pocket.detector_gui import DetectorGUI
 from caddpy.pocket.pocket import Pocket
 from caddpy.pocket.pockets import Pockets
+from caddpy.pocket.ligsite import LigSite
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -177,6 +178,12 @@ def from_ligand(
     ligand_mask: ArrayLike,
     ligand_radii: ArrayLike | None = None,
     ligand_radii_offset: float | Sequence[float] = 2.5,
+    psp_count_lower: int | None = None,
+    psp_count_upper: int | None = None,
+    psp_dist_lower: float | None = None,
+    psp_dist_upper: float | None = None,
+    psp_dist_lower_mode: Literal["any", "all", "max", "min", "mean"] = "all",
+    psp_dist_upper_mode: Literal["any", "all", "max", "min", "mean"] = "any",
     erosion_radius: float = 0,
     opening_radius: float = 0,
     morphology_order: tuple[Literal["opening", "erosion"], Literal["opening", "erosion"]] = ("opening", "erosion"),
@@ -258,10 +265,34 @@ def from_ligand(
         radii=ligand_radii + jnp.asarray(ligand_radii_offset),
     )
     receptor = system.select(selection=system.composition.atoms["res_poly"])
-    receptor_volume = receptor.toxelate(grid=ligand_volume.grid)
-    empty_voxels = jnp.logical_not(receptor_volume.tensor)
+
+    if any(arg is not None for arg in (psp_count_lower, psp_count_upper, psp_dist_lower, psp_dist_upper)):
+        receptor_lb = jnp.minimum(receptor.trajectory.points.min(axis=0), ligand_volume.grid.lower_bounds)
+        receptor_ub = jnp.maximum(receptor.trajectory.points.max(axis=0), ligand_volume.grid.upper_bounds)
+        receptor_grid = ligand_volume.grid.new_aligned_grid(lower=receptor_lb, upper=receptor_ub, rounding="expand")
+        receptor_full_volume = receptor.toxelate(grid=receptor_grid)
+        slice_receptor, _ = receptor_grid.overlap_slice(ligand_volume.grid)
+        receptor_volume_tensor = receptor_full_volume.tensor[slice_receptor]
+        ligsite = LigSite(field=receptor_full_volume)
+        ligsite_mask = ligsite.psp_mask(
+            count_lower=psp_count_lower,
+            count_upper=psp_count_upper,
+            dist_lower=psp_dist_lower,
+            dist_upper=psp_dist_upper,
+            dist_lower_mode=psp_dist_lower_mode,
+            dist_upper_mode=psp_dist_upper_mode,
+        )[slice_receptor]
+        psp_mask = jnp.logical_and(jnp.logical_not(receptor_volume_tensor), ligsite_mask)
+    else:
+        receptor_volume_tensor = receptor.toxelate(grid=ligand_volume.grid).tensor
+        psp_mask = None
+
+    empty_voxels = jnp.logical_not(receptor_volume_tensor)
     ligand_voxels = ligand_volume.tensor
     pocket_voxels = jnp.logical_and(ligand_voxels, empty_voxels)
+    if psp_mask is not None:
+        pocket_voxels = jnp.logical_and(pocket_voxels, psp_mask)
+
     for morphology_operation in morphology_order:
         if morphology_operation == "opening":
             morphology_radius = opening_radius
@@ -288,7 +319,7 @@ def from_ligand(
         receptor=system,
         pocket_atom_serials=get_pocket_atom_serials(
             ligand_voxels=ligand_voxels,
-            receptor_voxels=receptor_volume.tensor,
+            receptor_voxels=receptor_volume_tensor,
             receptor=receptor,
         ),
         trim=trim
