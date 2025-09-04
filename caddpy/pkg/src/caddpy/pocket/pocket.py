@@ -2,6 +2,7 @@
 from typing import Sequence, Any, Literal
 
 import jax.numpy as jnp
+import numpy as np
 import pandas as pd
 
 import arrayer
@@ -114,7 +115,7 @@ class Pocket(Field):
             )
         indices, distances, is_inside = self.grid.nearest_point(points)
         idx_tuple = tuple(indices[..., dim] for dim in range(indices.shape[-1]))
-        return jnp.logical_and(is_inside, self.tensor[..., *idx_tuple])
+        return np.logical_and(is_inside, self.tensor[..., *idx_tuple])
 
     def display(
         self,
