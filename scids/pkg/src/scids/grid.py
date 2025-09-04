@@ -12,12 +12,12 @@ import numpy as np
 import scids
 
 if TYPE_CHECKING:
-    from typing import Literal
+    from typing import Literal, Self
     from numpy.typing import ArrayLike
 
 
 class Grid:
-    """An n-dimensional grid of points in euclidean space.
+    """An n-dimensional grid of points in Euclidean space.
 
     Parameters
     ----------
@@ -25,17 +25,13 @@ class Grid:
         Shape of the grid, i.e. number of points in each dimension.
     size
         Length of the grid in each dimension.
-    lower_bounds
-        Coordinates of the point with minimum values in all dimensions.
-    center
-        Coordinates of the geometric center of the grid.
-    upper_bounds
-        Coordinates of the point with maximum values in all dimensions.
-    spacings
+    spacing
         Spacing between grid points in each dimension.
         grid delta, i.e. distance between two adjacent grid points
-    mgrid
-        Fleshed out meshgrid of grid point coordinates.
+    lower
+        Coordinates of the point with minimum values in all dimensions.
+    upper
+        Coordinates of the point with maximum values in all dimensions.
     """
 
     def __init__(
@@ -514,6 +510,229 @@ class Grid:
                 ("upper", self.upper_bounds),
             )
         }
+
+    def new_aligned_grid(
+        self,
+        lower: np.ndarray | None = None,
+        upper: np.ndarray | None = None,
+        *,
+        rounding: Literal["nearest", "expand", "shrink"] = "nearest",
+        atol: float = 1e-12,
+    ) -> Self:
+        """Create a new grid aligned to this grid's infinite lattice.
+
+        The new grid uses **identical spacings and phase** as this grid.
+        The requested bounds are snapped to lattice points defined by
+        ``self.lower_bounds + k * self.spacings`` (elementwise integer k).
+        This ensures that, if both grids extended infinitely, **all points overlap**.
+
+        Parameters
+        ----------
+        lower
+            Requested lower bounds (min corner) as a 1D array of shape (ndim,).
+            Values will be snapped to the existing lattice per `rounding`.
+            If None, defaults to this grid's lower bounds.
+        upper
+            Requested upper bounds (max corner) as a 1D array of shape (ndim,).
+            Must satisfy ``upper >= lower`` elementwise before snapping.
+            Values will be snapped to the existing lattice per `rounding`.
+            If None, defaults to this grid's upper bounds.
+        rounding
+            Lattice snapping rule per dimension:
+            - ``"nearest"``: snap each bound to the nearest lattice point.
+            - ``"expand"``: choose the **outer** lattice points so the resulting box
+              fully contains the requested interval (lower rounds down, upper rounds up).
+            - ``"shrink"``: choose the **inner** lattice points so the result is fully
+              contained in the requested interval (lower rounds up, upper rounds down).
+        atol
+            Absolute tolerance used for numerical safety when validating integrality
+            of step counts and nonnegativity of extents.
+
+        Returns
+        -------
+        Grid
+            A new grid with the same spacings and phase as this grid, and bounds
+            snapped to lattice points. The shape is chosen so that
+            ``upper = lower + (shape - 1) * spacings`` holds exactly.
+
+        Raises
+        -------
+        ValueError
+            If inputs have incompatible shapes, if any spacing is non-positive,
+            if the requested interval is invalid, or if snapping results in an
+            empty dimension.
+
+        Notes
+        ------
+        - The relationship ``size = (shape - 1) * spacings`` is enforced exactly.
+        - Snapping uses ``rint/floor/ceil`` in units of the lattice step to avoid
+          floating drift.
+        """
+        lb = np.asarray(lower, dtype=float) if lower is not None else self.lower_bounds
+        ub = np.asarray(upper, dtype=float) if upper is not None else self.upper_bounds
+        s = np.asarray(self.spacings, dtype=float)
+        origin = np.asarray(self.lower_bounds, dtype=float)
+
+        if lb.ndim != 1 or ub.ndim != 1 or s.ndim != 1 or origin.ndim != 1:
+            raise ValueError("All inputs must be 1D arrays.")
+        if not (lb.shape == ub.shape == origin.shape):
+            raise ValueError("All inputs must have the same shape (ndim,).")
+        if np.any(ub < lb - atol):
+            raise ValueError("upper must be >= lower elementwise.")
+
+        # Compute integer lattice indices for requested bounds in step units.
+        # Work in step coordinates to avoid cumulative float error.
+        t_lower = (lb - origin) / s
+        t_upper = (ub - origin) / s
+
+        if rounding == "nearest":
+            k_lower = np.rint(t_lower)
+            k_upper = np.rint(t_upper)
+        elif rounding == "expand":
+            k_lower = np.floor(t_lower)
+            k_upper = np.ceil(t_upper)
+        elif rounding == "shrink":
+            k_lower = np.ceil(t_lower)
+            k_upper = np.floor(t_upper)
+        else:
+            raise ValueError("rounding must be 'nearest', 'expand', or 'shrink'.")
+
+        # Aligned bounds on the lattice.
+        aligned_lower = origin + k_lower * s
+        aligned_upper = origin + k_upper * s
+
+        # Ensure non-empty extents after snapping.
+        if np.any(aligned_upper < aligned_lower - atol):
+            raise ValueError("Snapped bounds are invalid (upper < lower).")
+
+        # Compute number of intervals and points: n = (upper - lower)/s + 1
+        intervals = (aligned_upper - aligned_lower) / s
+        # Guard against tiny negative zeros due to floating noise.
+        intervals = np.where(np.abs(intervals) < atol, 0.0, intervals)
+
+        k_intervals = np.rint(intervals)
+        if np.any(np.abs(intervals - k_intervals) > 1e-9):
+            # This should not happen due to snapping to lattice; keep a clear error if it does.
+            raise ValueError("Non-integer interval count after snapping; check inputs/tolerances.")
+
+        shape_new = (k_intervals.astype(np.int64) + 1)
+        if np.any(shape_new < 1):
+            raise ValueError("Snapped shape would be empty along at least one dimension.")
+
+        # Recompute size and upper exactly from integer shape to guarantee consistency.
+        size_new = (shape_new - 1) * s
+        upper_new = aligned_lower + size_new
+
+        # Return a new Grid with identical spacings/phase and aligned bounds.
+        return Grid(
+            shape=shape_new,
+            size=size_new,
+            spacing=s.copy(),
+            lower=aligned_lower,
+            upper=upper_new,
+        )
+
+    def overlap_slice(
+        self,
+        other: Self,
+        *,
+        atol: float = 1e-12,
+        strict_phase: bool = True,
+    ) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
+        """Return numpy indexers extracting the overlapping region between two grids.
+
+        The returned indexing tuples, when applied to arrays shaped like the respective
+        grids (``self.shape`` and ``other.shape``), select the **exact** set of points
+        that overlap in Euclidean coordinates. If there is no overlap, the slices
+        will produce empty arrays (stop ≤ start in at least one dimension).
+
+        Assumes both grids are samples of the same underlying infinite lattice
+        (identical spacings and phase). If `strict_phase=True`, this is enforced.
+
+        Parameters
+        ----------
+        other
+            The grid to intersect with.
+        atol
+            Absolute tolerance for floating comparisons and integrality checks.
+        strict_phase
+            If True, require that the two grids share identical lattice phase:
+            ``(self.lower_bounds - other.lower_bounds) / spacings`` is integer
+            (within `atol`). If False, indices are computed geometrically assuming
+            equal spacings; non-integer phase may yield empty overlap.
+
+        Returns
+        -------
+        (self_indexer, other_indexer)
+            Two tuples of Python ``slice`` objects, one per dimension, suitable for
+            indexing arrays shaped like the corresponding grids.
+
+        Raises
+        -------
+        ValueError
+            If spacings differ; if dimension mismatches; or if `strict_phase` is True
+            and lattice phases don't match within tolerance.
+
+        Notes
+        ------
+        - Coordinates at index i are ``lower_bounds + i * spacings`` (0-based).
+        - Each grid includes both lower and upper bounds: upper = lower + (shape-1)*spacing.
+        - The slices are half-open [start, stop) as per NumPy semantics.
+        """
+        # Basic checks
+        if self.spacings.shape != other.spacings.shape:
+            raise ValueError("Grid dimensionality mismatch.")
+        if not np.allclose(self.spacings, other.spacings, rtol=0.0, atol=atol):
+            raise ValueError("Grids must have identical spacings for index overlap.")
+        s = np.asarray(self.spacings, dtype=float)
+
+        lb1 = np.asarray(self.lower_bounds, dtype=float)
+        ub1 = np.asarray(self.upper_bounds, dtype=float)
+        n1 = np.asarray(self.shape, dtype=int)
+
+        lb2 = np.asarray(other.lower_bounds, dtype=float)
+        ub2 = np.asarray(other.upper_bounds, dtype=float)
+        n2 = np.asarray(other.shape, dtype=int)
+
+        if strict_phase:
+            phase = (lb1 - lb2) / s
+            if not np.allclose(phase, np.rint(phase), rtol=0.0, atol=1e3 * atol):
+                raise ValueError(
+                    "Grids are not phase-aligned: (lower1 - lower2)/spacing must be integer."
+                )
+
+        self_slices: list[slice] = []
+        other_slices: list[slice] = []
+
+        # For each dimension, compute inclusive index overlap [i0, i1] and [j0, j1]
+        for d in range(s.size):
+            sd = s[d]
+
+            # Map other's coord range into self's index space
+            t0 = (lb2[d] - lb1[d]) / sd
+            t1 = (ub2[d] - lb1[d]) / sd
+            # Inclusive bounds in self
+            i0 = int(max(0, np.ceil(t0 - atol)))
+            i1 = int(min(n1[d] - 1, np.floor(t1 + atol)))
+
+            # Map self's coord range into other's index space
+            u0 = (lb1[d] - lb2[d]) / sd
+            u1 = (ub1[d] - lb2[d]) / sd
+            # Inclusive bounds in other
+            j0 = int(max(0, np.ceil(u0 - atol)))
+            j1 = int(min(n2[d] - 1, np.floor(u1 + atol)))
+
+            # If either side has no overlap in this dim, return empty slices for both
+            if i1 < i0 or j1 < j0:
+                self_slices.append(slice(0, 0, 1))
+                other_slices.append(slice(0, 0, 1))
+                continue
+
+            # Convert inclusive [i0, i1] to half-open [i0, i1+1)
+            self_slices.append(slice(i0, i1 + 1, 1))
+            other_slices.append(slice(j0, j1 + 1, 1))
+
+        return tuple(self_slices), tuple(other_slices)
 
     def __eq__(self, other: object) -> bool:
         """Check if two grids are equal.
