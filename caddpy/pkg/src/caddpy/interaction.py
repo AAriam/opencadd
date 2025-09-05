@@ -11,6 +11,7 @@ from typing import Sequence, Literal, Any
 
 import numpy as np
 import scishow
+import scifile
 from plip.structure.preparation import PDBComplex, PLInteraction
 import pandas as pd
 import matplotlib as mpl
@@ -38,9 +39,8 @@ _ARRAY_COLUMNS = [
     "l_position",
     "r_position",
     "h_position",
-    "w_position",
-    "m_position",
-    "t_position",
+    "w_o_position",
+    "w_h_position",
     "l_serials",
     "r_serials"
 ]
@@ -125,7 +125,7 @@ class ProteinLigandInteractions:
         self,
         nglwidget: scishow.nglview.NGLWidget | None = None,
         *,
-        idx: int | tuple[int, ...] | None = None,
+        instance: int | str | tuple[int | str, ...] | None = None,
         interactions_include: InteractionTypes = INTERACTION_TYPES,
         interactions_exclude: InteractionTypes = (),
         vis: VisualizationParts | None = None,
@@ -139,7 +139,8 @@ class ProteinLigandInteractions:
         vis_metal: VisualizationParts = VISUALIZATION_PARTS,
         color_hbond_acceptor: tuple[float, float, float] = (0.6, 0, 0),
         color_hbond_donor: tuple[float, float, float] = (0, 0.6, 0),
-        color_water: tuple[float, float, float] = (0, 0.4, 1),
+        color_water_oxygen: tuple[float, float, float] = (0, 0.4, 1),
+        color_water_hydrogen: tuple[float, float, float] = (0.4, 0.4, 1),
         color_hydrophobic: tuple[float, float, float] = (1, 1, 0),
         color_aromatic: tuple[float, float, float] = (1, 0.6, 0),
         color_anion: tuple[float, float, float] = (1, 0, 0),
@@ -157,29 +158,27 @@ class ProteinLigandInteractions:
         ngl = nglwidget or scishow.nglview.NGLWidget()
         if not sphere_representation_params:
             sphere_representation_params = scishow.nglview.RepresentationParameters(
-                opacity=0.7,
+                opacity=0.6,
             )
         interaction_types = set(interactions_include) - set(interactions_exclude)
         for interaction_type in interaction_types:
             data = getattr(self, interaction_type)
             if data.empty:
                 continue
-            if idx is not None:
-                data = data[data["idx"] == idx]
+            if instance is not None:
+                data = data[data["instance"] == instance]
 
             # Set positions based on interaction type
             if interaction_type in ("hbond", "water_bridge"):
                 l_pos = data['l_position'].where(data['r_is_d'], data['h_position'])
                 r_pos = data['h_position'].where(data['r_is_d'], data['r_position'])
-            elif interaction_type == "metal":
-                l_pos = data["t_position"]
-                r_pos = data["m_position"]
             else:
                 l_pos = data["l_position"]
                 r_pos = data["r_position"]
             l_pos = l_pos.to_list()
             r_pos = r_pos.to_list()
-            w_pos = data["w_position"].to_list() if interaction_type == "water_bridge" else []
+            w_o_pos = data["w_o_position"].to_list() if interaction_type == "water_bridge" else []
+            w_h_pos = data["w_h_position"].to_list() if interaction_type == "water_bridge" else []
 
             # Set colors based on interaction type
             if interaction_type == "hydrophobic":
@@ -235,17 +234,26 @@ class ProteinLigandInteractions:
                 )
             if interaction_type == "water_bridge" and "water" in vis_spec:
                 ngl.add_spheres(
-                    coords=w_pos,
-                    colors=color_water,
+                    coords=w_o_pos,
+                    colors=color_water_oxygen,
                     radii=radius_sphere,
-                    name=f"{interaction_type}-water",
+                    name=f"{interaction_type}-water-oxygen",
+                    representation_params=sphere_representation_params,
+                )
+                ngl.add_spheres(
+                    coords=w_h_pos,
+                    colors=color_water_hydrogen,
+                    radii=radius_sphere,
+                    name=f"{interaction_type}-water-hydrogen",
                     representation_params=sphere_representation_params,
                 )
             if "line" in vis_spec:
                 if interaction_type == "water_bridge":
-                    for w, l, r in zip(w_pos, l_pos, r_pos):
-                        ngl.shape.add_arrow(w, l, color_line, radius_line, f"{interaction_type}-line")
-                        ngl.shape.add_arrow(w, r, color_line, radius_line, f"{interaction_type}-line")
+                    acc_pos = data['l_position'].where(data['r_is_d'], data['r_position'])
+                    don_pos = data['h_position']
+                    for w_o, w_h, acc, don in zip(w_o_pos, w_h_pos, acc_pos, don_pos):
+                        ngl.shape.add_arrow(w_o, don, color_line, radius_line, f"{interaction_type}-line-donor")
+                        ngl.shape.add_arrow(w_h, acc, color_line, radius_line, f"{interaction_type}-line-acceptor")
                 else:
                     for l, r in zip(l_pos, r_pos):
                         ngl.shape.add_arrow(l, r, color_line, radius_line, f"{interaction_type}-line")
@@ -256,7 +264,8 @@ class ProteinLigandInteractions:
         color_map = {
             "H-Bond Acceptor": [color_hbond_acceptor],
             "H-Bond Donor": [color_hbond_donor],
-            "Water": [color_water],
+            "Water Oxygen": [color_water_oxygen],
+            "Water Hydrogen": [color_water_hydrogen],
             "Hydrophobic": [color_hydrophobic],
             "Aromatic": [color_aromatic],
             "Anion": [color_anion],
@@ -275,8 +284,7 @@ class ProteinLigandInteractions:
 
 
 def from_pdb(
-    files: str | bytes | Path | ArrayLike,
-    ligands: Sequence[tuple[str, int | str, int]] | None = None,
+    files: str | bytes | Path | ArrayLike | dict[str | int | tuple[str | int, ...], str | bytes | Path],
 ) -> ProteinLigandInteractions:
     """Calculate protein-ligand interactions in PDB file(s).
 
@@ -291,27 +299,16 @@ def from_pdb(
         each interaction will have an additional column `instance`
         indicating the index of the file in the array
         (as a single integer for 1D or a tuple of integers for multi-dimensional arrays).
-    ligands
-        Ligand identifiers to filter interactions.
-        If not provided, all ligands in the PDB file will be considered.
-        Each ligand is identified by a tuple of three elements:
-        1. Residue name (e.g., "ATP")
-        2. Residue chain ID (e.g., "A")
-        3. Residue sequence number (e.g., 1)
-
-        For each ligand, you can provide the first n elements of the tuple,
-        in which case the ligand will be matched against all ligands
-        with the same specifications.
     """
     globs = globals()
+
     if isinstance(files, str | bytes | Path):
-        files = [files]
-        is_multifile = False
-    else:
-        is_multifile = True
-    files = np.array(files, dtype=object)
-    for file_idx in np.ndindex(files.shape):
-        file = files[file_idx]
+        files = {0: files}
+    elif not isinstance(files, dict):
+        files_array = np.array(files, dtype=object)
+        files = {idx[0] if len(idx) == 1 else idx: files_array[idx] for idx in np.ndindex(files_array.shape)}
+
+    for file_idx, file in files.items():
         pdb_complex = PDBComplex()
         # The `as_string` argument for `load_pdb` does not work: https://github.com/pharmai/plip/issues/186
         if isinstance(file, Path):
@@ -323,32 +320,102 @@ def from_pdb(
                 temp_file.flush()
                 pdb_complex.load_pdb(temp_file.name)
         pdb_complex.analyze()
-
-        interaction_sets = []
-        for ligand_name, interaction_set in pdb_complex.interaction_sets.items():
-            if not ligands:
-                interaction_sets.append(interaction_set)
-                continue
-            ligand_name_parts = ligand_name.split(":")
-            for ligand in ligands:
-                if all(
-                    ligand_part_input == ligand_part_plip
-                    for ligand_part_input, ligand_part_plip in zip(ligand, ligand_name_parts)
-                ):
-                    interaction_sets.append(interaction_set)
-                    break
-
+        interaction_sets = list(pdb_complex.interaction_sets.values())
         all_rows = []
+        atom = scifile.pdb.read(file).atom
         for attr_name in INTERACTION_TYPES:
             func = globs[f"_{attr_name}"]
             rows = func(interaction_sets)
-            if is_multifile:
-                idx = file_idx[0] if len(file_idx) == 1 else file_idx
-                rows = [{"instance": idx, **row} for row in rows]
-            all_rows.extend(rows)
+            corrected_rows = [{"instance": file_idx, **_correct_res(row, atom)} for row in rows]
+            all_rows.extend(corrected_rows)
 
     df = pd.DataFrame(all_rows).convert_dtypes()
     return ProteinLigandInteractions(df)
+
+
+def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
+    """Correct residue numbers to match those in the PDB file."""
+    def get_hydrogen_serial() -> int:
+        prefix = "r" if row["r_is_d"] else "l"
+        res_atoms = atom[
+            (atom["chain_id"] == row[f"{prefix}_chain_id"]) &
+            (atom["res_seq"] == row[f"{prefix}_res_seq"]) &
+            (atom["i_code"] == row[f"{prefix}_icode"])
+        ]
+        dists = ((res_atoms[["x","y","z"]].values - row["h_position"]) ** 2).sum(axis=1)
+        min_dist = dists.min()
+        if min_dist > 1e-8:
+            return np.nan
+        return int(res_atoms.iloc[dists.argmin()]["serial"])
+
+    def complete_water():
+        w_o_atom = atom[atom["serial"] == row["w_o_serial"]].iloc[0]
+        if w_o_atom["element"] != "O":
+            raise ValueError(f"Water oxygen atom not found for serial {row['w_o_serial']}")
+        if not np.array_equal(w_o_atom[["x","y","z"]].values, row["w_o_position"]):
+            raise ValueError(f"Mismatch in water oxygen position: {row['w_o_position']} != {w_o_atom[['x','y','z']].values}")
+        row["w_chain_id"] = w_o_atom["chain_id"]
+        row["w_res_name"] = w_o_atom["res_name"]
+        row["w_res_seq"] = w_o_atom["res_seq"]
+        row["w_icode"] = w_o_atom["i_code"]
+
+        water_atoms = atom[
+            (atom["chain_id"] == row["w_chain_id"]) &
+            (atom["res_seq"] == row["w_res_seq"]) &
+            (atom["i_code"] == row["w_icode"])
+        ]
+        if len(water_atoms) < 3:
+            raise ValueError(f"Less than 3 atoms found for water residue {row['w_res_name']} {row['w_chain_id']}{row['w_res_seq']}{row['w_icode']}")
+        w_h_atoms = water_atoms[water_atoms["element"] == "H"]
+        if len(w_h_atoms) != 2:
+            raise ValueError(f"Expected 2 hydrogen atoms for water residue {row['w_res_name']} {row['w_chain_id']}{row['w_res_seq']}{row['w_icode']}, found {len(w_h_atoms)}")
+        acceptor_pos = row["l_position"] if row["r_is_d"] else row["r_position"]
+        dists = ((w_h_atoms[["x","y","z"]].values - acceptor_pos) ** 2).sum(axis=1)
+        donor_hydrogen = w_h_atoms.iloc[dists.argmin()]
+        row["w_h_serial"] = int(donor_hydrogen["serial"])
+        row["w_h_position"] = np.stack(donor_hydrogen[["x","y","z"]].values)
+        return
+
+    typ = row["type"]
+
+    for prefix in ("l", "r"):
+        serials = row[f"{prefix}_serials"]
+        atoms = atom[atom["serial"].isin(serials)]
+
+        # Verify chain ID and residue name match
+        for col in ("chain_id", "res_name"):
+            values = atoms[col].unique()
+            if len(values) != 1:
+                raise ValueError(f"Multiple values found for {prefix}_{col} in interaction: {values}")
+            orig_val = values[0]
+            plip_val = row[f"{prefix}_{col}"]
+            if orig_val != plip_val:
+                raise ValueError(
+                    f"Mismatch in {prefix}_{col} between PLIP and original PDB: {plip_val} != {orig_val}"
+                )
+
+        # Override correct residue number
+        res_seqs = atoms["res_seq"].unique()
+        if len(res_seqs) != 1:
+            raise ValueError(f"Multiple residue numbers found for {prefix}_res_seq in interaction: {serials}")
+        row[f"{prefix}_res_seq"] = res_seqs[0]
+
+        # Write insertion code
+        icodes = atoms["i_code"].unique()
+        if len(icodes) != 1:
+            raise ValueError(f"Multiple insertion codes found for {prefix}_res_seq in interaction: {serials}")
+        row[f"{prefix}_icode"] = icodes[0]
+
+        if typ in ("hbond", "water_bridge", "hydrophobic", "halogen", "metal"):
+            if not np.allclose(row[f"{prefix}_position"], np.stack(atoms.iloc[0][["x","y","z"]])):
+                raise ValueError(f"Position mismatch for {prefix}_position in interaction: {row[f'{prefix}_position']} != {atoms.iloc[0][['x','y','z']].values}")
+
+
+    if typ in ("hbond", "water_bridge"):
+        row["h_serial"] = get_hydrogen_serial()
+    if typ == "water_bridge":
+        complete_water()
+    return row
 
 
 def _hbond(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
@@ -362,14 +429,14 @@ def _hbond(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
                     "l_res_name": entry.restype_l,
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
-                    "l_serial": entry.a_orig_idx if entry.protisdon else entry.d_orig_idx,
+                    "l_serials": [entry.a_orig_idx if entry.protisdon else entry.d_orig_idx],
                     "l_type": entry.atype if entry.protisdon else entry.dtype,
                     "l_position": np.array(entry.a.coords if entry.protisdon else entry.d.coords),
 
                     "r_res_name": entry.restype,
                     "r_res_seq": entry.resnr,
                     "r_chain_id": entry.reschain,
-                    "r_serial": entry.d_orig_idx if entry.protisdon else entry.a_orig_idx,
+                    "r_serials": [entry.d_orig_idx if entry.protisdon else entry.a_orig_idx],
                     "r_type": entry.dtype if entry.protisdon else entry.atype,
                     "r_position": np.array(entry.d.coords if entry.protisdon else entry.a.coords),
 
@@ -395,21 +462,21 @@ def _water_bridge(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]
                     "l_res_name": entry.restype_l,
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
-                    "l_serial": entry.a_orig_idx if entry.protisdon else entry.d_orig_idx,
+                    "l_serials": [entry.a_orig_idx if entry.protisdon else entry.d_orig_idx],
                     "l_type": entry.atype if entry.protisdon else entry.dtype,
                     "l_position": np.array(entry.a.coords if entry.protisdon else entry.d.coords),
 
                     "r_res_name": entry.restype,
                     "r_res_seq": entry.resnr,
                     "r_chain_id": entry.reschain,
-                    "r_serial": entry.d_orig_idx if entry.protisdon else entry.a_orig_idx,
+                    "r_serials": [entry.d_orig_idx if entry.protisdon else entry.a_orig_idx],
                     "r_type": entry.dtype if entry.protisdon else entry.atype,
                     "r_position": np.array(entry.d.coords if entry.protisdon else entry.a.coords),
 
                     "r_is_d": entry.protisdon,
 
-                    "w_serial": entry.water_orig_idx,
-                    "w_position": np.array(entry.water.coords),
+                    "w_o_serial": entry.water_orig_idx,
+                    "w_o_position": np.array(entry.water.coords),
                     'w_angle': entry.w_angle,
 
                     "h_position": np.array(entry.h.coords),
@@ -462,13 +529,13 @@ def _hydrophobic(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
                     "l_res_name": entry.restype_l,
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
-                    "l_serial": entry.ligatom_orig_idx,  # Carbon atom
+                    "l_serials": [entry.ligatom_orig_idx],  # Carbon atom
                     "l_position": np.array(entry.ligatom.coords),
 
                     "r_res_name": entry.restype,
                     "r_res_seq": entry.resnr,
                     "r_chain_id": entry.reschain,
-                    "r_serial": entry.bsatom_orig_idx,   # Carbon atom
+                    "r_serials": [entry.bsatom_orig_idx],   # Carbon atom
                     "r_position": np.array(entry.bsatom.coords),
 
                     "dist": entry.distance,
@@ -541,27 +608,30 @@ def _halogen(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
     rows = []
     for interaction in interactions:
         for entry in interaction.halogen_bonds:
+            # PLIP only detects halogen bonds where the receptor is acceptor and ligand is donor.
+            # See `plip.structure.preparation.PLInteraction.__init__` and `plip.structure.detection.halogen()`.
             rows.append(
                 {
                     "type": "halogen",
                     "l_res_name": entry.restype_l,
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
+                    "l_serials": [entry.don_orig_idx],
+                    "l_type": entry.donortype,
                     "l_position": np.array(entry.don.x.coords),
 
                     "r_res_name": entry.restype,
                     "r_res_seq": entry.resnr,
                     "r_chain_id": entry.reschain,
+                    "r_serials": [entry.acc_orig_idx],
+                    "r_type": entry.acctype,
                     "r_position": np.array(entry.acc.o.coords),
 
+                    "r_is_d": False,
                     "is_sidechain": entry.sidechain,
                     "dist": entry.distance,
                     "d_angle": entry.don_angle,
-                    'a_angle': entry.acc_angle,
-                    'd_serial': entry.don_orig_idx,
-                    "d_type": entry.donortype,
-                    'a_serial': entry.acc_orig_idx,
-                    "a_type": entry.acctype,
+                    "a_angle": entry.acc_angle,
                 }
             )
     return rows
@@ -578,18 +648,16 @@ def _metal(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
                     "l_res_name": entry.restype_l,
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
+                    "l_serials": [entry.metal_orig_idx],
+                    "l_type": entry.metal_type,
+                    "l_position": np.array(entry.metal.coords),
 
                     "r_res_name": entry.restype,
                     "r_res_seq": entry.resnr,
                     "r_chain_id": entry.reschain,
-
-                    "m_serial": entry.metal_orig_idx,
-                    "m_type": entry.metal_type,
-                    "m_position": np.array(entry.metal.coords),
-
-                    't_serial': entry.target_orig_idx,
-                    't_type': entry.target_type,
-                    't_position': np.array(entry.target.atom.coords),
+                    "r_serials": [entry.target_orig_idx],
+                    "r_type": entry.target_type,
+                    "r_position": np.array(entry.target.atom.coords),
 
                     "dist": entry.distance,
                     "location": entry.location,
