@@ -4,6 +4,8 @@ import shutil
 from typing import Any, Sequence, Literal
 import json
 import warnings
+import logging
+import traceback
 
 import arrayer
 import pandas as pd
@@ -18,6 +20,7 @@ import pyserials
 import sciapi
 import scifile
 import caddpy
+import pdbfinder
 
 import t2fpharm
 
@@ -28,19 +31,27 @@ from t2fpharm_study.typing import PDBID
 
 
 _remote_job_runner = ray.remote(run)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
 class Manager:
     def __init__(
         self,
-        dataset: pd.DataFrame,
+        protein_groups: pd.DataFrame,
         pocket_inputs: dict,
         field_inputs: dict,
         job_inputs: dict[str, dict[str, Any]],
         group_color: dict[str, dict[str, str]],
         dirpath_data: Path,
+        filepath_pdb_entries: str,
+        dirpath_pdb_data: Path | str,
         dirpath_pdb_raw: Path | str,
         dirpath_pdb_fixed: Path | str,
+        dirpath_pdb_fix_data: Path | str,
         dirpath_pdb_aligned: Path | str,
         dirpath_pdb_apo: Path | str,
         dirpath_pdbqt: Path | str,
@@ -55,7 +66,7 @@ class Manager:
         dirname_job_pharms: str,
         dirname_job_matches: str,
     ):
-        self._data = dataset
+        self._groups = protein_groups
         self.pocket_params = pocket_inputs
         self.field_params = field_inputs
         self.job_params = job_inputs
@@ -65,9 +76,12 @@ class Manager:
             "job_pharms": dirname_job_pharms,
             "job_matches": dirname_job_matches,
         }
+        self._filepath_pdb_entries = self.dirpath_data / filepath_pdb_entries
         self._path = {
+            "pdb_data": dirpath_pdb_data,
             "pdb_raw": dirpath_pdb_raw,
             "pdb_fixed": dirpath_pdb_fixed,
+            "pdb_fix_data": dirpath_pdb_fix_data,
             "pdb_aligned": dirpath_pdb_aligned,
             "pdb_apo": dirpath_pdb_apo,
             "pdbqt": dirpath_pdbqt,
@@ -87,6 +101,7 @@ class Manager:
         self._file_ext = {
             "pdb_raw": "pdb",
             "pdb_fixed": "pdb",
+            "pdb_fix_data": "yaml",
             "pdb_aligned": "pdb",
             "pdb_apo": "pdb",
             "pdbqt": "pdbqt",
@@ -101,6 +116,7 @@ class Manager:
             "results_pharm": "json",
             "results_matches": "json",
         }
+        self._data = None
         self._pdb = None
         self._cache_enabled = True
         self._cache = {}
@@ -110,6 +126,88 @@ class Manager:
     @property
     def dataset(self) -> pd.DataFrame:
         """Dataset as a pandas DataFrame."""
+        if self._data is not None:
+            return self._data
+        if self._filepath_pdb_entries.is_file():
+            self._data = io.read_df(self._filepath_pdb_entries).set_index("pdb_id", drop=False).convert_dtypes()
+            return self._data
+        dfs = []
+        for _, group in self._groups.iterrows():
+            group_id = group["group_id"].upper()
+            name = group["group_name"]
+            uniprot_id = group["uniprot_id"]
+            dirpath = self.dirpath_data / self._path["pdb_data"] / group_id
+            finder = pdbfinder.complex_from_uniprot(uniprot_id)
+            entries = finder.similar_entries()
+            entries["is_ref"] = False
+            entries.loc[0, "is_ref"] = True
+
+            # Save intermediate results
+            io.write_df(finder.scores, dirpath / "scores.parquet")
+            io.write_df(finder.sites, dirpath / "sites.parquet")
+            io.write_df(finder.site_residues, dirpath / "site_residues.parquet")
+            io.write_df(finder.modified_residues, dirpath / "modified_residues.parquet")
+            io.write_df(finder.mutated_residues, dirpath / "mutated_residues.parquet")
+            io.write_df(finder.outlier_residues, dirpath / "outlier_residues.parquet")
+            io.write_df(finder.pdb_entry_details, dirpath / "pdb_entry_details.parquet")
+
+            # Save residue maps
+            resmap = finder.residue_maps
+            resmap_cols = {"unp_residue_number": resmap["unp_residue_number"]}
+            excluded_pdb_ids = []
+            for _, row in tqdm(
+                entries.iterrows(),
+                total=len(entries),
+                desc=f"Processing entries ({group_id})",
+                unit="entry"
+            ):
+                pdb_id = row['pdb_id']
+                try:
+                    self.pdb_fixed(pdb_id, chain_id=row["chain_id"])
+                except Exception as e:
+                    if row["is_ref"]:
+                        raise RuntimeError(f"Failed to load reference structure '{pdb_id}' for group '{group_id}'.") from e
+                    warnings.warn(
+                        f"Failed to load structure '{pdb_id}' for group '{group_id}'. Skipping structure.\n"
+                        f"Error: {e}\n"
+                        f"{traceback.format_exc()}"
+                    )
+                    excluded_pdb_ids.append(pdb_id)
+                    continue
+                col_base = f"{pdb_id}.{row['struct_asym_id']}"
+                resmap_cols[pdb_id] = resmap[f"{col_base}-pdb_author_residue_number"].astype(str).str.cat(
+                    resmap[f"{col_base}-pdb_author_insertion_code"],
+                    sep=""
+                )
+            resmap = pd.DataFrame(resmap_cols).convert_dtypes()
+            io.write_df(resmap, dirpath / f"residue_maps.parquet")
+            if self._cache_enabled:
+                self._cache.setdefault(f"group_{group_id}", {})["resmap"] = resmap
+
+            entries = entries[~entries["pdb_id"].isin(excluded_pdb_ids)]
+            entries["group_id"] = group_id
+            entries["group_name"] = name
+            entries["uniprot_id"] = uniprot_id
+            cols = [
+                "group_id",
+                "group_name",
+                "uniprot_id",
+                "is_ref",
+                "pdb_id",
+                "chain_id",
+                "ligand_chain_id",
+                "ligand_id",
+                "ligand_res_num",
+                "unp_site_residue_numbers",
+            ]
+            df = entries[cols]
+            dfs.append(df)
+
+        self._data = pd.concat(dfs, ignore_index=True).sort_values(
+            ["group_id", "is_ref", "pdb_id"],
+            ascending=[True, False, True]
+        ).set_index("pdb_id", drop=False).convert_dtypes()
+        io.write_df(self._data, self._filepath_pdb_entries)
         return self._data
 
     @property
@@ -208,29 +306,41 @@ class Manager:
         self,
         pdb_ids: Sequence[PDBID] | None = None,
         pdb_raw: bool = False,
-        pdbqt: bool = False,
+        pdbqt: bool = True,
     ):
         self.caching(enabled=True)
+        self.dataset
         for _, entry in tqdm(
             self.dataset.iterrows(),
             total=len(self.dataset),
-            desc="Loading data",
+            desc="Loading Structures",
             unit="job",
         ):
             pdb_id = entry["pdb_id"]
             if pdb_ids is not None and pdb_id not in pdb_ids:
                 continue
+            logger.info(f"PDB ID: {pdb_id}")
             self.complex(pdb_id)
+            if pdb_raw:
+                self.pdb_raw(pdb_id)
+
+        dataset = self.dataset[self.dataset["is_ref"]]
+        for _, entry in tqdm(
+            dataset.iterrows(),
+            total=len(dataset),
+            desc="Loading Data",
+            unit="job",
+        ):
+            pdb_id = entry["pdb_id"]
+            if pdb_ids is not None and pdb_id not in pdb_ids:
+                continue
             self.receptor(pdb_id)
+            if pdbqt:
+                self.pdbqt(pdb_id)
             self.pocket(pdb_id)
             self.field(pdb_id)
             self.modeler(pdb_id)
-            self.ref_pharmacophore(pdb_id)
-            self.affinity(pdb_id)
-            if pdb_raw:
-                self.pdb_raw(pdb_id)
-            if pdbqt:
-                self.pdbqt(pdb_id)
+            self.ref_pharmacophore(entry["group_id"])
         return
 
     def caching(self, enabled: bool = True):
@@ -270,7 +380,7 @@ class Manager:
 
         # Load summary dataframe to skip already completed jobs
         try:
-            summary_df = self.job_summary(job_name=job_name)
+            summary_df = self._job_summary(job_name=job_name)
             completed_jobs = set(zip(summary_df["pdb_id"], summary_df["job_idx"]))
         except FileNotFoundError:
             completed_jobs = None
@@ -584,7 +694,7 @@ class Manager:
             self._cache.setdefault(pdb_id, {})["pdb_raw"] = pdb
         return pdb
 
-    def pdb_fixed(self, pdb_id: str) -> scifile.pdb.PDBFile:
+    def pdb_fixed(self, pdb_id: str, chain_id: str | None = None) -> scifile.pdb.PDBFile:
         cached = self._cache.get(pdb_id, {}).get("pdb_fixed")
         if cached:
             return cached
@@ -603,13 +713,20 @@ class Manager:
                 missing_terminals
             ) = caddpy.chemsys.fix_pdb(
                 file=filepath_pdb_raw,
-                keep_chain_ids=self.dataset.loc[pdb_id, "chain_id"],
+                keep_chain_ids=chain_id or self.dataset.loc[pdb_id, "chain_id"],
                 add_missing_residues=True,
-                replace_nonstandard_residues=False,
+                replace_nonstandard_residues=True,
                 add_missing_heavy_atoms=True,
                 add_missing_atoms_seed=42,
                 add_missing_hydrogens=7.0,
                 keep_ids=True,
+            )
+            self._write_pdb_fix_data(
+                pdb_id=pdb_id,
+                missing_residues=missing_residues,
+                nonstandard_residues=nonstandard_residues,
+                missing_atoms=missing_atoms,
+                missing_terminals=missing_terminals
             )
             filepath_pdb_fixed.write_text(pdb_fixed_str)
             pdb = scifile.pdb.read(filepath_pdb_fixed)
@@ -617,7 +734,68 @@ class Manager:
             self._cache.setdefault(pdb_id, {})["pdb_fixed"] = pdb
         return pdb
 
+    def _write_pdb_fix_data(
+        self,
+        pdb_id: str,
+        missing_residues: dict,
+        nonstandard_residues: list,
+        missing_atoms: dict,
+        missing_terminals: dict,
+    ):
+        def residue_to_dict(res: "openmm.app.topology.Residue") -> dict:
+            return {
+                "chain_idx": res.chain.index,
+                "chain_id": res.chain.id,
+                "residue_idx": res.index,
+                "residue_name": res.name,
+                "residue_number": res.id,
+                "residue_insertion_code": res.insertionCode,
+            }
+        data = {
+            "missing_residues": [],
+            "nonstandard_residues": [],
+            "missing_atoms": [],
+            "missing_terminals": [],
+        }
+        for (chain_idx, res_insertion_idx), res_names in missing_residues.items():
+            data["missing_residues"].append({
+                "chain_idx": chain_idx,
+                "residue_insertion_idx": res_insertion_idx,
+                "res_names": res_names,
+            })
+        for residue, replaced_res_name in nonstandard_residues:
+            res = residue_to_dict(residue)
+            data["nonstandard_residues"].append(res | {
+                "replaced_res_name": replaced_res_name,
+            })
+        for residue, atoms in missing_atoms.items():
+            res = residue_to_dict(residue)
+            for atom in atoms:
+                data["missing_atoms"].append(res | {
+                    "atom_idx": atom.index,
+                    "atom_name": atom.name,
+                    "atom_number": atom.id,
+                    "atom_element": atom.element.symbol,
+                })
+        for residue, terminal_atom_names in missing_terminals.items():
+            res = residue_to_dict(residue)
+            for terminal_atom_name in terminal_atom_names:
+                data["missing_terminals"].append(res | {
+                    "terminal_atom_name": terminal_atom_name,
+                })
+        filepath = self.path("pdb_fix_data", pdb_id)
+        pyserials.write.to_yaml_file(data, filepath)
+        return
+
     def complex(self, pdb_id: str) -> t2fpharm.System:
+        def make_df(sys: t2fpharm.system.System, pdb_id: str):
+            df = sys.composition.atoms.copy()
+            df[pdb_id] = df["res_seq"].astype(str).str.cat(df["i_code"], sep="")
+            df = df[["res_name", "res_seq", "serial", "name", pdb_id]]
+            df.rename(columns={"serial": f"serial_{pdb_id}"}, inplace=True)
+            return df
+
+        pdb_id = pdb_id.upper()
         cached = self._cache.get(pdb_id, {}).get("complex")
         if cached:
             return cached
@@ -632,19 +810,46 @@ class Manager:
             if self.dataset.loc[pdb_id, "is_ref"]:
                 pdb_aligned_str = str(t2fpharm.system.from_pdb(pdb_fixed_str).minimize_aabb().to_pdb())
             else:
-                group_id = self.dataset.loc[pdb_id, "group_id"]
-                is_group_ref = (self.dataset["group_id"] == group_id) & self.dataset["is_ref"]
-                ref_pdb_id = self.dataset.loc[is_group_ref, "pdb_id"].iloc[0]
-                complex_aligned = _align_query_to_ref(
-                    ref=self.complex(ref_pdb_id),
-                    query=t2fpharm.system.from_pdb(pdb_fixed_str),
-                    ref_chain_id=self.dataset.loc[ref_pdb_id, "chain_id"],
-                    query_chain_id=self.dataset.loc[pdb_id, "chain_id"],
-                    ref_pocket_atoms=self._ref_pocket_atoms(ref_pdb_id),
+                group_id = self.group_id(pdb_id)
+                ref_pdb_id = self.ref_pdb_id(group_id)
+
+                resmap = self.residue_map(group_id)
+                siteres = resmap[
+                    (resmap["unp_residue_number"].isin(self.dataset.loc[pdb_id, "unp_site_residue_numbers"])) &
+                    (resmap[pdb_id].notna()) &
+                    (resmap[ref_pdb_id].notna())
+                ][[ref_pdb_id, pdb_id]]
+
+                ref_complex = self.complex(ref_pdb_id)
+                query_complex = t2fpharm.system.from_pdb(pdb_fixed_str)
+
+                ref_atoms = make_df(ref_complex, ref_pdb_id)
+                query_atoms = make_df(query_complex, pdb_id)
+
+                mapping = siteres.merge(
+                    ref_atoms,
+                    on=[ref_pdb_id],
+                    how="left"
+                ).merge(
+                    query_atoms,
+                    on=[pdb_id, "res_name", "name"],
+                    how="left"
                 )
-                pdb_aligned_str = str(complex_aligned.to_pdb())
+                aligned = mapping[mapping["name"] == "CA"]
+                assert len(aligned) >= 3, f"Not enough C-alpha atoms to align {pdb_id} to {ref_pdb_id}"
+
+                ref_idx = pd.Index(ref_complex.composition.atoms["serial"]).get_indexer(aligned[f"serial_{ref_pdb_id}"])
+                query_idx = pd.Index(query_complex.composition.atoms["serial"]).get_indexer(aligned[f"serial_{pdb_id}"])
+
+                ref_coords = ref_complex.trajectory.points[ref_idx]
+                query_coords = query_complex.trajectory.points[query_idx]
+
+                rotation, translation, rmsd = arrayer.kabsch.kabsch_unweighted(ref_coords, query_coords)
+                query_complex_aligned = query_complex.new(trajectory=query_complex.trajectory.points @ rotation + translation)
+
+                pdb_aligned_str = str(query_complex_aligned.to_pdb())
             filepath_pdb_aligned.write_text(pdb_aligned_str)
-        rcomplex = t2fpharm.system.from_pdb(pdb_aligned_str)
+        rcomplex = t2fpharm.system.from_pdb(pdb_aligned_str, name=pdb_id)
         if self._cache_enabled:
             self._cache.setdefault(pdb_id, {})["complex"] = rcomplex
         return rcomplex
@@ -703,23 +908,60 @@ class Manager:
             )
         else:
             atoms = rcomplex.composition.atoms
-            ligand_res_name = self.dataset.loc[pdb_id, "ligand_res_name"]
+            dfs = [atoms]
+            trajs = [rcomplex.trajectory.points]
+
+            ligand_res_name = self.dataset.loc[pdb_id, "ligand_id"]
             ligand_chain_id = self.dataset.loc[pdb_id, "ligand_chain_id"]
-            ligand_res_seq = self.dataset.loc[pdb_id, "ligand_res_seq"]
-            ligand_mask = (
+            ligand_res_seq = self.dataset.loc[pdb_id, "ligand_res_num"]
+            lig_mask_main = (
                 (atoms["res_name"] == ligand_res_name) &
                 (atoms["chain_id"] == ligand_chain_id) &
                 (atoms["res_seq"] == ligand_res_seq)
             )
-            if ligand_mask.sum() == 0:
+            if lig_mask_main.sum() == 0:
                 raise ValueError(
                     f"Ligand {ligand_res_name} "
                     f"not found in structure {pdb_id}"
                 )
+
+            for _, row in self.dataset[
+                (self.dataset["group_id"] == self.group_id(pdb_id)) &
+                (self.dataset["pdb_id"] != pdb_id)
+            ].iterrows():
+                ocomplex = self.complex(row["pdb_id"])
+                atoms = ocomplex.composition.atoms
+                lig_mask = (
+                    (atoms["res_name"] == row["ligand_id"]) &
+                    (atoms["chain_id"] == row["ligand_chain_id"]) &
+                    (atoms["res_seq"] == row["ligand_res_num"])
+                )
+                if lig_mask.sum() == 0:
+                    warnings.warn(
+                        f"Ligand {row["ligand_id"]} "
+                        f"not found in structure {row["pdb_id"]}"
+                    )
+                    continue
+                dfs.append(atoms[lig_mask])
+                trajs.append(ocomplex.trajectory.points[lig_mask.to_numpy()])
+            combined_complex = rcomplex.new(
+                composition=pd.concat(dfs, ignore_index=True),
+                trajectory=np.vstack(trajs)
+            )
+
+            ligand_mask = np.ones(combined_complex.trajectory.point_count, dtype=bool)
+            ligand_mask[:rcomplex.trajectory.point_count] = lig_mask_main.to_numpy()
+
             pocket = t2fpharm.pocket.from_ligand(
-                system=rcomplex,
+                system=combined_complex,
                 ligand_mask=ligand_mask,
                 ligand_radii=None,
+                psp_count_lower=self.pocket_params["psp_count_lower"],
+                psp_count_upper=self.pocket_params["psp_count_upper"],
+                psp_dist_lower=self.pocket_params["psp_dist_lower"],
+                psp_dist_upper=self.pocket_params["psp_dist_upper"],
+                psp_dist_lower_mode=self.pocket_params.get("psp_dist_lower_mode", "any"),
+                psp_dist_upper_mode=self.pocket_params.get("psp_dist_upper_mode", "all"),
                 ligand_radii_offset=self.pocket_params["ligand_radii_offset"],
                 erosion_radius=self.pocket_params["erosion_radius"],
                 opening_radius=self.pocket_params["opening_radius"],
@@ -727,14 +969,29 @@ class Manager:
                 grid=self.grid(pdb_id),
                 trim=False,
             )
-            if pocket.holes().any():
-                raise ValueError(f"Pocket for {pdb_id} contains holes.")
-            if not pocket.point_coverage(rcomplex.trajectory.points[ligand_mask.to_numpy()]).all():
-                raise ValueError(f"Pocket for {pdb_id} does not cover ligand.")
+            pocket._receptor = rcomplex  # store the original receptor
+            # if pocket.holes().any():
+            #     raise ValueError(f"Pocket for {pdb_id} contains holes.")
+            # if not pocket.point_coverage(combined_complex.trajectory.points[ligand_mask]).all():
+            #     raise ValueError(f"Pocket for {pdb_id} does not cover ligand.")
             pocket.to_npz(filepath=filepath_pocket)
         if self._cache_enabled:
             self._cache.setdefault(pdb_id, {})["pocket"] = pocket
         return pocket
+
+    def residue_map(self, group_id: str) -> pd.DataFrame:
+        group_id = group_id.upper()
+        cached = self._cache.get(f"group_{group_id}", {}).get("resmap")
+        if cached is not None:
+            return cached
+        self.dataset  # ensure dataset is loaded
+        filepath = self.dirpath_data / self._path["pdb_data"] / group_id / "residue_maps.parquet"
+        if filepath.is_file():
+            resmap = io.read_df(filepath)
+            if self._cache_enabled:
+                self._cache.setdefault(f"group_{group_id}", {})["resmap"] = resmap
+            return resmap
+        raise FileNotFoundError(f"Residue map for group ID '{group_id}' not found.")
 
     def _ref_pocket_atoms(self, ref_pdb_id: str) -> pd.DataFrame:
         cached = self._cache.get(ref_pdb_id, {}).get("pocket_atoms")
@@ -781,30 +1038,33 @@ class Manager:
         if not group_pdb_ids:
             raise ValueError(f"No PDB IDs found for group ID: {group_id}")
 
-        lower_bounds = np.empty((len(group_pdb_ids), 3), dtype=float)
-        upper_bounds = np.empty((len(group_pdb_ids), 3), dtype=float)
+        lower_bounds = []
+        upper_bounds = []
         for idx, pdb_id in enumerate(group_pdb_ids):
             rcomplex = self.complex(pdb_id)
             atoms = rcomplex.composition.atoms
-            ligand_res_name = self.dataset.loc[pdb_id, "ligand_res_name"]
+            ligand_res_name = self.dataset.loc[pdb_id, "ligand_id"]
             ligand_chain_id = self.dataset.loc[pdb_id, "ligand_chain_id"]
-            ligand_res_seq = self.dataset.loc[pdb_id, "ligand_res_seq"]
+            ligand_res_seq = self.dataset.loc[pdb_id, "ligand_res_num"]
             ligand_mask = (
                 (atoms["res_name"] == ligand_res_name) &
                 (atoms["chain_id"] == ligand_chain_id) &
                 (atoms["res_seq"] == ligand_res_seq)
             )
             if ligand_mask.sum() == 0:
-                raise ValueError(
+                warnings.warn(
                     f"Ligand {ligand_res_name} "
                     f"not found in structure {pdb_id}"
                 )
+                continue
             ligand = rcomplex.select(selection=ligand_mask)
             ligand_bounding_box = ligand.trajectory.aabb(per_instance=False)
             ligand_atoms_radii = ligand.composition.vdw_radius
             ligand_atoms_max_radius = ligand_atoms_radii.max()
-            lower_bounds[idx] = ligand_bounding_box.lower_bounds - ligand_atoms_max_radius
-            upper_bounds[idx] = ligand_bounding_box.upper_bounds + ligand_atoms_max_radius
+            lower_bounds.append(ligand_bounding_box.lower_bounds - ligand_atoms_max_radius)
+            upper_bounds.append(ligand_bounding_box.upper_bounds + ligand_atoms_max_radius)
+        lower_bounds = np.vstack(lower_bounds)
+        upper_bounds = np.vstack(upper_bounds)
         padding = self.pocket_params["ligand_radii_offset"] + self.pocket_params["grid_spacing"]
         grid = t2fpharm.grid.from_bounds_spacing(
             lower=lower_bounds.min(axis=0) - padding,
@@ -839,7 +1099,6 @@ class Manager:
                 smooth=self.field_params["smooth"],
                 dielectric=self.field_params["dielectric"],
                 output_dir=dirpath_autogrid,
-                # **grid_data,
             )
             field.to_npz(filepath=filepath_field)
         if self._cache_enabled:
@@ -853,37 +1112,39 @@ class Manager:
             system=self.complex(pdb_id),
         )
 
-    def ref_pharmacophore(self, pdb_id: str, include_extras: bool = True) -> t2fpharm.pharm.Pharmacophore:
-        cached = self._cache.get(pdb_id, {}).get("ref_pharm")
+    def ref_pharmacophore(self, group_id: str, include_extras: bool = True) -> t2fpharm.pharm.Pharmacophore:
+        group_id = group_id.upper()
+        cached = self._cache.get(f"group_{group_id}", {}).get("ref_pharm")
         if cached:
             return cached
-        filepath_ref_features = self.path("ref_features", pdb_id)
+        filepath_ref_features = self.path("ref_features", group_id)
+        ref_pdb_id = self.ref_pdb_id(group_id)
         if filepath_ref_features.is_file():
             features_data = pyserials.read.from_file(filepath_ref_features, toml_as_dict=True)
             ref_pharm = t2fpharm.pharm.Pharmacophore(
                 features=features_data,
                 feature_types=self.field_params["ligand_types"],
-                system=self.complex(pdb_id) if include_extras else None,
-                pocket=self.pocket(pdb_id) if include_extras else None,
+                system=self.complex(ref_pdb_id) if include_extras else None,
+                pocket=self.pocket(ref_pdb_id) if include_extras else None,
             )
         else:
             # Get all complex-based pharmacophores for the group
-            complex_pharms = [self.complex_pharmacophore(pdb_id) for pdb_id in self.group_pdb_ids(self.group_id(pdb_id))]
+            complex_pharms = [self.complex_pharmacophore(pdb_id) for pdb_id in self.group_pdb_ids(group_id)]
             # Merge all coomplex-based pharmacophores into one
             merged_pharm = t2fpharm.pharm.merge(complex_pharms)
             # Select only the features that are within the pocket
-            pocket = self.pocket(pdb_id)
+            pocket = self.pocket(ref_pdb_id)
             merged_feats = merged_pharm.features
             feat_centers = np.stack(merged_feats["center"])
             feat_mask = pocket.point_coverage(feat_centers)
             selected_feats = merged_feats[feat_mask]
             filtered_pharm = merged_pharm.new(
                 features=selected_feats,
-                system=self.complex(pdb_id) if include_extras else None,
+                system=self.complex(ref_pdb_id) if include_extras else None,
                 pocket=pocket if include_extras else None,
             )
             ref_pharm = filtered_pharm.cluster_agg(
-                distance_threshold=3,
+                distance_threshold=4,
                 min_members=1,
                 noise_as_singleton=True,
                 center_type="mean",
@@ -894,7 +1155,7 @@ class Manager:
                 ref_pharm.features.to_json(orient="records", indent=4)
             )
         if self._cache_enabled:
-            self._cache.setdefault(pdb_id, {})["ref_pharm"] = ref_pharm
+            self._cache.setdefault(f"group_{group_id}", {})["ref_pharm"] = ref_pharm
         return ref_pharm
 
     def complex_pharmacophore(self, pdb_id: str):
@@ -915,18 +1176,35 @@ class Manager:
             )
         else:
             complex_pharm = t2fpharm.pharm.from_complex(
-                pdb_files=self.path("pdb_aligned", pdb_id),
-                receptor=self.complex(pdb_id),
+                complex=self.complex(pdb_id),
+                pocket=self.pocket(self.ref_pdb_id(self.group_id(pdb_id))),
                 type_hbond_acceptor="OA",
                 type_hbond_donor="HD",
+                type_water_bridge_water_acceptor="OA",
+                type_water_bridge_water_donor="HD",
                 type_water_bridge_ligand_acceptor=None,
                 type_water_bridge_ligand_donor=None,
-                type_water_bridge_water_acceptor="OA",
                 type_anion="e-",
                 type_cation="e+",
                 type_hydrophobic="C",
                 type_aromatic=None,
+                type_pi_cation_aromatic=None,
+                type_pi_cation_cation="e+",
+                type_halogen_donor=None,
+                exclude_duplicates=False,
             )
+
+            # Add UniProt residue numbers
+            feat = complex_pharm.features
+            feat[pdb_id] = feat["r_res_seq"].astype(str).str.cat(feat["r_icode"], sep="")
+            resmap = self.residue_map(self.group_id(pdb_id))[["unp_residue_number", pdb_id]]
+            feat = feat.merge(
+                resmap,
+                on=pdb_id,
+                how="left"
+            ).rename(columns={"unp_residue_number": "r_unp_res_num"}).drop(columns=[pdb_id])
+            complex_pharm = complex_pharm.new(features=feat)
+
             filepath_ligand_plip.write_text(
                 complex_pharm.extra["plip"].all.to_json(orient="records", indent=4)
             )
@@ -967,6 +1245,7 @@ class Manager:
         filetype: Literal[
             "pdb_raw",
             "pdb_fixed",
+            "pdb_fix_data",
             "pdb_aligned",
             "pdb_apo",
             "pdbqt",
