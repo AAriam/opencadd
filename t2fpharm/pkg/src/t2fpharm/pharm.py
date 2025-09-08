@@ -1,6 +1,7 @@
 """Pharmacophore."""
 
 from typing import Sequence, Any, Self, Literal
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -1142,6 +1143,7 @@ def from_complex(
     type_halogen_donor: str | None = None,
     exclude_duplicates: bool = False,
     pocket: Pocket | None = None,
+    name: str | None = None,
 ):
     """Create a pharmacophore from a receptor–ligand complex.
 
@@ -1321,6 +1323,7 @@ def from_complex(
         out = [feature for feature, coverage in zip(out, coverages) if coverage]
     return Pharmacophore(
         features=out,
+        name=name or complex.name,
         extra={"plip": plip},
         system=complex,
         pocket=pocket,
@@ -1364,9 +1367,10 @@ def merge(pharmacophores: Sequence[Pharmacophore]) -> Pharmacophore:
         raise ValueError("No pharmacophores to merge.")
 
     dfs = []
-    for pharm_idx, pharm in enumerate(pharmacophores):
+    names = _uniquify([pharm.name for pharm in pharmacophores])
+    for pharm_name, pharm in zip(names, pharmacophores):
         feats = pharm.features.copy()
-        feats["instance"] = feats["instance"].apply(instance_merger, instance_prefix=pharm_idx)
+        feats["instance"] = feats["instance"].apply(instance_merger, instance_prefix=pharm_name)
         dfs.append(feats)
 
     merged_features = pd.concat(dfs, ignore_index=True)
@@ -1376,3 +1380,45 @@ def merge(pharmacophores: Sequence[Pharmacophore]) -> Pharmacophore:
         features=merged_features,
         feature_types=feature_types,
     )
+
+
+def _uniquify(strings: list[str]) -> list[str]:
+    """Return list with duplicates suffixed by incrementing counters.
+
+    Each repeated string is suffixed with _{i}, where i starts from 1
+    for the first occurrence of that duplicate. Strings that occur only
+    once are left unchanged. The output preserves order and length of
+    the input list, and ensures all values in the returned list are
+    unique.
+
+    Parameters
+    ----------
+    strings
+        List of input strings, possibly with duplicates.
+
+    Returns
+    -------
+    list[str]
+        New list of strings, same length and order as input,
+        with duplicates enumerated by suffix while singletons
+        remain unchanged.
+
+    Examples
+    --------
+    >>> uniquify(["a", "b", "a", "c", "b", "a", "d"])
+    ['a_1', 'b_1', 'a_2', 'c', 'b_2', 'a_3', 'd']
+    """
+    total_counts: defaultdict[str, int] = defaultdict(int)
+    for s in strings:
+        total_counts[s] += 1
+
+    running_counts: defaultdict[str, int] = defaultdict(int)
+    result: list[str] = []
+
+    for s in strings:
+        if total_counts[s] == 1:
+            result.append(s)
+        else:
+            running_counts[s] += 1
+            result.append(f"{s}_{running_counts[s]}")
+    return result
