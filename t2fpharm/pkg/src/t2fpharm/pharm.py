@@ -1,7 +1,6 @@
 """Pharmacophore."""
 
 from typing import Sequence, Any, Self, Literal
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -1126,24 +1125,28 @@ class Pharmacophore:
 
 
 def from_complex(
-    pdb_files: str | bytes | Path | Sequence,
-    ligands: Sequence[tuple[str, int | str, int]] | None = None,
+    complex: System,
+    *,
     type_hbond_acceptor: str | None = "OA",
     type_hbond_donor: str | None = "HD",
-    type_water_bridge_ligand_acceptor: str | None = "OA",
-    type_water_bridge_ligand_donor: str | None = "HD",
     type_water_bridge_water_acceptor: str | None = "OA",
+    type_water_bridge_water_donor: str | None = "HD",
+    type_water_bridge_ligand_acceptor: str | None = None,
+    type_water_bridge_ligand_donor: str | None = None,
     type_anion: str | None = "e-",
     type_cation: str | None = "e+",
     type_hydrophobic: str | None = "C",
     type_aromatic: str | None = "A",
+    type_pi_cation_aromatic: str | None = "A",
+    type_pi_cation_cation: str | None = "e+",
+    type_halogen_donor: str | None = None,
+    exclude_duplicates: bool = False,
     pocket: Pocket | None = None,
-    receptor: System | None = None,
 ):
     """Create a pharmacophore from a receptor–ligand complex.
 
     This function uses the PLIP library to analyze the interactions
-    between the receptor and ligand(s) in the provided PDB files.
+    between the receptor and ligand(s) in the provided complex.
     The non-receptor interaction centers
     are then converted into pharmacophore features.
 
@@ -1152,29 +1155,16 @@ def from_complex(
 
     Parameters
     ----------
-    pdb_files
-        PDB file(s) containing the protein-ligand complex.
-        This can be a single file or an array of files with any shape.
-        Each entry can be either a PDB file content (as string or bytes)
-        or a path to a PDB file (as a `pathlib.Path` object).
-        If an array of files is provided,
-        the `instance` column in the `features` DataFrame
-        of the generated `Pharmacophore` object
-        will indicate the index of the file in the array.
-        (as a single integer for 1D or a tuple of integers for multi-dimensional arrays).
-    ligands
-        Ligand identifiers to filter interactions.
-        If not provided, all ligands in the PDB file will be considered.
-        Each ligand is identified by a tuple of three elements:
-        1. Residue name (e.g., "ATP")
-        2. Residue chain ID (e.g., "A")
-        3. Residue sequence number (e.g., 1)
-
-        For each ligand, you can provide the first n elements of the tuple,
-        in which case the ligand will be matched against all ligands
-        with the same specifications.
+    complex
+        Complex structure containing both receptor and ligand(s).
     type_hbond_acceptor
         Feature type ID for hydrogen bond acceptors in the ligand.
+    type_water_bridge_water_acceptor
+        Feature type ID for water bridge acceptors in the water molecule.
+        This is the oxygen atom of the water molecule.
+    type_water_bridge_water_donor
+        Feature type ID for water bridge donors in the water molecule.
+        This is the hydrogen atom of the water molecule.
     type_water_bridge_ligand_acceptor
         Feature type ID for water bridge acceptors in the ligand.
         Water bridge acceptors are hydrogen bond acceptors
@@ -1183,11 +1173,6 @@ def from_complex(
         Feature type ID for water bridge donors in the ligand.
         Water bridge donors are hydrogen bond donors
         that interact with the receptor through a water molecule.
-    type_water_bridge_water_acceptor
-        Feature type ID for water bridge acceptors in the water molecule.
-        This is the oxygen atom of the water molecule.
-        Note that hydrogen position of the water molecule
-        is not available in PLIP, so it cannot be used as a feature.
     type_anion
         Feature type ID for anionic centers in the ligand.
     type_cation
@@ -1203,61 +1188,133 @@ def from_complex(
         Optional structure to associate with the pharmacophore.
         This is only used for visualization purposes.
     """
-    plip = caddpy.interaction.from_pdb(pdb_files, ligands=ligands)
+    plip = caddpy.interaction.from_chemsys(complex, add_polar_hydrogens=False)
+
     out = []
     for _, row in plip.all.iterrows():
-        selected: list[tuple[str, str]] = []
+        selected: list[dict] = []
         match row["type"]:
             case "hbond":
                 if row["r_is_d"]:
                     # Ligand is acceptor
                     if type_hbond_acceptor:
-                        selected.append((type_hbond_acceptor, "l_position"))
+                        row = row.to_dict() | {
+                            "type": type_hbond_acceptor,
+                            "center": row["l_position"],
+                        }
+                        selected.append(row)
                 else:
                     # Ligand is donor
                     if type_hbond_donor:
-                        selected.append((type_hbond_donor, "h_position"))
+                        row = row.to_dict() | {
+                            "type": type_hbond_donor,
+                            "center": row["h_position"],
+                        }
+                        selected.append(row)
             case "water_bridge":
                 # Plip only detects bridges where ligand and receptor have different roles
                 # i.e., ligand is acceptor and receptor is donor, or vice versa.
                 if row["r_is_d"]:
                     # Ligand and water are acceptors
                     if type_water_bridge_ligand_acceptor:
-                        selected.append((type_water_bridge_ligand_acceptor, "l_position"))
+                        row = row.to_dict() | {
+                            "type": type_water_bridge_ligand_acceptor,
+                            "center": row["l_position"],
+                        }
+                        selected.append(row)
                     if type_water_bridge_water_acceptor:
-                        selected.append((type_water_bridge_water_acceptor, "w_position"))
+                        row = row.to_dict() | {
+                            "type": type_water_bridge_water_acceptor,
+                            "center": row["w_o_position"],
+                        }
+                        selected.append(row)
                 else:
                     # Ligand and water are donors
                     if type_water_bridge_ligand_donor:
-                        selected.append((type_water_bridge_ligand_donor, "l_position"))
-                    # Position of water hydrogen is not available in PLIP
+                        row = row.to_dict() | {
+                            "type": type_water_bridge_ligand_donor,
+                            "center": row["h_position"],
+                        }
+                        selected.append(row)
+                    if type_water_bridge_water_donor:
+                        row = row.to_dict() | {
+                            "type": type_water_bridge_water_donor,
+                            "center": row["w_h_position"],
+                        }
+                        selected.append(row)
             case "salt_bridge":
                 if row["r_is_cation"]:
                     # Ligand is anion
                     if type_anion:
-                        selected.append((type_anion, "l_position"))
+                        row = row.to_dict() | {
+                            "type": type_anion,
+                            "center": row["l_position"],
+                        }
+                        selected.append(row)
                 else:
                     # Ligand is cation
                     if type_cation:
-                        selected.append((type_cation, "l_position"))
+                        row = row.to_dict() | {
+                            "type": type_cation,
+                            "center": row["l_position"],
+                        }
+                        selected.append(row)
             case "hydrophobic":
                 if type_hydrophobic:
-                    selected.append((type_hydrophobic, "l_position"))
+                    row = row.to_dict() | {
+                        "type": type_hydrophobic,
+                        "center": row["l_position"],
+                    }
+                    selected.append(row)
             case "pi_stacking":
                 if type_aromatic:
-                    selected.append((type_aromatic, "l_position"))
+                    row = row.to_dict() | {
+                        "type": type_aromatic,
+                        "center": row["l_position"],
+                    }
+                    selected.append(row)
+            case "pi_cation":
+                if row["r_is_cation"]:
+                    # Ligand is aromatic
+                    if type_pi_cation_aromatic:
+                        row = row.to_dict() | {
+                            "type": type_pi_cation_aromatic,
+                            "center": row["l_position"],
+                        }
+                        selected.append(row)
+                else:
+                    # Ligand is cation
+                    if type_pi_cation_cation:
+                        row = row.to_dict() | {
+                            "type": type_pi_cation_cation,
+                            "center": row["l_position"],
+                        }
+                        selected.append(row)
+            case "halogen":
+                if type_halogen_donor:
+                    row = row.to_dict() | {
+                        "type": type_halogen_donor,
+                        "center": row["l_position"],
+                    }
+                    selected.append(row)
             case _:
                 continue
-        selected = [(feature_type, row[position_col]) for feature_type, position_col in selected]
         # Sometimes a single atom can be involved
         # in multiple interactions of the same type, e.g., hydrophobic interactions with different residues.
         # Therefore, we only add a new feature if not already present
-        for feature_type, position in selected:
-            for entry in out:
-                if entry["type"] == feature_type and np.allclose(entry["center"], position):
-                    break
-            else:
-                out.append({"instance": row.get("instance", 0), "type": feature_type, "center": position})
+        if exclude_duplicates:
+            for feat in selected:
+                for entry in out:
+                    if (
+                        entry["instance"] == feat["instance"] and
+                        entry["type"] == feat["type"] and
+                        np.allclose(entry["center"], feat["center"])
+                    ):
+                        break
+                else:
+                    out.append(feat)
+        else:
+            out.extend(selected)
     if pocket is not None:
         positions = np.stack([feature["center"] for feature in out])
         coverages = pocket.point_coverage(positions)
@@ -1265,7 +1322,7 @@ def from_complex(
     return Pharmacophore(
         features=out,
         extra={"plip": plip},
-        system=receptor,
+        system=complex,
         pocket=pocket,
         feature_types=[
             feature_type for feature_type in (
