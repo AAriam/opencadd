@@ -13,10 +13,12 @@ import numpy as np
 import scishow
 import scifile
 from plip.structure.preparation import PDBComplex, PLInteraction
+import plip.basic.config as plip_config
 import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot
 
+from caddpy.chemsys import ChemicalSystem
 from caddpy.typing import ArrayLike
 
 
@@ -45,6 +47,61 @@ _ARRAY_COLUMNS = [
     "r_serials"
 ]
 
+_ALL_COLUMNS = [
+    "instance",
+    "type",
+
+    "r_chain_id",
+    "r_res_name",
+    "r_res_seq",
+    "r_icode",
+    "r_serials",
+    "r_type",
+    "r_position",
+    "r_is_d",
+    "r_is_cation",
+    "is_sidechain",
+
+    "l_chain_id",
+    "l_res_name",
+    "l_res_seq",
+    "l_icode",
+    "l_serials",
+    "l_type",
+    "l_position",
+
+    "w_chain_id",
+    "w_res_name",
+    "w_res_seq",
+    "w_icode",
+    "w_o_serial",
+    "w_o_position",
+    "w_h_serial",
+    "w_h_position",
+    "w_angle",
+
+    "h_serial",
+    "h_position",
+
+    "dist",
+    "dist_a_h",
+    "dist_a_d",
+    "dist_w_a",
+    "dist_w_d",
+
+    "angle",
+    "d_angle",
+    "a_angle",
+
+    "offset",
+    "stack_type",
+    "location",
+    "rms",
+    "geometry",
+    "coordination_num",
+    "complex_num",
+]
+
 class ProteinLigandInteractions:
     """Protein-ligand interactions.
 
@@ -54,13 +111,15 @@ class ProteinLigandInteractions:
     and a method to visualize them using NGLView.
     """
 
-    def __init__(self, data: pd.DataFrame):
+    def __init__(self, data: pd.DataFrame, complex: ChemicalSystem | None = None):
         def to_ndarray(x):
             if isinstance(x, np.ndarray):
                 return x
             if pd.api.types.is_scalar(x) and pd.isna(x):
                 return x
             return np.asarray(x)
+
+        self._complex = complex
 
         for col in _ARRAY_COLUMNS:
             if col in data.columns:
@@ -75,6 +134,11 @@ class ProteinLigandInteractions:
             )
             setattr(self, f"_{attr_name}", subdf)
         return
+
+    @property
+    def complex(self) -> ChemicalSystem | None:
+        """The chemical system associated with the interactions."""
+        return self._complex
 
     @property
     def all(self) -> pd.DataFrame:
@@ -125,7 +189,7 @@ class ProteinLigandInteractions:
         self,
         nglwidget: scishow.nglview.NGLWidget | None = None,
         *,
-        instance: int | str | tuple[int | str, ...] | None = None,
+        instance: int | tuple[int, ...] | None = None,
         interactions_include: InteractionTypes = INTERACTION_TYPES,
         interactions_exclude: InteractionTypes = (),
         vis: VisualizationParts | None = None,
@@ -153,9 +217,14 @@ class ProteinLigandInteractions:
         radius_sphere: float = 1,
         radius_line: float = 0.05,
         sphere_representation_params: scishow.nglview.RepresentationParameters | None = None,
+        add_complex: bool = True,
+        gui: bool = True,
     ):
         args = locals()
         ngl = nglwidget or scishow.nglview.NGLWidget()
+        if gui:
+            ngl.display(gui=True)
+        system = ngl.add_trajectory(self.complex, name=self.complex.name) if add_complex and self.complex is not None else None
         if not sphere_representation_params:
             sphere_representation_params = scishow.nglview.RepresentationParameters(
                 opacity=0.6,
@@ -167,6 +236,12 @@ class ProteinLigandInteractions:
                 continue
             if instance is not None:
                 data = data[data["instance"] == instance]
+
+            receptor_selection = data["r_res_seq"].astype(str) + "^" + data["r_icode"] + ":" + data["r_chain_id"]
+            system.add_ball_and_stick(" ".join(receptor_selection.unique()), name=interaction_type)
+            if interaction_type == "water_bridge":
+                water_selection = data["w_res_seq"].astype(str) + "^" + data["w_icode"] + ":" + data["w_chain_id"]
+                system.add_ball_and_stick(" ".join(water_selection.unique()), name="water")
 
             # Set positions based on interaction type
             if interaction_type in ("hbond", "water_bridge"):
@@ -283,54 +358,49 @@ class ProteinLigandInteractions:
         return ngl, fig
 
 
-def from_pdb(
-    files: str | bytes | Path | ArrayLike | dict[str | int | tuple[str | int, ...], str | bytes | Path],
+def from_chemsys(
+    complex: ChemicalSystem,
+    add_polar_hydrogens: bool = False,
 ) -> ProteinLigandInteractions:
     """Calculate protein-ligand interactions in PDB file(s).
 
     Parameters
     ----------
-    files
-        PDB file(s) containing the protein-ligand complex.
-        This can be a single file or an array of files with any shape.
-        Each entry can be either a PDB file content (as string or bytes)
-        or a path to a PDB file (as a `pathlib.Path` object).
-        If an array of files is provided,
-        each interaction will have an additional column `instance`
-        indicating the index of the file in the array
-        (as a single integer for 1D or a tuple of integers for multi-dimensional arrays).
+    complex
+        Chemical system containing the protein and ligand(s).
+    add_polar_hydrogens
+        Whether to add polar hydrogens to the structure before analysis.
+        It is recommended to add hydrogens to the entire structure beforehand,
+        as PLIP's hydrogen addition is quite basic and does not handle pH-dependant protonation states
+        and tautomerism well.
     """
     globs = globals()
 
-    if isinstance(files, str | bytes | Path):
-        files = {0: files}
-    elif not isinstance(files, dict):
-        files_array = np.array(files, dtype=object)
-        files = {idx[0] if len(idx) == 1 else idx: files_array[idx] for idx in np.ndindex(files_array.shape)}
+    pdbs = complex.to_pdb(multimodel=False)
+    if isinstance(pdbs, scifile.pdb.PDBFile):
+        pdbs = np.array([pdbs], dtype=object)
 
-    for file_idx, file in files.items():
+    plip_config.NOHYDRO = not add_polar_hydrogens
+
+    for idx, pdb in np.ndenumerate(pdbs):
         pdb_complex = PDBComplex()
         # The `as_string` argument for `load_pdb` does not work: https://github.com/pharmai/plip/issues/186
-        if isinstance(file, Path):
-            pdb_complex.load_pdb(str(file))
-        else:
-            with tempfile.NamedTemporaryFile(mode="w+", suffix=".pdb") as temp_file:
-                pdb_str = file if isinstance(file, str) else file.decode("utf-8")
-                temp_file.write(pdb_str)
-                temp_file.flush()
-                pdb_complex.load_pdb(temp_file.name)
+        with tempfile.NamedTemporaryFile(mode="w+", suffix=".pdb") as temp_file:
+            temp_file.write(str(pdb))
+            temp_file.flush()
+            pdb_complex.load_pdb(temp_file.name)
         pdb_complex.analyze()
         interaction_sets = list(pdb_complex.interaction_sets.values())
         all_rows = []
-        atom = scifile.pdb.read(file).atom
         for attr_name in INTERACTION_TYPES:
             func = globs[f"_{attr_name}"]
             rows = func(interaction_sets)
-            corrected_rows = [{"instance": file_idx, **_correct_res(row, atom)} for row in rows]
+            corrected_rows = [{"instance": idx[0] if len(idx) == 1 else idx, **_correct_res(row, pdb.atom)} for row in rows]
             all_rows.extend(corrected_rows)
 
     df = pd.DataFrame(all_rows).convert_dtypes()
-    return ProteinLigandInteractions(df)
+    df = df[[col for col in _ALL_COLUMNS if col in df.columns]]
+    return ProteinLigandInteractions(df, complex)
 
 
 def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
@@ -501,7 +571,7 @@ def _salt_bridge(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
                     "l_res_name": sb.restype_l,
                     "l_res_seq": sb.resnr_l,
                     "l_chain_id": sb.reschain_l,
-                    "l_group": lig.fgroup,
+                    "l_type": lig.fgroup,
                     "l_serials": np.array(lig.atoms_orig_idx),
                     "l_position": np.array(lig.center),
 
@@ -586,7 +656,7 @@ def _pi_cation(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
                     "l_res_seq": entry.resnr_l,
                     "l_chain_id": entry.reschain_l,
                     "l_serials": np.array(lig.atoms_orig_idx),
-                    "l_group": 'aromatic' if entry.protcharged else entry.charge.fgroup,
+                    "l_type": 'aromatic' if entry.protcharged else entry.charge.fgroup,
                     "l_position": np.array(lig.center),
 
                     "r_res_name": entry.restype,
@@ -663,8 +733,8 @@ def _metal(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
                     "location": entry.location,
                     "rms": entry.rms,
                     "geometry": entry.geometry,
-                    'coordination_num': entry.coordination_num,
-                    'complex_num': entry.complexnum,
+                    "coordination_num": entry.coordination_num,
+                    "complex_num": entry.complexnum,
                 }
             )
     return rows
