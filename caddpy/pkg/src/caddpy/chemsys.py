@@ -53,7 +53,12 @@ class ChemicalSystem:
         A 3D point cloud representing
         the conformation of the system over time or in different states.
     """
-    def __init__(self, composition: ChemicalComposition, trajectory: PointCloud):
+    def __init__(
+        self,
+        composition: ChemicalComposition,
+        trajectory: PointCloud,
+        name: str = "System",
+    ):
         if composition.atom_count != trajectory.point_count:
             raise exception.InputError(
                 name="trajectory",
@@ -68,6 +73,7 @@ class ChemicalSystem:
             )
         self._composition = composition
         self._trajectory = trajectory
+        self._name = name
         return
 
     @property
@@ -79,6 +85,11 @@ class ChemicalSystem:
     def trajectory(self):
         """Trajectory of the system."""
         return self._trajectory
+
+    @property
+    def name(self) -> str:
+        """Name of the system."""
+        return self._name
 
     def toxelate(
         self,
@@ -114,10 +125,10 @@ class ChemicalSystem:
         positions = self.trajectory.points[..., selection, :]
         return self.new(composition=atoms, trajectory=positions)
 
-    def display(self, nglwidget: ngl.NGLWidget | None = None, name: str = "ChemicalSystem") -> ngl.NGLWidget:
+    def display(self, nglwidget: ngl.NGLWidget | None = None) -> ngl.NGLWidget:
         if nglwidget is None:
             nglwidget = scishow.nglview.NGLWidget()
-        nglwidget.add_trajectory(self, name=name)
+        nglwidget.add_trajectory(self, name=self._name)
         nglwidget.display(gui=True)
         return nglwidget
 
@@ -311,7 +322,8 @@ class ChemicalSystem:
     def new(
         self,
         composition: pd.DataFrame | ChemicalComposition | None = None,
-        trajectory: ArrayLike | PointCloud | None = None
+        trajectory: ArrayLike | PointCloud | None = None,
+        name: str | None = None
     ) -> Self:
         """Create a new ChemicalSystem from this one.
 
@@ -323,6 +335,9 @@ class ChemicalSystem:
         trajectory
             New trajectory for the system.
             If None, the current trajectory is used.
+        name
+            New name for the system.
+            If None, the current name is used.
         """
         if composition is None:
             composition = self._composition
@@ -332,7 +347,9 @@ class ChemicalSystem:
             trajectory = self._trajectory
         elif isinstance(trajectory, np.ndarray | jax.Array):
             trajectory = scids.pointcloud.from_array(trajectory)
-        return ChemicalSystem(composition=composition, trajectory=trajectory)
+        if name is None:
+            name = self._name
+        return ChemicalSystem(composition=composition, trajectory=trajectory, name=name)
 
 
 class ChemicalComposition:
@@ -572,17 +589,21 @@ class _ChemicalSystemNGLViewAdaptor(ngl.Structure, ngl.Trajectory):
         return self._chemsys.trajectory.batch_size
 
 
-def from_pdb(files: scifile.pdb.PDBFile | Path | bytes | str | ArrayLike):
+def from_pdb(
+    files: scifile.pdb.PDBFile | Path | bytes | str | ArrayLike,
+    name: str | None = None
+) -> ChemicalSystem:
     """Create a ChemicalSystem from PDB file(s)."""
     if isinstance(files, scifile.pdb.PDBFile | Path | bytes | str):
-        atom, trajectory = _read_single_pdb(files)
+        atom, trajectory, pdb_id = _read_single_pdb(files)
         return ChemicalSystem(
             composition=ChemicalComposition(atoms=atom),
-            trajectory=scids.pointcloud.from_array(trajectory)
+            trajectory=scids.pointcloud.from_array(trajectory),
+            name=name or pdb_id or "System"
         )
     files = np.asarray(files, dtype=object)
     # Parse the first file to get the composition first
-    first_atom, first_trajectory = _read_single_pdb(file=files.flat[0])
+    first_atom, first_trajectory, first_pdb_id = _read_single_pdb(file=files.flat[0])
     model_count = first_trajectory.shape[0] if first_trajectory.ndim == 3 else 1
     atom_count = first_trajectory.shape[-2]
     batch_shape = files.shape if model_count == 1 else (*files.shape, model_count)
@@ -590,7 +611,8 @@ def from_pdb(files: scifile.pdb.PDBFile | Path | bytes | str | ArrayLike):
     trajectory[(0, ) * len(batch_shape)] = first_trajectory
     # Iterate over file indices, skipping the first file since we already parsed it
     for index in itertools.islice(np.ndindex(batch_shape), 1, None):
-        atom, traj = _read_single_pdb(file=files[index])
+        atom, traj, pdb_id = _read_single_pdb(file=files[index])
+        first_pdb_id = first_pdb_id or pdb_id
         nmodel = traj.shape[0] if traj.ndim == 3 else 1
         if nmodel != model_count:
             raise exception.InputError(
@@ -601,7 +623,8 @@ def from_pdb(files: scifile.pdb.PDBFile | Path | bytes | str | ArrayLike):
         trajectory[index] = traj
     return ChemicalSystem(
         composition=ChemicalComposition(first_atom),
-        trajectory=scids.pointcloud.from_array(trajectory)
+        trajectory=scids.pointcloud.from_array(trajectory),
+        name=name or first_pdb_id or "System"
     )
 
 
@@ -705,7 +728,9 @@ def fix_pdb(
     return pdb_fixed_final_str, missing_residues, nonstandard_residues, missing_atoms, missing_terminals
 
 
-def _read_single_pdb(file: scifile.pdb.PDBFile | Path | bytes | str) -> tuple[pd.DataFrame, np.ndarray]:
+def _read_single_pdb(
+    file: scifile.pdb.PDBFile | Path | bytes | str
+) -> tuple[pd.DataFrame, np.ndarray, str | None]:
     pdbfile = file if isinstance(file, scifile.pdb.PDBFile) else scifile.pdb.read(file=file, parse_only=["atom"])
     atom = pdbfile.atom
     # Create the trajectory array
@@ -714,4 +739,4 @@ def _read_single_pdb(file: scifile.pdb.PDBFile | Path | bytes | str) -> tuple[pd
         trajectory = trajectory.reshape(pdbfile.nummdl, -1, 3)
         atom = atom[atom["model_num"] == 1]
     atom = atom.drop(["model_num", "x", "y", "z"], axis=1)
-    return atom, trajectory
+    return atom, trajectory, pdbfile.header.id_code if pdbfile.header else None
