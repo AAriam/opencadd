@@ -117,6 +117,83 @@ class Pocket(Field):
         idx_tuple = tuple(indices[..., dim] for dim in range(indices.shape[-1]))
         return np.logical_and(is_inside, self.tensor[..., *idx_tuple])
 
+    def nearest_point(self, points: ArrayLike) -> tuple[np.ndarray, np.ndarray]:
+        """Find the nearest pocket point for each point in the input.
+
+        Parameters
+        ----------
+        points
+            An array of shape `(..., 3)`,
+            containing the coordinates of points in the same space as the pocket.
+
+        Returns
+        -------
+        indices
+            An array of shape `(*self.batch_shape, ..., 3)`
+            containing the indices of the nearest pocket point in each pocket instance
+            for each point in the input.
+        distances
+            An array of shape `(*self.batch_shape, ...)` containing the distances
+            from each point in the input to its nearest pocket point in each pocket instance.
+        """
+        points = jnp.asarray(points)
+        if points.ndim < 1 or points.shape[-1] != self.grid.dimension:
+            raise ValueError(
+                f"Input points must have at least one dimension and "
+                f"the last dimension must have size {self.grid.dimension}, "
+                f"but input had shape {points.shape}."
+            )
+
+        # Grid coordinates: (n_x, n_y, n_z, 3)
+        coords = jnp.asarray(self.grid.coordinates)
+        if coords.shape[-1] != points.shape[-1]:
+            raise ValueError(
+                f"Coordinate dimensionality mismatch: grid has {coords.shape[-1]}, "
+                f"points have {points.shape[-1]}."
+            )
+        n_x, n_y, n_z, _ = coords.shape
+
+        # Sanity: each batch slice must have at least one True voxel.
+        has_any = jnp.any(self.tensor, axis=(-3, -2, -1))  # shape: *B
+        if bool(np.asarray(~has_any).any()):
+            raise ValueError("At least one batch instance has no pocket voxels (no True values).")
+
+        B_shape = self.tensor.shape[:-3]        # batch shape (may be empty)
+        num_B = len(B_shape)
+
+        # Pairwise squared distances between points and all grid coords.
+        # Result shape before adding batch: (..., n_x, n_y, n_z)
+        diffs = points[..., None, None, None, :] - coords[None, ...]
+        d2 = jnp.sum(diffs * diffs, axis=-1)
+
+        # Add leading batch dims so d2 matches mask's leading batch dims.
+        if num_B:
+            d2 = jnp.reshape(d2, (1,) * num_B + d2.shape)  # (*B, ..., n_x, n_y, n_z)
+
+        # Correct broadcasting of the boolean mask:
+        # insert singleton axes for the point dims BETWEEN batch and spatial dims.
+        mask = jnp.asarray(self.tensor)  # (*B, n_x, n_y, n_z)
+        extra_point_dims = d2.ndim - mask.ndim
+        if extra_point_dims < 0:
+            raise RuntimeError("Unexpected rank mismatch while broadcasting mask.")
+        mask_b = mask.reshape((*B_shape, *(1,) * extra_point_dims, n_x, n_y, n_z))  # (*B, ..., n_x, n_y, n_z)
+
+        # Mask non-pocket voxels with +inf so they can't win the argmin.
+        masked_d2 = jnp.where(mask_b, d2, jnp.inf)
+
+        # Argmin over flattened spatial dimension.
+        point_shape = masked_d2.shape[num_B:-3]
+        flat = jnp.reshape(masked_d2, (*B_shape, *point_shape, n_x * n_y * n_z))   # (*B, ..., N)
+        argmin_flat = jnp.argmin(flat, axis=-1)                                     # (*B, ...)
+        min_d2 = jnp.take_along_axis(flat, argmin_flat[..., None], axis=-1)[..., 0] # (*B, ...)
+
+        # Unravel flat indices back to (i, j, k).
+        ii, jj, kk = jnp.unravel_index(argmin_flat, (n_x, n_y, n_z))                # each (*B, ...)
+        indices = jnp.stack((ii, jj, kk), axis=-1)                                   # (*B, ..., 3)
+        distances = jnp.sqrt(min_d2)                                                # (*B, ...)
+
+        return indices, distances
+
     def display(
         self,
         nglwidget: scishow.nglview.NGLWidget | None = None,
