@@ -87,7 +87,7 @@ class AtomMatcher:
         - atom_residue_key, residue_name, best_comp_id,
         - n_atom_names, coverage, missing_count, extra_count,
         - missing_names (list), extras_sample (small sample),
-        - status ('exact' if missing_count==0 else 'partial'),
+        - match_type ('exact' if missing_count==0 else 'partial'),
         - refined_pairs (int, number of unmatched pairs resolved by refinement).
     res_matching_details : list[tuple]
         List of (residue_key, comp_id, details) for residues where refinement was attempted.
@@ -176,7 +176,7 @@ class AtomMatcher:
         self.main_to_compids = self._create_main_to_compid_map()
         self.res_match = self._find_best_match_per_residue()
         self.atom_merged = self._merge_atom_with_canon_atom_ids()
-        if (self.res_match["status"] == "partial").any():
+        if (self.res_match["match_type"] == "partial").any():
             self.atom_merged, self.res_matching_details = self._refine_partial_matches()
         else:
             self.res_matching_details = []
@@ -310,7 +310,7 @@ class AtomMatcher:
         n_extra_list: list[int] = []
         missing_list: list[list[str]] = []
         extra_list: list[list[str]] = []
-        status_list: list[str] = []
+        match_type_list: list[str] = []
 
         for res_name, atom_names in zip(res_names, atom_name_sets):
             candidates = self.main_to_compids.get(res_name, [])
@@ -322,37 +322,40 @@ class AtomMatcher:
                 n_extra_list.append(0)
                 missing_list.append(sorted(atom_names))
                 extra_list.append([])
-                status_list.append("none")
+                match_type_list.append("none")
                 continue
 
             # Score each candidate with synonym-set semantics
             results: list[tuple[int, int, int, str, set[str], set[str]]] = []
             for comp_id in candidates:
-                n_missing, n_extra, cov, missings, extras = self._score_candidate(atom_names, comp_id)
-                results.append((n_missing, n_extra, -cov, comp_id, missings, extras))
+                n_missing, n_extra, n_match, missings, extras = self._score_candidate(atom_names, comp_id)
+                results.append((n_missing, n_extra, -n_match, comp_id, missings, extras))
 
             results.sort()
-            n_missing, n_extra, neg_cov, best_comp_id, missings, extras = results[0]
+            n_missing, n_extra, n_match_neg, best_comp_id, missings, extras = results[0]
             best_comp_ids.append(best_comp_id)
-            coverages.append(-neg_cov)
+            coverages.append(-n_match_neg)
             n_missing_list.append(n_missing)
             n_extra_list.append(n_extra)
             missing_list.append(sorted(list(missings)))
             extra_list.append(sorted(list(extras)))
+            if n_missing == len(atom_names):
+                # No matches at all
+                match_type = "name"
             if n_missing == 0 and n_extra == 0:
-                status = "exact"
+                match_type = "exact"
             elif n_missing == 0:
-                status = "extra"
+                match_type = "extra"
             elif n_extra == 0:
-                status = "missing"
+                match_type = "missing"
             else:
-                status = "partial"
-            status_list.append(status)
+                match_type = "partial"
+            match_type_list.append(match_type)
 
-            if status != "exact":
+            if match_type != "exact":
                 message = (
                     f"Residue '{res_name}' has no exact CCD variant; chose '{best_comp_id}' "
-                    f"with coverage={-neg_cov}/{len(atom_names)}, missing={n_missing}, extras={n_extra}."
+                    f"with coverage={-n_match_neg}/{len(atom_names)}, missing={n_missing}, extras={n_extra}."
                 )
                 if self.strictness == "error":
                     raise ValueError(message)
@@ -363,10 +366,10 @@ class AtomMatcher:
             {
                 "res_key": res_keys,
                 "res_name": res_names,
+                "match_type": match_type_list,
                 "comp_id": best_comp_ids,
-                "status": status_list,
-                "coverage": coverages,
                 "n_atoms": [len(s) for s in atom_name_sets],
+                "n_match": coverages,
                 "n_missing": n_missing_list,
                 "n_extra": n_extra_list,
                 "missing": missing_list,
@@ -391,7 +394,7 @@ class AtomMatcher:
 
     def _refine_partial_matches(self) -> tuple[pd.DataFrame, list[tuple]]:
         "Perform refinement of partially matched residues."
-        partial_matches = self.res_match[self.res_match["status"] == "partial"]
+        partial_matches = self.res_match[self.res_match["match_type"] == "partial"]
         needed_comp_ids = partial_matches["comp_id"].unique()
         ccd_atom_by_comp = {
             cid: df for cid, df in
@@ -477,7 +480,7 @@ class AtomMatcher:
 
     def _score_candidate(self, atom_names: set[str], comp_id: str) -> tuple[int, int, int, set[str], set[str]]:
         """Helper to score a candidate variant against one residue."""
-        synsets = self.canon_atom_id_to_all_aliases.get(comp_id, {})
+        synsets = self.canon_atom_id_to_all_aliases[comp_id]
         used_canon: set[str] = set()
         matched_atoms: set[str] = set()
         for aname in atom_names:
