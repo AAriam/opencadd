@@ -11,6 +11,13 @@ dependencies = [
     "pyserials >=0.1,<0.2",
 ]
 
+[project.optional-dependencies]
+update = [
+    "pandas",
+    "sciapi",
+    "openmm",
+]
+
 [tool.setuptools]
 include-package-data = true
 
