@@ -312,9 +312,7 @@ def chemical_component_dictionary(
         url = "https://files.wwpdb.org/pub/pdb/data/monomers/aa-variants-v1.cif.gz"
         name = "aa-variants-v1"
     elif variant == "model":
-        url = (
-            "https://files.wwpdb.org/pub/pdb/data/component-models/complete/chem_comp_model.cif.gz"
-        )
+        url = "https://files.wwpdb.org/pub/pdb/data/component-models/complete/chem_comp_model.cif.gz"
         name = "chem_comp_model"
     else:
         raise ValueError(
@@ -324,10 +322,7 @@ def chemical_component_dictionary(
         )
 
     byte_content = gzip.decompress(
-        response_http_request(
-            url=url,
-            response_type="bytes",
-        )
+        pylinks.http.request(url=url, response_type="bytes")
     )
     if output_path is None:
         return byte_content
