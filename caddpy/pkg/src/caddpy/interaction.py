@@ -8,6 +8,7 @@ References
 from pathlib import Path
 import tempfile
 from typing import Sequence, Literal, Any
+import warnings
 
 import numpy as np
 import scishow
@@ -376,6 +377,12 @@ def from_chemsys(
     """
     globs = globals()
 
+    atoms = complex.composition.atoms.copy()
+    atoms.rename(columns={"res_seq": "orig_res_seq", "i_code": "orig_i_code"}, inplace=True)
+    atoms["i_code"] = ""
+    atoms["res_seq"] = atoms["res_num"]
+    complex = complex.new(composition=atoms)
+
     pdbs = complex.to_pdb(multimodel=False)
     if isinstance(pdbs, scifile.pdb.PDBFile):
         pdbs = np.array([pdbs], dtype=object)
@@ -409,8 +416,8 @@ def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
         prefix = "r" if row["r_is_d"] else "l"
         res_atoms = atom[
             (atom["chain_id"] == row[f"{prefix}_chain_id"]) &
-            (atom["res_seq"] == row[f"{prefix}_res_seq"]) &
-            (atom["i_code"] == row[f"{prefix}_icode"])
+            (atom["orig_res_seq"] == row[f"{prefix}_res_seq"]) &
+            (atom["orig_i_code"] == row[f"{prefix}_icode"])
         ]
         dists = ((res_atoms[["x","y","z"]].values - row["h_position"]) ** 2).sum(axis=1)
         min_dist = dists.min()
@@ -419,20 +426,33 @@ def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
         return int(res_atoms.iloc[dists.argmin()]["serial"])
 
     def complete_water():
-        w_o_atom = atom[atom["serial"] == row["w_o_serial"]].iloc[0]
+        w_o_atom = atom[atom["serial"] == row["w_o_serial"]]
+        if w_o_atom.empty or not np.array_equal(w_o_atom.iloc[0][["x","y","z"]].values, row["w_o_position"]):
+            dists = ((atom[["x","y","z"]].values - row["w_o_position"]) ** 2).sum(axis=1)
+            min_dist = dists.min()
+            if min_dist > 1e-8:
+                raise ValueError(f"Water oxygen atom not found for position {row['w_o_position']}")
+            w_o_atom = atom.iloc[dists.argmin()]
+            warnings.warn(
+                f"Mismatch in water oxygen position for serial {row['w_o_serial']}: "
+                f"Expected {row['w_o_position']} but got {w_o_atom[['x','y','z']].values}. "
+                f"Changed to serial {w_o_atom['serial']}"
+            )
+        else:
+            w_o_atom = w_o_atom.iloc[0]
+
         if w_o_atom["element"] != "O":
             raise ValueError(f"Water oxygen atom not found for serial {row['w_o_serial']}")
-        if not np.array_equal(w_o_atom[["x","y","z"]].values, row["w_o_position"]):
-            raise ValueError(f"Mismatch in water oxygen position: {row['w_o_position']} != {w_o_atom[['x','y','z']].values}")
+
         row["w_chain_id"] = w_o_atom["chain_id"]
         row["w_res_name"] = w_o_atom["res_name"]
-        row["w_res_seq"] = w_o_atom["res_seq"]
-        row["w_icode"] = w_o_atom["i_code"]
+        row["w_res_seq"] = w_o_atom["orig_res_seq"]
+        row["w_icode"] = w_o_atom["orig_i_code"]
 
         water_atoms = atom[
             (atom["chain_id"] == row["w_chain_id"]) &
-            (atom["res_seq"] == row["w_res_seq"]) &
-            (atom["i_code"] == row["w_icode"])
+            (atom["orig_res_seq"] == row["w_res_seq"]) &
+            (atom["orig_i_code"] == row["w_icode"])
         ]
         if len(water_atoms) < 3:
             raise ValueError(f"Less than 3 atoms found for water residue {row['w_res_name']} {row['w_chain_id']}{row['w_res_seq']}{row['w_icode']}")
@@ -451,12 +471,48 @@ def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
     for prefix in ("l", "r"):
         serials = row[f"{prefix}_serials"]
         atoms = atom[atom["serial"].isin(serials)]
+        if typ in ("hbond", "water_bridge", "hydrophobic", "halogen", "metal"):
+            if atoms.empty or not np.allclose(row[f"{prefix}_position"], np.stack(atoms.iloc[0][["x","y","z"]])):
+                dists = ((atom[["x","y","z"]].values - row[f"{prefix}_position"]) ** 2).sum(axis=1)
+                min_dist = dists.min()
+                if min_dist > 1e-8:
+                    raise ValueError(
+                        f"Position mismatch for {prefix}_position in {typ} interaction: "
+                        f"{row[f'{prefix}_position']} not found in PDB atoms"
+                    )
+                correct_atom = atom.iloc[dists.argmin()]
+                old_serial = serials[0]
+                row[f"{prefix}_serials"] = serials = [int(correct_atom["serial"])]
+                warnings.warn(
+                    f"Mismatch in {prefix}_position in {typ} interaction for serial {old_serial}: "
+                    f"Expected {row[f'{prefix}_position']} but got {atoms.iloc[0][['x','y','z']].values if not atoms.empty else "N/A"}. "
+                    f"Changed to serial {serials[0]}"
+                )
+                atoms = atom[atom["serial"].isin(serials)]
+        else:
+            if atoms.empty or np.linalg.norm(
+                row[f"{prefix}_position"] - atoms[["x","y","z"]].mean(axis=0).to_numpy()
+            ) > 1:
+                row[f"{prefix}_serials"] = serials = [ser + 1 for ser in serials]
+                atoms = atom[atom["serial"].isin(serials)]
+                center = atoms[["x","y","z"]].mean(axis=0).to_numpy() if not atoms.empty else None
+                if atoms.empty or np.linalg.norm(row[f"{prefix}_position"] - center) > 1:
+                    raise ValueError(
+                        f"Position mismatch for {prefix}_position in {typ} interaction: "
+                        f"{row[f'{prefix}_position']} != {center if center is not None else 'N/A'}. "
+                        f"Interaction: {row}"
+                    )
+                warnings.warn(
+                    f"Mismatch in {prefix}_position in {typ} interaction for serials {serials}: "
+                    f"Expected {row[f'{prefix}_position']} but got {center if center is not None else 'N/A'}. "
+                    f"Changed to serials {serials}"
+                )
 
         # Verify chain ID and residue name match
         for col in ("chain_id", "res_name"):
             values = atoms[col].unique()
             if len(values) != 1:
-                raise ValueError(f"Multiple values found for {prefix}_{col} in interaction: {values}")
+                raise ValueError(f"Multiple values found for {prefix}_{col} in {typ} interaction: {values}")
             orig_val = values[0]
             plip_val = row[f"{prefix}_{col}"]
             if orig_val != plip_val:
@@ -467,19 +523,12 @@ def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
         # Override correct residue number
         res_seqs = atoms["res_seq"].unique()
         if len(res_seqs) != 1:
-            raise ValueError(f"Multiple residue numbers found for {prefix}_res_seq in interaction: {serials}")
-        row[f"{prefix}_res_seq"] = res_seqs[0]
-
-        # Write insertion code
-        icodes = atoms["i_code"].unique()
-        if len(icodes) != 1:
-            raise ValueError(f"Multiple insertion codes found for {prefix}_res_seq in interaction: {serials}")
-        row[f"{prefix}_icode"] = icodes[0]
-
-        if typ in ("hbond", "water_bridge", "hydrophobic", "halogen", "metal"):
-            if not np.allclose(row[f"{prefix}_position"], np.stack(atoms.iloc[0][["x","y","z"]])):
-                raise ValueError(f"Position mismatch for {prefix}_position in interaction: {row[f'{prefix}_position']} != {atoms.iloc[0][['x','y','z']].values}")
-
+            raise ValueError(
+                f"Multiple residue numbers found for {prefix}_res_seq in {typ} interaction: {serials}. "
+                f"Interaction: {row}"
+            )
+        row[f"{prefix}_res_seq"] = atoms.iloc[0]["orig_res_seq"]
+        row[f"{prefix}_icode"] = atoms.iloc[0]["orig_i_code"]
 
     if typ in ("hbond", "water_bridge"):
         row["h_serial"] = get_hydrogen_serial()
