@@ -10,7 +10,7 @@ from scipy.optimize import linear_sum_assignment
 
 
 
-class AtomMatcher:
+class PDBAtomMatcher:
     """Merge ATOM rows with CCD chem_comp_atom rows.
 
     This is done via robust per-residue variant selection
@@ -253,13 +253,38 @@ class AtomMatcher:
         for idcol in self.ccd_atom_id_cols:
             tmp = self.ccd_atom[[self.ccd_comp_id_col, idcol]].rename(
                 columns={
-                    idcol: self._tmp_atom_id_alias_col,
                     self.ccd_comp_id_col: self._tmp_comp_id_col,
+                    idcol: self._tmp_atom_id_alias_col,
                 }
             )
             # carry canonical atom_id for the eventual join
             tmp[self._tmp_canon_atom_id_col] = self.ccd_atom[self.ccd_canon_atom_id_col].values
             alias_frames.append(tmp)
+
+        # Add extra known aliases (from non-standard naming conventions used by other tools)
+
+        # 1. Some tools (e.g. openmm/pdbfixer) use "H" instead of "H1"
+        #    (seen in N-terminal protonated amino acids, i.e. those with comp_id_suffix "LSN3").
+        #    Here, we add this lookup for all components who have an "H1" atom_id but no "H" atom_id or alias.
+
+        # Per-row flags
+        has_H1_row = self.ccd_atom[self.ccd_canon_atom_id_col].eq("H1")
+        any_H_row = self.ccd_atom[list(self.ccd_atom_id_cols)].eq("H").any(axis=1)
+        # Group-level aggregation
+        grp = (
+            self.ccd_atom
+            .assign(_has_H1=has_H1_row, _any_H=any_H_row)
+            .groupby(self.ccd_comp_id_col, sort=False)
+            .agg(has_H1=("_has_H1", "any"), any_H=("_any_H", "any"))
+        )
+        alias_frame = pd.DataFrame({
+            self._tmp_comp_id_col: grp.index[grp["has_H1"] & ~grp["any_H"]],
+            self._tmp_atom_id_alias_col: "H",
+            self._tmp_canon_atom_id_col: "H1",
+        })
+        alias_frames.append(alias_frame)
+
+        # Create the final lookup DataFrame
         name_lookup = (
             pd.concat(alias_frames, ignore_index=True)
             .dropna(subset=[self._tmp_atom_id_alias_col])
@@ -339,9 +364,6 @@ class AtomMatcher:
             n_extra_list.append(n_extra)
             missing_list.append(sorted(list(missings)))
             extra_list.append(sorted(list(extras)))
-            if n_missing == len(atom_names):
-                # No matches at all
-                match_type = "name"
             if n_missing == 0 and n_extra == 0:
                 match_type = "exact"
             elif n_missing == 0:
@@ -411,21 +433,20 @@ class AtomMatcher:
         res_matching_details = []
 
         for res_key, res in atom_unmatched.groupby(self.atom_res_key_col, sort=False):
-            atom_id = res[self._tmp_comp_id_col].iloc[0]
+            comp_id = res[self._tmp_comp_id_col].iloc[0]
 
-            # seeds: already matched pairs (need at least min_seeds_for_geometry)
+            # seeds: already matched pairs
             seeds = res.loc[res[self._tmp_canon_atom_id_col].notna(), [self.atom_name_col, self._tmp_canon_atom_id_col]]
 
             new_pairs, details = self._refine_unmatched_atom_mapping(
                 atom=res.copy(),
-                ccd_atom=ccd_atom_by_comp.get(atom_id),
-                ccd_bond=ccd_bond_by_comp.get(atom_id),
+                ccd_atom=ccd_atom_by_comp.get(comp_id),
+                ccd_bond=ccd_bond_by_comp.get(comp_id),
                 matched_atom_name_to_canon_id=dict(
                     zip(seeds[self.atom_name_col], seeds[self._tmp_canon_atom_id_col])
                 ),
             )
-            res_matching_details.append((res_key, atom_id, details))
-
+            res_matching_details.append((res_key, comp_id, details))
             if not new_pairs:
                 continue
 
@@ -534,6 +555,71 @@ class AtomMatcher:
         - Costs are *additive*; geometry terms are squared distances (Å²).
         - Chirality check applies only if the center has >=3 already matched neighbors.
         """
+
+        # Trivial case of single atom
+        if len(atom) == 1:
+            atom_name = atom[self.atom_name_col].iloc[0]
+            atom_elem = atom[self.atom_elem_col].iloc[0]
+            if len(ccd_atom) == 1:
+                # Single CCD atom too;
+                # Only match if elements agree
+                ccd_atom_id = ccd_atom[self.ccd_canon_atom_id_col].iloc[0]
+                ccd_elem = ccd_atom[self.ccd_elem_col].iloc[0]
+                if atom_elem == ccd_elem:
+                    return {atom_name: ccd_atom_id}, pd.DataFrame(
+                        {
+                            "atom_name": [atom_name],
+                            "atom_id": [ccd_atom_id],
+                            "match_type": ["single-atom"],
+                        }
+                    )
+            matching_elem = ccd_atom[ccd_atom[self.ccd_elem_col] == atom_elem]
+            if len(matching_elem) == 1:
+                # Multiple CCD atoms but exactly one matching element;
+                # accept that match
+                ccd_atom_id = matching_elem[self.ccd_canon_atom_id_col].iloc[0]
+                return {atom_name: ccd_atom_id}, pd.DataFrame(
+                    {
+                        "atom_name": [atom_name],
+                        "atom_id": [ccd_atom_id],
+                        "match_type": ["single-atom-element-match"],
+                    }
+                )
+            # No match possible
+            return {}, pd.DataFrame(
+                {
+                    "atom_name": [atom_name],
+                    "atom_id": [],
+                    "match_type": ["single-atom-element-mismatch"],
+                }
+            )
+
+        # Trivial case of single CCD atom
+        if len(ccd_atom) == 1:
+            ccd_atom_id = ccd_atom[self.ccd_canon_atom_id_col].iloc[0]
+            ccd_elem = ccd_atom[self.ccd_elem_col].iloc[0]
+            matching_elem = atom[atom[self.atom_elem_col] == ccd_elem]
+            if len(matching_elem) == 1:
+                # Multiple ATOM rows but exactly one matching element;
+                # accept that match
+                atom_name = matching_elem[self.atom_name_col].iloc[0]
+                return {atom_name: ccd_atom_id}, pd.DataFrame(
+                    {
+                        "atom_name": [atom_name],
+                        "atom_id": [ccd_atom_id],
+                        "match_type": ["single-atom-element-match"],
+                    }
+                )
+            # No match possible
+            return {}, pd.DataFrame(
+                {
+                    "atom_name": [],
+                    "atom_id": [ccd_atom_id],
+                    "match_type": ["single-atom-element-mismatch"],
+                }
+            )
+
+
         # --- Split matched / unmatched sets
         atom_coords = atom.set_index(self.atom_name_col)[list(self.atom_xyz_cols)].astype(float)
         atom_elems = atom.set_index(self.atom_name_col)[self.atom_elem_col].astype(str)
@@ -549,7 +635,7 @@ class AtomMatcher:
         ]
 
         # Need at least 3 non-collinear points for a stable rigid fit; otherwise skip geometry terms
-        use_geometry = len(matched_pairs) >= 3
+        use_geometry = len(matched_atom_name_to_canon_id) >= 3
         R = None
         t = None
         if use_geometry:
@@ -611,11 +697,11 @@ class AtomMatcher:
         reasons: dict[tuple[int, int], dict[str, float]] = {}
 
         for i, aname in enumerate(atom_unmatched):
-            a_elem = atom_elems.loc[aname]
+            atom_elem = atom_elems.loc[aname]
             a_xyz = atom_coords_np.loc[aname].values
             for j, cid in enumerate(ccd_unmatched):
-                c_elem = ccd_elems.loc[cid]
-                if a_elem != c_elem:
+                ccd_elem = ccd_elems.loc[cid]
+                if atom_elem != ccd_elem:
                     continue  # hard prune
 
                 # base geometry
@@ -716,7 +802,6 @@ class AtomMatcher:
                     "ngh_elem": ngh_elem_term,
                     "chiral": chiral_term,
                 }
-        print(cost)
         row_ind, col_ind = linear_sum_assignment(cost)
 
         # Extract matches
