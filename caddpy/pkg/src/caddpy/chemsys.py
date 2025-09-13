@@ -29,9 +29,11 @@ from scids.typing import NonNegativeFloat
 import scishow
 
 from caddpy import exception
+from caddpy import pdb_check
+from caddpy.pdb_atom_matcher import PDBAtomMatcher
 
 if TYPE_CHECKING:
-    from typing import Any, Self
+    from typing import Any, Self, Iterable, Literal
     from pathlib import Path
     from scids.pointcloud import PointCloud
     from scids.grid import Grid
@@ -732,11 +734,81 @@ def _read_single_pdb(
     file: scifile.pdb.PDBFile | Path | bytes | str
 ) -> tuple[pd.DataFrame, np.ndarray, str | None]:
     pdbfile = file if isinstance(file, scifile.pdb.PDBFile) else scifile.pdb.read(file=file, parse_only=["atom"])
+    _pdb_pre_check(pdb=pdbfile)
     atom = pdbfile.atom
     # Create the trajectory array
     trajectory = atom[["x", "y", "z"]].to_numpy(dtype=np.float32)
     if pdbfile.nummdl:
         trajectory = trajectory.reshape(pdbfile.nummdl, -1, 3)
         atom = atom[atom["model_num"] == 1]
-    atom = atom.drop(["model_num", "x", "y", "z"], axis=1)
-    return atom, trajectory, pdbfile.header.id_code if pdbfile.header else None
+    atom_matcher = _augment_atom_df(atom)
+    atom_merged = atom_matcher.atom_merged.drop(["model_num", "x", "y", "z"], axis=1)
+    return atom_merged, trajectory, pdbfile.header.id_code if pdbfile.header else None
+
+
+def _pdb_pre_check(pdb: scifile.pdb.PDBFile) -> None:
+    """Perform preliminary checks on a PDB file."""
+
+    # Within each residue, atom names must be unique.
+    pdb_check.assert_group_uniques(
+        df=pdb.atom,
+        group_by=["chain_id", "res_seq", "i_code"],
+        unique_cols=["name"],
+    )
+    return
+
+
+def _augment_atom_df(df: pd.DataFrame) -> PDBAtomMatcher:
+    """Augment an atom DataFrame with additional columns."""
+    residues = df.groupby(["chain_id", "res_seq", "i_code"], sort=False)
+    atom_res_key_col_name = "res_num"
+    df[atom_res_key_col_name] = residues.ngroup() + 1
+    matcher = PDBAtomMatcher(
+        atom=df,
+        ccd_atom=_ccd("chem_comp_atom"),
+        ccd_bond=_ccd("chem_comp_bond"),
+        atom_res_key_col=atom_res_key_col_name,
+    )
+    return matcher
+
+
+def _ccd(category: str) -> pd.DataFrame:
+    """Get a DataFrame from the Chemical Component Dictionary (CCD)."""
+    def get_parent_id(comp_id):
+        data = chem_comp[chem_comp["id"] == comp_id].iloc[0]
+        parent_id = data["mon_nstd_parent_comp_id"]
+        return parent_id if pd.notna(parent_id) else data["id"]
+
+    def comp_id_suffix(comp_id):
+        parts = comp_id.split("_")
+        return "" if len(parts) == 1 else "_".join(parts[1:])
+
+    global _ccd_df
+    df = _ccd_df.get(category)
+    if df is not None:
+        return df
+
+    chem_comp = _ccd_df.get("chem_comp")
+    if chem_comp is None:
+        chem_comp = _ccd_df["chem_comp"] = scicoda.pdb.ccd("chem_comp")
+
+    df = scicoda.pdb.ccd(category) if category != "chem_comp" else chem_comp
+    id_col = "id" if category == "chem_comp" else "comp_id"
+
+    df["comp_id_suffix"] = df[id_col].apply(comp_id_suffix)
+
+    # Create a lookup mapping comp_chem.id -> comp_chem.mon_nstd_parent_comp_id
+    lookup = chem_comp.set_index("id")["mon_nstd_parent_comp_id"]
+    # Assign main_comp_id depending on is_aa_variant
+    df["main_comp_id"] = np.where(
+        df["is_aa_variant"],
+        df[id_col].map(lookup),
+        df[id_col]
+    )
+
+    df = df.convert_dtypes()
+    _ccd_df[category] = df
+    return df
+
+
+_ccd_df: dict[str, pd.DataFrame] = {}
