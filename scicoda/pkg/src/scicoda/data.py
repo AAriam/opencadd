@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import pkgdata
 import pyserials
+import pandas as pd
 
 from scicoda import exception
 
@@ -23,7 +24,7 @@ def get_schema(category: str, name: str, cache: bool = True) -> dict | list:
     return get(category, name, cache=cache)["schema"]
 
 
-def get_filepath(category: str, name: str) -> Path:
+def get_filepath(category: str, name: str, extension: str = "yaml") -> Path:
     """Get the absolute path to a data file.
 
     Parameters
@@ -34,8 +35,11 @@ def get_filepath(category: str, name: str) -> Path:
     name
         Name of the data file.
         This corresponds to the function name that returns the data.
+    extension
+        File extension of the data file.
+        Default is "yaml".
     """
-    filepath = _data_dir / category / f"{name}.yaml"
+    filepath = _data_dir / category / f"{name}.{extension}"
     if not filepath.is_file():
         raise exception.DataFileNotFoundError(
             category=category,
@@ -45,16 +49,21 @@ def get_filepath(category: str, name: str) -> Path:
     return filepath
 
 
-def get(category: str, name: str, cache: bool = True) -> dict | list:
-    if cached := _cache.get(category, {}).get(name):
+def get(category: str, name: str, extension: str = "yaml", cache: bool = True) -> dict | list | pd.DataFrame:
+    if (cached := _cache.get(category, {}).get(name)) is not None:
         return cached
-    filepath = get_filepath(category, name)
-    file = pyserials.read.yaml_from_file(filepath)
-    pyserials.validate.jsonschema(
-        data=file["data"],
-        schema=file["schema"],
-        fill_defaults=True,
-    )
+    filepath = get_filepath(category=category, name=name, extension=extension)
+    if extension == "yaml":
+        file = pyserials.read.yaml_from_file(filepath)
+        pyserials.validate.jsonschema(
+            data=file["data"],
+            schema=file["schema"],
+            fill_defaults=True,
+        )
+    elif extension == "parquet":
+        file = pd.read_parquet(filepath, engine="pyarrow")
+    else:
+        raise ValueError(f"Unsupported file extension: '{extension}'.")
     if cache:
         _cache.setdefault(category, {})[name] = file
     return file
