@@ -204,7 +204,7 @@ class PDBWriter:
         footnote: str = "",
     ):
         record_name = "ATOM  " if is_std else "HETATM"
-        charge = "  " if pd.isna(charge) else charge
+        charge = "  " if pd.isna(charge) or charge == 0 else f"{abs(charge)}{'+' if charge > 0 else '-'}"
 
         name = f" {name:<3}" if len(name) < 4 else f"{name:<4}"
         common_part = (
