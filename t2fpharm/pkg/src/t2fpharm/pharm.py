@@ -988,8 +988,9 @@ class Pharmacophore:
         show_feature_centers: bool = True,
         show_feature_points: bool = False,
         feature_colors: dict[str, tuple[float, float, float] | tuple[int, int, int]] | None = None,
-        overdide_radius: bool = False,
+        override_radius: bool = False,
         gui: bool = True,
+        directed_features_components: set[Literal["sphere", "arrow"]] = {"arrow"},
     ):
         def feature_color(feature_id: str) -> tuple[float, float, float] | tuple[int, int, int]:
             """Get color for a feature type, defaulting to gray if not set."""
@@ -1055,17 +1056,27 @@ class Pharmacophore:
             label = normalize_name(feature["label"])
             name = f"{instance}_{ftype}_{label}"
             radius = feature["radius"]
-            nv.add_spheres(
-                coords=feature["center"],
-                radii=max(radius, min_radius) if not overdide_radius else default_radius,
-                name=f"{name} Center",
-                colors=feature_color(feature["type"]),
-                representation_params=scishow.nglview.RepresentationParameters(
-                    opacity=0.8,
-                    visible=show_feature_centers,
-                    lazy=True,
+            feat_has_direction = "end" in feature and feature["end"] is not None
+            if not feat_has_direction or "sphere" in directed_features_components:
+                nv.add_spheres(
+                    coords=feature["center"],
+                    radii=max(radius, min_radius) if not override_radius else default_radius,
+                    name=f"{name} Center",
+                    colors=feature_color(feature["type"]),
+                    representation_params=scishow.nglview.RepresentationParameters(
+                        opacity=0.8,
+                        visible=show_feature_centers,
+                        lazy=True,
+                    )
                 )
-            )
+            if feat_has_direction and "arrow" in directed_features_components:
+                nv.shape.add_arrow(
+                    feature["center"].tolist(),
+                    feature["end"].tolist(),
+                    feature_color(feature["type"]),
+                    0.25,
+                    f"{name} Direction",
+                )
             # if "points" in feature:
             #     nv.add_spheres(
             #         coords=feature["points"],
