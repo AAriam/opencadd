@@ -237,7 +237,7 @@ class Grid:
             A boolean array of shape `(...)` indicating whether each point
             is inside the grid bounds.
         """
-        points = jnp.asarray(points)
+        points = np.asarray(points)
         if points.ndim < 1 or points.shape[-1] != self.dimension:
             raise ValueError(
                 f"Input points must have at least one dimension and "
@@ -245,13 +245,13 @@ class Grid:
                 f"but input had shape {points.shape}."
             )
         uvw = (points - self.lower_bounds) / self.spacings
-        is_inside = jnp.all((uvw >= -0.5) & (uvw <= (self.shape - 0.5)), axis=-1)
-        indices = jnp.clip(jnp.rint(uvw).astype(int), min=0, max=self.shape - 1)
+        is_inside = np.all((uvw >= -0.5) & (uvw <= (self.shape - 0.5)), axis=-1)
+        indices = np.clip(np.rint(uvw).astype(int), min=0, max=self.shape - 1)
         self_coords = self.index_coordinates(indices)
-        distances = jnp.linalg.norm(points - self_coords, axis=-1)
+        distances = np.linalg.norm(points - self_coords, axis=-1)
         return indices, distances, is_inside
 
-    def index_coordinates(self, indices: ArrayLike) -> jnp.ndarray:
+    def index_coordinates(self, indices: ArrayLike) -> np.ndarray:
         """Get coordinates of grid points given their indices.
 
         Parameters
