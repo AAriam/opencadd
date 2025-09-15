@@ -6,44 +6,118 @@ import pandas as pd
 import numpy as np
 import scicoda
 
+from t2fpharm.field import Field
+from t2fpharm.pocket import Pocket
+
 
 class StructureBasedModeler:
     def __init__(
         self,
         atom: pd.DataFrame,
         trajectory: np.ndarray,
+        field: Field | None = None,
+        pocket: Pocket | None = None,
         hbond_distance: float = 2,
         type_hbond_donor: str = "HD",
         type_hbond_acceptor: str = "OA",
+        field_search_radius: float = 1.5,
+        field_extrema_type: Literal["min", "max"] = "min",
+        max_pocket_distance: float = 0.5,
     ):
         self.atom = atom
         self.trajectory = trajectory
+        self.field = field
+        self.pocket = pocket
         self.hbond_distance = hbond_distance
+        self.type_hbond_donor = type_hbond_donor
+        self.type_hbond_acceptor = type_hbond_acceptor
+        self.field_search_radius = field_search_radius
+        self.field_extrema_type = field_extrema_type
+        self.max_pocket_distance = max_pocket_distance
 
         self.batch_shape = trajectory.shape[:-2]
         self.batch_ndim = len(self.batch_shape)
-        self.type_hbond_donor = type_hbond_donor
-        self.type_hbond_acceptor = type_hbond_acceptor
-
-
         self.bond = Bond(caddpy.chemsys._ccd("chem_comp_bond")).select(comp_id=atom["comp_id"])
-
-        # rows = []
-        # for _, res in atoms.groupby("res_num", sort=False):
-
-
-        #     res_rows = self._calc(res, hbond_distance=hbond_distance)
-        #     rows.extend(res_rows)
-        # features = pd.DataFrame(rows).convert_dtypes()
-        # self.features = self._calc()
+        self.features = self._calc()
         return
 
     def _calc(self) -> list[dict[str, Any]]:
-        feats = [
-            self._calc_hbond_acceptors(),
-            self._calc_hbond_donors(),
-        ]
-        return pd.concat(feats, ignore_index=True)
+        feats = pd.concat(
+            [
+                self._calc_hbond_acceptors(),
+                self._calc_hbond_donors(),
+            ],
+            ignore_index=True
+        ).convert_dtypes()
+        if self.field is not None:
+            grid_indices, distances, is_inside = self.field.grid.nearest_point(np.stack(feats["center"]))
+            feats = feats.loc[is_inside]
+            grid_indices = grid_indices[is_inside]
+
+            field_prefix_indices = feats["type"].map(
+                {val: idx for idx, val in enumerate(self.field.batch_instance_labels["feature"])}
+            ).to_numpy().reshape(-1, 1)
+            if "instance" in feats:
+                # Merge instance indices with grid indices to get full field indices
+                instances = feats["instance"]
+                N = len(feats)
+                if instances.dtype != "object":
+                    field_prefix_indices = np.concatenate(
+                        [field_prefix_indices, instances.to_numpy().reshape(-1, 1)],
+                        axis=1
+                    )
+                else:
+                    vals = instances.tolist()
+                    K = len(vals[0]) + 1
+                    # Stack rows into a 2D array of shape (N, K)
+                    # Using a single allocation via np.empty + fill for speed/robustness
+                    prefix = np.empty((N, K), dtype=np.int64)
+                    for i, (feature_prefix, instance_prefix) in enumerate(zip(field_prefix_indices, vals)):
+                        prefix[i, 0] = feature_prefix
+                        prefix[i, 1:] = instance_prefix
+                    field_prefix_indices = prefix
+            field_indices = np.concatenate([field_prefix_indices, grid_indices], axis=1)
+            footprint = self.field.grid.footprint_spherical(self.field_search_radius)
+            extrema_indices = _extrema_under_footprint(
+                field=self.field.tensor,
+                field_indices=field_indices,
+                footprint=footprint,
+                maximize=(self.field_extrema_type == "max"),
+            )
+            extrema_coords = self.field.grid.index_coordinates(extrema_indices[..., -3:])
+            extrema_values = self.field.tensor[tuple(extrema_indices.T)]
+            feats["center"] = list(extrema_coords)
+            feats["value"] = extrema_values
+        if self.pocket is not None:
+            indices, distances = self.pocket.nearest_point(np.stack(feats["center"]))
+            indices = np.asarray(indices)
+            distances = np.asarray(distances)
+            if "instance" in feats:
+                instances = feats["instance"]
+                N = len(feats)
+                if instances.dtype != "object":
+                    prefix = np.empty((N, 2), dtype=np.int64)
+                    prefix[:, 0] = instances.to_numpy()
+                    prefix[:, 1] = np.arange(N, dtype=np.int64)
+                else:
+                    vals = instances.tolist()
+                    batch_n_dim = len(vals[0])
+                    K = batch_n_dim + 1
+                    # Stack rows into a 2D array of shape (N, K)
+                    # Using a single allocation via np.empty + fill for speed/robustness
+                    prefix = np.empty((N, K), dtype=np.int64)
+                    for i, (instance_prefix) in enumerate(vals):
+                        prefix[i, 0:batch_n_dim] = instance_prefix
+                        prefix[i, batch_n_dim] = i
+                prefix_unpacked = tuple(prefix.T)
+                indices = indices[prefix_unpacked]
+                distances = distances[prefix_unpacked]
+            dist_mask = distances <= self.max_pocket_distance
+            indices = indices[dist_mask]
+            # indices.block_until_ready()   # flush compute/compilation
+            distances = distances[dist_mask]
+            feats = feats.loc[dist_mask]
+        return feats
 
     def _calc_hbond_acceptors(self):
         hd = self._merge_with_partners(self.atom[self.atom["autodock_atom_type"] == "HD"])
@@ -121,7 +195,6 @@ class StructureBasedModeler:
 
     def _calc_oa1(self, oa):
         # Get the bonding partners of the (only one) partner, to define the in-plane direction
-        print("A", len(oa), len(oa["atom_idx"].unique()))
         partners = self._merge_with_partners(
             oa[["atom_idx", "partner_atom_idx"]].rename(
                 columns={"atom_idx": "oxygen_atom_idx", "partner_atom_idx": "atom_idx"}
@@ -129,36 +202,23 @@ class StructureBasedModeler:
             extra_cols=["element_index"],
             drop_if_any_missing=False
         )
-        print("B", len(partners), len(partners["atom_idx"].unique()))
         partners = partners[partners["partner_atom_idx"].notna()]
-        print("C", len(partners), len(partners["atom_idx"].unique()))
         # Exclude the original O atom from the partners
         partners = partners[~partners["partner_atom_idx"].isin(oa["atom_idx"])]
-        print("D", len(partners), len(partners["atom_idx"].unique()))
         # Select the partner with the highest atomic number as the anchor for the in-plane direction
         partners = partners.loc[partners.groupby(["atom_idx", "oxygen_atom_idx"])["partner_element_index"].idxmax()]
-        print("E", len(partners), len(partners["atom_idx"].unique()))
 
         p1_indices = partners["atom_idx"].to_numpy()
-        print("F", len(p1_indices), len(set(p1_indices)))
         in_plane_indices = partners["partner_atom_idx"].to_numpy()
         o_indices = partners["oxygen_atom_idx"].to_numpy()
-        # o_indices = partners[["atom_idx"]].merge(
-        #     oa[["atom_idx", "partner_atom_idx"]].rename(columns={"atom_idx": "o_idx", "partner_atom_idx": "atom_idx"}),
-        #     on="atom_idx",
-        #     how="left"
-        # )["o_idx"].to_numpy()
-        print("G", len(o_indices))
 
         o_coords = self.trajectory[..., o_indices, :]
-        print("H", o_coords.shape)
         feat_coords = fill_trigonal(
             o_coords,
             self.trajectory[..., p1_indices, :],
             in_plane=self.trajectory[..., in_plane_indices, :],
             length=self.hbond_distance,
         )
-        print("I", feat_coords.shape)
         return self._create_df(
             atom_idx=np.repeat(o_indices, 2),
             feature_type=self.type_hbond_donor,
@@ -197,7 +257,7 @@ class StructureBasedModeler:
         end: np.ndarray,
     ):
         if self.batch_ndim == 0:
-            instance = 0
+            instance = None
         else:
             instance = (
                 np.repeat(np.arange(self.batch_shape[0]), repeats=len(atom_idx))
@@ -213,8 +273,8 @@ class StructureBasedModeler:
             "center": list(center),
             "end": list(end),
         }
-        for col_name, col in cols.items():
-            print(col_name, type(col), len(col) if isinstance(col, list) else col.shape if isinstance(col, np.ndarray) else "")
+        if self.batch_ndim == 0:
+            cols.pop("instance")
         return pd.DataFrame(cols).convert_dtypes()
 
     def _merge_with_partners(
@@ -652,3 +712,138 @@ def _calculate_angles_at_center(
     # Angles in radians
     angles = np.arccos(cos_angles)
     return angles
+
+
+def _extrema_under_footprint(
+    field: np.ndarray,
+    field_indices: np.ndarray,
+    footprint: np.ndarray,
+    *,
+    maximize: bool = False,
+) -> np.ndarray:
+    """Return argmin/argmax indices in `field` under a 3D boolean footprint centered at given indices.
+
+    Places the center of `footprint` (which must have odd lengths along each axis) on each
+    index in `field_indices`, applies natural clipping at borders, and finds the index in
+    `field` (same global coordinates) of the **extreme** value (minimum by default;
+    maximum if `maximize=True`) among locations where `footprint` is True.
+    The footprint operates over the **last three axes** of `field`. All leading axes
+    (if any) are taken exactly from each row of `field_indices`.
+
+    Parameters
+    ----------
+    field
+        N-dimensional array (N >= 3). The last 3 axes are the spatial axes affected by
+        the footprint. Must be indexable with integer coordinates from `field_indices`.
+    field_indices
+        2D array of shape (K, N) with integer indices. Each row specifies a global index
+        in `field` at which the *center* of `footprint` is placed.
+    footprint
+        3D boolean array with odd shape along each axis (so it has a unique center).
+        This footprint is aligned with the last 3 axes of `field`.
+
+    Returns
+    -------
+    np.ndarray
+        Array of shape (K, N) with the global indices (same order as `field_indices`)
+        of the selected extreme (min or max) element in `field` under the footprint
+        for each placement.
+
+    Raises
+    -------
+    ValueError
+        If input shapes/dtypes are invalid (e.g., N < 3, footprint not 3D, footprint
+        has even length on any axis, or `field_indices` shape mismatch).
+
+    Notes
+    ------
+    - If the footprint region is partially outside the array, only the in-bounds portion
+      is considered.
+    - If, after clipping, there are no True cells in the footprint slice (should not happen
+      when the footprint center is True and the center is in-bounds), this function falls
+      back to returning the original `field_indices` row for that placement.
+    """
+    if field.ndim < 3:
+        raise ValueError(f"`field` must be at least 3D; got {field.ndim}D")
+    if footprint.ndim != 3:
+        raise ValueError(f"`footprint` must be 3D; got {footprint.ndim}D")
+    if any(s % 2 == 0 for s in footprint.shape):
+        raise ValueError(f"`footprint` must have odd lengths; got shape {footprint.shape}")
+    if field_indices.ndim != 2 or field_indices.shape[1] != field.ndim:
+        raise ValueError(
+            f"`field_indices` must have shape (K, {field.ndim}); got {field_indices.shape}"
+        )
+    if not np.issubdtype(field_indices.dtype, np.integer):
+        raise ValueError("`field_indices` must be of integer dtype")
+
+    N = field.ndim
+    K = field_indices.shape[0]
+    out = np.empty((K, N), dtype=np.int64)
+
+    # Radii (half-sizes) of the footprint along its 3 axes
+    rad_z, rad_y, rad_x = (d // 2 for d in footprint.shape)
+
+    # Helper to compute slice bounds (field and footprint) for one axis with center c, radius r, and limit L
+    def _bounds(c: int, r: int, L: int) -> tuple[slice, slice]:
+        # Field slice [f0:f1)
+        f0 = max(0, c - r)
+        f1 = min(L, c + r + 1)
+        # Map back to footprint slice [p0:p1)
+        # Position of f0 in footprint coords:
+        p0 = r - (c - f0)
+        # Length matches field segment:
+        p1 = p0 + (f1 - f0)
+        return slice(f0, f1), slice(p0, p1)
+
+    # Precompute for speed
+    field_shape_last3 = field.shape[-3:]
+
+    # Choose comparator
+    extreme = np.argmax if maximize else np.argmin
+
+    for k in range(K):
+        idx = field_indices[k]
+        # Split index into leading axes (if any) and last-3 axes
+        lead_idx = tuple(idx[:-3]) if N > 3 else ()
+        zc, yc, xc = (int(idx[-3]), int(idx[-2]), int(idx[-1]))
+
+        # Bounds per last-3 axes
+        (fz, pz) = _bounds(zc, rad_z, field_shape_last3[0])
+        (fy, py) = _bounds(yc, rad_y, field_shape_last3[1])
+        (fx, px) = _bounds(xc, rad_x, field_shape_last3[2])
+
+        # Extract field view and footprint slice
+        fview = field[(*lead_idx, fz, fy, fx)]
+        pview = footprint[pz, py, px]
+
+        # Guard: ensure pview has any True
+        if not pview.any():
+            # Fallback to center (should be rare if center of footprint is True)
+            out[k] = idx
+            continue
+
+        # Mask invalid cells by setting them to +inf/-inf depending on min/max
+        # Copy only if needed
+        view = fview
+        if not pview.all():
+            # We must ignore where pview is False
+            if maximize:
+                masked = np.where(pview, view, -np.inf)
+            else:
+                masked = np.where(pview, view, np.inf)
+            flat_idx = extreme(masked.ravel())
+        else:
+            flat_idx = extreme(view.ravel())
+
+        # Convert flat idx back to local (z,y,x) offsets
+        local_zyx = np.unravel_index(flat_idx, fview.shape)
+        # Compose global index
+        gz = fz.start + local_zyx[0]
+        gy = fy.start + local_zyx[1]
+        gx = fx.start + local_zyx[2]
+
+        if N > 3:
+            out[k, :-3] = np.array(lead_idx, dtype=np.int64)
+        out[k, -3:] = (gz, gy, gx)
+
+    return out
