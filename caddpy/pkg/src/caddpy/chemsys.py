@@ -76,6 +76,8 @@ class ChemicalSystem:
         self._composition = composition
         self._trajectory = trajectory
         self._name = name
+
+        self._composition._chemsys = self  # back-reference
         return
 
     @property
@@ -432,7 +434,6 @@ class ChemicalComposition:
             # self._residues = pd.DataFrame(collapsed)
         return self._residues
 
-
     @property
     def element_index(self) -> np.ndarray:
         """Atomic index (i.e. atomic number minus 1) of the atoms."""
@@ -535,8 +536,13 @@ class ChemicalComposition:
             first_frame_index = 0 if self._chemsys.trajectory.batch_ndim == 0 else np.unravel_index(
                 0, self._chemsys.trajectory.batch_shape
             )
-            pdb_string = str(self._chemsys.to_pdb(frames=first_frame_index))
-            pybel_molecule = pybel.readstring(format="pdb", string=pdb_string)
+            pdbqt_string = self._chemsys.to_pdbqt(frames=first_frame_index)
+            pdbqt = scifile.pdb.read(pdbqt_string, variant="pdbqt", parse_only=["ATOM"])
+            atom = pdbqt.atom.reset_index(drop=True)  # drop the "serial" index to avoid merge conflicts
+            # Can't merge on "serial" since it is not preserved during PDBQT conversion by pybel.
+            merge_cols = ["chain_id", "res_name", "res_seq", "i_code", "name"]
+            atom = pdbqt.atom[merge_cols + ["autodock_atom_type", "partial_charge"]]
+            self._atoms = self._atoms.merge(atom, on=merge_cols, how="left", validate="1:1")
         return self._atoms["autodock_atom_type"].values
 
     def hbond_acceptor(self) -> np.ndarray:
@@ -763,6 +769,7 @@ def _augment_atom_df(df: pd.DataFrame) -> PDBAtomMatcher:
     residues = df.groupby(["chain_id", "res_seq", "i_code"], sort=False)
     atom_res_key_col_name = "res_num"
     df[atom_res_key_col_name] = residues.ngroup() + 1
+    df["atom_idx"] = np.arange(len(df), dtype=np.int32)
     matcher = PDBAtomMatcher(
         atom=df,
         ccd_atom=_ccd("chem_comp_atom"),
