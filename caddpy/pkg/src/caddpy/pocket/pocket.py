@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 import arrayer
+from scipy.spatial import KDTree
 import scids
 from scids.field import Field
 from scids.grid import Grid
@@ -117,26 +118,37 @@ class Pocket(Field):
         idx_tuple = tuple(indices[..., dim] for dim in range(indices.shape[-1]))
         return np.logical_and(is_inside, self.tensor[..., *idx_tuple])
 
-    def nearest_point(self, points: ArrayLike) -> tuple[np.ndarray, np.ndarray]:
+    def nearest_point(
+        self,
+        points: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Find the nearest pocket point for each point in the input.
+
+        This function finds, for each input point,
+        the nearest voxel center among voxels within the pocket.
 
         Parameters
         ----------
         points
-            An array of shape `(..., 3)`,
-            containing the coordinates of points in the same space as the pocket.
+            Array of shape (..., 3) containing the coordinates
+            of the query points in the same space as the pocket.
 
         Returns
         -------
         indices
-            An array of shape `(*self.batch_shape, ..., 3)`
+            Integer array of shape `(*self.batch_shape, ..., 3)`
             containing the indices of the nearest pocket point in each pocket instance
             for each point in the input.
         distances
-            An array of shape `(*self.batch_shape, ...)` containing the distances
+            Float array of shape `(*self.batch_shape, ...)` containing the distances
             from each point in the input to its nearest pocket point in each pocket instance.
+
+        Raises
+        ------
+        ValueError
+            If any batch instance has no True voxels, or last dims are inconsistent.
         """
-        points = jnp.asarray(points)
+        points = np.asarray(points)
         if points.ndim < 1 or points.shape[-1] != self.grid.dimension:
             raise ValueError(
                 f"Input points must have at least one dimension and "
@@ -144,55 +156,151 @@ class Pocket(Field):
                 f"but input had shape {points.shape}."
             )
 
-        # Grid coordinates: (n_x, n_y, n_z, 3)
-        coords = jnp.asarray(self.grid.coordinates)
-        if coords.shape[-1] != points.shape[-1]:
+        grid_coords = np.asarray(self.grid.coordinates)
+        if grid_coords.shape[-1] != points.shape[-1]:
             raise ValueError(
-                f"Coordinate dimensionality mismatch: grid has {coords.shape[-1]}, "
+                f"Coordinate dimensionality mismatch: grid has {grid_coords.shape[-1]}, "
                 f"points have {points.shape[-1]}."
             )
-        n_x, n_y, n_z, _ = coords.shape
 
-        # Sanity: each batch slice must have at least one True voxel.
-        has_any = jnp.any(self.tensor, axis=(-3, -2, -1))  # shape: *B
-        if bool(np.asarray(~has_any).any()):
-            raise ValueError("At least one batch instance has no pocket voxels (no True values).")
+        mask = np.asarray(self.tensor, dtype=bool)
 
-        B_shape = self.tensor.shape[:-3]        # batch shape (may be empty)
-        num_B = len(B_shape)
+        B_shape = self.tensor.shape[:-3]
+        nx, ny, nz, _ = grid_coords.shape
+        N = nx * ny * nz
 
-        # Pairwise squared distances between points and all grid coords.
-        # Result shape before adding batch: (..., n_x, n_y, n_z)
-        diffs = points[..., None, None, None, :] - coords[None, ...]
-        d2 = jnp.sum(diffs * diffs, axis=-1)
+        # Flatten points leading dims into P×3 for querying; keep original shape for restore.
+        point_leading = points.shape[:-1]
+        P = int(np.prod(point_leading)) if point_leading else 1
+        pts_flat = points.reshape(P, 3)
 
-        # Add leading batch dims so d2 matches mask's leading batch dims.
-        if num_B:
-            d2 = jnp.reshape(d2, (1,) * num_B + d2.shape)  # (*B, ..., n_x, n_y, n_z)
+        # Precompute flattened voxel coords once (shared across batches); indices for unravel.
+        coords_flat = grid_coords.reshape(N, 3)
 
-        # Correct broadcasting of the boolean mask:
-        # insert singleton axes for the point dims BETWEEN batch and spatial dims.
-        mask = jnp.asarray(self.tensor)  # (*B, n_x, n_y, n_z)
-        extra_point_dims = d2.ndim - mask.ndim
-        if extra_point_dims < 0:
-            raise RuntimeError("Unexpected rank mismatch while broadcasting mask.")
-        mask_b = mask.reshape((*B_shape, *(1,) * extra_point_dims, n_x, n_y, n_z))  # (*B, ..., n_x, n_y, n_z)
+        def per_batch(mask_b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            valid = mask_b.reshape(N)
+            K = int(valid.sum())
+            if K == 0:
+                raise ValueError("At least one batch instance has no pocket voxels (no True values).")
 
-        # Mask non-pocket voxels with +inf so they can't win the argmin.
-        masked_d2 = jnp.where(mask_b, d2, jnp.inf)
+            idx_valid = np.nonzero(valid)[0]           # (K,)
+            cand = coords_flat[idx_valid]              # (K, 3)
 
-        # Argmin over flattened spatial dimension.
-        point_shape = masked_d2.shape[num_B:-3]
-        flat = jnp.reshape(masked_d2, (*B_shape, *point_shape, n_x * n_y * n_z))   # (*B, ..., N)
-        argmin_flat = jnp.argmin(flat, axis=-1)                                     # (*B, ...)
-        min_d2 = jnp.take_along_axis(flat, argmin_flat[..., None], axis=-1)[..., 0] # (*B, ...)
+            tree = KDTree(cand)
+            # SciPy ≥1.6 supports workers=...
+            d, ix_local = tree.query(pts_flat, k=1, workers=-1)
 
-        # Unravel flat indices back to (i, j, k).
-        ii, jj, kk = jnp.unravel_index(argmin_flat, (n_x, n_y, n_z))                # each (*B, ...)
-        indices = jnp.stack((ii, jj, kk), axis=-1)                                   # (*B, ..., 3)
-        distances = jnp.sqrt(min_d2)                                                # (*B, ...)
+            # Map local indices back to flat grid indices.
+            flat_ix = idx_valid[ix_local]             # (P,)
+            # Unravel to (i,j,k)
+            ii = flat_ix // (ny * nz)
+            rem = flat_ix % (ny * nz)
+            jj = rem // nz
+            kk = rem % nz
+            ijk = np.stack((ii, jj, kk), axis=-1)     # (P, 3)
+            return ijk, d
 
-        return indices, distances
+        if not B_shape:
+            ijk, d = per_batch(mask)
+            ijk = ijk.reshape((*point_leading, 3))
+            d = d.reshape((*point_leading,))
+            return ijk, d
+
+        # Multiple batch instances: loop (robust and memory-safe). If B is huge,
+        # you can parallelize outside Python or reuse trees when masks repeat.
+        B = int(np.prod(B_shape))
+        mask_b = mask.reshape(B, nx, ny, nz)
+        ijk_list: list[np.ndarray] = []
+        d_list: list[np.ndarray] = []
+        for b in range(B):
+            ijk_b, d_b = per_batch(mask_b[b])
+            ijk_list.append(ijk_b)
+            d_list.append(d_b)
+
+        ijk = np.stack(ijk_list, axis=0).reshape((*B_shape, *point_leading, 3))
+        d = np.stack(d_list, axis=0).reshape((*B_shape, *point_leading))
+        return ijk, d
+
+
+    # def nearest_point(self, points: ArrayLike) -> tuple[np.ndarray, np.ndarray]:
+    #     """Find the nearest pocket point for each point in the input.
+
+    #     Parameters
+    #     ----------
+    #     points
+    #         An array of shape `(..., 3)`,
+    #         containing the coordinates of points in the same space as the pocket.
+
+    #     Returns
+    #     -------
+    #     indices
+    #         An array of shape `(*self.batch_shape, ..., 3)`
+    #         containing the indices of the nearest pocket point in each pocket instance
+    #         for each point in the input.
+    #     distances
+    #         An array of shape `(*self.batch_shape, ...)` containing the distances
+    #         from each point in the input to its nearest pocket point in each pocket instance.
+    #     """
+    #     print("N1")
+    #     points = np.asarray(points)
+    #     if points.ndim < 1 or points.shape[-1] != self.grid.dimension:
+    #         raise ValueError(
+    #             f"Input points must have at least one dimension and "
+    #             f"the last dimension must have size {self.grid.dimension}, "
+    #             f"but input had shape {points.shape}."
+    #         )
+    #     print("N2")
+    #     # Grid coordinates: (n_x, n_y, n_z, 3)
+    #     coords = np.asarray(self.grid.coordinates)
+    #     if coords.shape[-1] != points.shape[-1]:
+    #         raise ValueError(
+    #             f"Coordinate dimensionality mismatch: grid has {coords.shape[-1]}, "
+    #             f"points have {points.shape[-1]}."
+    #         )
+    #     n_x, n_y, n_z, _ = coords.shape
+    #     print("N3")
+    #     # Sanity: each batch slice must have at least one True voxel.
+    #     has_any = np.any(self.tensor, axis=(-3, -2, -1))  # shape: *B
+    #     if bool(np.asarray(~has_any).any()):
+    #         raise ValueError("At least one batch instance has no pocket voxels (no True values).")
+
+    #     B_shape = self.tensor.shape[:-3]        # batch shape (may be empty)
+    #     num_B = len(B_shape)
+    #     print("N4")
+    #     # Pairwise squared distances between points and all grid coords.
+    #     # Result shape before adding batch: (..., n_x, n_y, n_z)
+    #     diffs = points[..., None, None, None, :] - coords[None, ...]
+    #     d2 = np.sum(diffs * diffs, axis=-1)
+
+    #     # Add leading batch dims so d2 matches mask's leading batch dims.
+    #     if num_B:
+    #         d2 = np.reshape(d2, (1,) * num_B + d2.shape)  # (*B, ..., n_x, n_y, n_z)
+    #     print("N5")
+    #     # Correct broadcasting of the boolean mask:
+    #     # insert singleton axes for the point dims BETWEEN batch and spatial dims.
+    #     mask = np.asarray(self.tensor)  # (*B, n_x, n_y, n_z)
+    #     extra_point_dims = d2.ndim - mask.ndim
+    #     if extra_point_dims < 0:
+    #         raise RuntimeError("Unexpected rank mismatch while broadcasting mask.")
+    #     mask_b = mask.reshape((*B_shape, *(1,) * extra_point_dims, n_x, n_y, n_z))  # (*B, ..., n_x, n_y, n_z)
+    #     print("N6")
+    #     # Mask non-pocket voxels with +inf so they can't win the argmin.
+    #     masked_d2 = np.where(mask_b, d2, jnp.inf)
+    #     print("N7")
+    #     # Argmin over flattened spatial dimension.
+    #     point_shape = masked_d2.shape[num_B:-3]
+    #     flat = np.reshape(masked_d2, (*B_shape, *point_shape, n_x * n_y * n_z))   # (*B, ..., N)
+    #     argmin_flat = np.argmin(flat, axis=-1)                                     # (*B, ...)
+    #     min_d2 = np.take_along_axis(flat, argmin_flat[..., None], axis=-1)[..., 0] # (*B, ...)
+    #     print("N8")
+    #     # Unravel flat indices back to (i, j, k).
+    #     ii, jj, kk = np.unravel_index(argmin_flat, (n_x, n_y, n_z))                # each (*B, ...)
+    #     print("N9")
+    #     indices = np.stack((ii, jj, kk), axis=-1)                                   # (*B, ..., 3)
+    #     print("N10")
+    #     distances = np.sqrt(min_d2)                                                # (*B, ...)
+    #     print("N11")
+    #     return indices, distances
 
     def display(
         self,
