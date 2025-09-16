@@ -227,7 +227,7 @@ def from_npz(
         elif key in scalar_keys:
             out[key] = value.item()
         else:
-            out[key] = jnp.asarray(value)
+            out[key] = np.asarray(value)
     if return_dict:
         return out
     return DataSet(data=out[data_key], batch=batch)
