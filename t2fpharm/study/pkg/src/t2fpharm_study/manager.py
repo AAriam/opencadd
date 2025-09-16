@@ -1,19 +1,22 @@
 import os
 from pathlib import Path
 import shutil
-from typing import Any, Sequence, Literal
+from typing import Any, Sequence, Literal, Iterable
 import json
 import warnings
 import logging
 import traceback
+from io import StringIO
 
 import arrayer
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from openmm.app.internal.pdbx.reader.PdbxReader import PdbxReader
 from tqdm.auto import tqdm
 import ray
+from sklearn.cluster import KMeans
 
 import pyserials
 
@@ -21,8 +24,11 @@ import sciapi
 import scifile
 import caddpy
 import pdbfinder
+import scicoda
+from caddpy.bond import Bond
 
 import t2fpharm
+import t2fpharm.structure_modeler as structure_modeler
 
 from t2fpharm_study import io
 from t2fpharm_study.job_gen import generate_job_inputs
@@ -55,6 +61,7 @@ class Manager:
         dirpath_pdb_aligned: Path | str,
         dirpath_pdb_apo: Path | str,
         dirpath_pdbqt: Path | str,
+        dirpath_chemsys: Path | str,
         dirpath_affinity: Path | str,
         dirpath_pocket: Path | str,
         dirpath_autogrid: Path | str,
@@ -85,6 +92,7 @@ class Manager:
             "pdb_aligned": dirpath_pdb_aligned,
             "pdb_apo": dirpath_pdb_apo,
             "pdbqt": dirpath_pdbqt,
+            "chemsys": dirpath_chemsys,
             "affinity": dirpath_affinity,
             "pocket": dirpath_pocket,
             "autogrid": dirpath_autogrid,
@@ -105,12 +113,13 @@ class Manager:
             "pdb_aligned": "pdb",
             "pdb_apo": "pdb",
             "pdbqt": "pdbqt",
+            "chemsys": "npz",
             "affinity": "json",
             "pocket": "npz",
             "field": "npz",
-            "ligand_plip": "json",
-            "ligand_features": "json",
-            "ref_features": "json",
+            "ligand_plip": "parquet",
+            "ligand_features": "parquet",
+            "ref_features": "parquet",
             "results_job_inputs": "json",
             "results_summary": "json",
             "results_pharm": "json",
@@ -121,6 +130,7 @@ class Manager:
         self._cache_enabled = True
         self._cache = {}
         self._group_grid: dict[str, t2fpharm.Grid] = {}
+        self._ccd_bond_ = None
         return
 
     @property
@@ -799,6 +809,14 @@ class Manager:
         cached = self._cache.get(pdb_id, {}).get("complex")
         if cached:
             return cached
+
+        filepath_chemsys = self.path("chemsys", pdb_id)
+        if filepath_chemsys.is_file():
+            rcomplex = t2fpharm.system.from_npz(filepath_chemsys)
+            if self._cache_enabled:
+                self._cache.setdefault(pdb_id, {})["complex"] = rcomplex
+            return rcomplex
+
         filepath_pdb_aligned = self.path("pdb_aligned", pdb_id)
         if filepath_pdb_aligned.is_file():
             pdb_aligned_str = filepath_pdb_aligned.read_text()
@@ -850,6 +868,7 @@ class Manager:
                 pdb_aligned_str = str(query_complex_aligned.to_pdb())
             filepath_pdb_aligned.write_text(pdb_aligned_str)
         rcomplex = t2fpharm.system.from_pdb(pdb_aligned_str, name=pdb_id)
+        rcomplex.to_npz(filepath_chemsys)
         if self._cache_enabled:
             self._cache.setdefault(pdb_id, {})["complex"] = rcomplex
         return rcomplex
@@ -1128,28 +1147,10 @@ class Manager:
                 pocket=self.pocket(ref_pdb_id) if include_extras else None,
             )
         else:
-            # Get all complex-based pharmacophores for the group
-            complex_pharms = [self.complex_pharmacophore(pdb_id) for pdb_id in self.group_pdb_ids(group_id)]
-            # Merge all coomplex-based pharmacophores into one
-            merged_pharm = t2fpharm.pharm.merge(complex_pharms)
-            # Select only the features that are within the pocket
-            pocket = self.pocket(ref_pdb_id)
-            merged_feats = merged_pharm.features
-            feat_centers = np.stack(merged_feats["center"])
-            feat_mask = pocket.point_coverage(feat_centers)
-            selected_feats = merged_feats[feat_mask]
-            filtered_pharm = merged_pharm.new(
-                features=selected_feats,
-                system=self.complex(ref_pdb_id) if include_extras else None,
-                pocket=pocket if include_extras else None,
-            )
-            ref_pharm = filtered_pharm.cluster_agg(
-                distance_threshold=4,
-                min_members=1,
-                noise_as_singleton=True,
-                center_type="mean",
-                radius_type="max",
-                per_instance=False,
+            ref_pharm = self._create_ref_pharm(
+                group_id=group_id,
+                ref_pdb_id=ref_pdb_id,
+                include_extras=include_extras
             )
             filepath_ref_features.write_text(
                 ref_pharm.features.to_json(orient="records", indent=4)
@@ -1158,6 +1159,191 @@ class Manager:
             self._cache.setdefault(f"group_{group_id}", {})["ref_pharm"] = ref_pharm
         return ref_pharm
 
+    @property
+    def _ccd_bond(self) -> Bond:
+        if self._ccd_bond_ is None:
+            bonds = scicoda.pdb.ccd("chem_comp_bond")
+            self._ccd_bond_ = Bond(bonds)
+        return self._ccd_bond_
+
+    def _create_ref_pharm(
+        self,
+        group_id: str,
+        ref_pdb_id: str,
+        include_extras: bool,
+    ) -> t2fpharm.pharm.Pharmacophore:
+        resmap = self.residue_map(group_id)[["unp_residue_number", ref_pdb_id]]
+        ref_complex = self.complex(ref_pdb_id)
+        ref_atoms = ref_complex.composition.atoms.copy()
+        ref_atoms[ref_pdb_id] = ref_atoms["res_seq"].astype(str).str.cat(ref_atoms["i_code"], sep="")
+        ref_atoms = ref_atoms.merge(
+            resmap,
+            on=[ref_pdb_id],
+            how="left"
+        )
+
+        complex_pharms = []
+        for pdb_id in self.group_pdb_ids(group_id):
+            try:
+                pharm = self.complex_pharmacophore(pdb_id)
+            except Exception as e:
+                raise RuntimeError(f"Failed to create pharmacophore for {pdb_id}") from e
+            if pharm.features.empty:
+                continue
+            system = pharm.system
+            atoms = system.composition.atoms
+            feats = pharm.features[pharm.features["r_unp_res_num"].notna()].copy()
+            r_atom_names = []
+            r_element_types = []
+            h_atom_names = []
+            aligned_centers = []
+            aligned_ends = []
+            row_indices_to_drop = []
+            for row_idx, feat in feats.iterrows():
+                serials = feat["r_serials"]
+                res_full = atoms[
+                    (atoms["chain_id"] == feat["r_chain_id"]) &
+                    (atoms["res_name"] == feat["r_res_name"]) &
+                    (atoms["res_seq"] == feat["r_res_seq"]) &
+                    (atoms["i_code"] == feat["r_icode"])
+                ]
+                if not np.isin(serials, res_full["serial"]).all():
+                    raise ValueError()
+                if len(serials) >= 3:
+                    expanded_serials = serials
+                else:
+                    expanded_serials = self._find_serials(serials=serials, atoms=res_full)
+                    assert len(expanded_serials) == 3, f"Got {len(expanded_serials)} instead of 3 reference atoms for feature:\n{feat}\nfor structure {pdb_id}."
+
+                res = res_full[res_full["serial"].isin(expanded_serials)].copy()
+                res["unp_residue_number"] = feat["r_unp_res_num"]
+                res = res.merge(
+                    ref_atoms,
+                    on=["unp_residue_number", "res_name", "name"],
+                    how="left",
+                )
+                if res["serial_y"].isna().any():
+                    warnings.warn(
+                        f"Could not find all reference atoms for feature:\n{feat}\n"
+                        f"in structure {pdb_id}. Skipping this feature."
+                    )
+                    row_indices_to_drop.append(row_idx)
+                    continue
+                r_atom_names.append(tuple(sorted(res_full[res_full["serial"].isin(serials)]["name"].tolist())))
+                h_atom_names.append(
+                    res_full[res_full["serial"] == feat["h_serial"]]["name"].values[0]
+                    if feat["type"] == "OA" else None
+                )
+                r_element_types.append(tuple(sorted(res_full[res_full["serial"].isin(serials)]["type_symbol"].tolist())))
+                ref_idx = pd.Index(ref_atoms["serial"]).get_indexer(res[f"serial_y"])
+                query_idx = pd.Index(atoms["serial"]).get_indexer(res[f"serial_x"])
+
+                ref_coords = ref_complex.trajectory.points[ref_idx]
+                query_coords = system.trajectory.points[query_idx]
+
+                rotation, translation, rmsd = arrayer.kabsch.kabsch_unweighted(ref_coords, query_coords)
+                new_center = feat["center"] @ rotation + translation
+                new_end = feat["end"] @ rotation + translation if "end" in feat and not pd.isna(feat["end"]).any() else None
+                aligned_centers.append(new_center)
+                aligned_ends.append(new_end)
+            feats.drop(index=row_indices_to_drop, inplace=True)
+            if feats.empty:
+                continue
+            feats["r_atom_names"] = r_atom_names
+            feats["h_atom_name"] = h_atom_names
+            feats["r_elements"] = r_element_types
+            feats["center"] = aligned_centers
+            feats["end"] = aligned_ends
+            pharm = pharm.new(features=feats)
+            complex_pharms.append(pharm)
+
+        # Merge all complex-based pharmacophores into one
+        merged_pharm = t2fpharm.pharm.merge(complex_pharms)
+        merged_feats = merged_pharm.features
+
+        final_features = []
+
+        for (feat_type, unp_res_num, atom_names), group in merged_feats.groupby(["type", "r_unp_res_num", "r_atom_names"]):
+            if len(group) == 1:
+                row = group.iloc[0].to_dict()
+                final_features.append({
+                    "type": feat_type,
+                    "center": row["center"],
+                    "end": row.get("end"),
+                    "radius": row["radius"],
+                    "r_unp_res_num": unp_res_num,
+                    "r_atom_names": atom_names,
+                })
+                continue
+            centers = np.stack(group["center"])
+            if feat_type != "HD" or "O" not in row["r_elements"]:
+                # Cluster all into one feature
+                cluster_center = np.mean(centers, axis=0)
+                cluster_end = np.mean(np.stack(group["end"]), axis=0) if "end" in group else None
+                cluster_radius = np.linalg.norm(centers - cluster_center, axis=1).max()
+                final_features.append({
+                    "type": feat_type,
+                    "center": cluster_center,
+                    "end": cluster_end,
+                    "radius": cluster_radius,
+                    "r_unp_res_num": unp_res_num,
+                    "r_atom_names": atom_names,
+                })
+                continue
+            kmeans = KMeans(n_clusters=2, random_state=42).fit(centers)
+            cluster_centers = kmeans.cluster_centers_
+            center_dist = np.linalg.norm(cluster_centers[0] - cluster_centers[1])
+            if center_dist < 2:
+                # Cluster all into one feature
+                cluster_center = np.mean(centers, axis=0)
+                cluster_end = np.mean(np.stack(group["end"]), axis=0) if "end" in group else None
+                cluster_radius = np.linalg.norm(centers - cluster_center, axis=1).max()
+                final_features.append({
+                    "type": feat_type,
+                    "center": cluster_center,
+                    "end": cluster_end,
+                    "radius": cluster_radius,
+                    "r_unp_res_num": unp_res_num,
+                    "r_atom_names": atom_names,
+                })
+                continue
+            # Split into two features
+            for cluster_idx, cluster_center in enumerate(cluster_centers):
+                cluster_members = centers[kmeans.labels_ == cluster_idx]
+                cluster_end = np.mean(np.stack(group[kmeans.labels_ == cluster_idx]["end"]), axis=0) if "end" in group else None
+                cluster_radius = np.linalg.norm(cluster_members - cluster_center, axis=1).max()
+                final_features.append({
+                    "type": feat_type,
+                    "center": cluster_center,
+                    "end": cluster_end,
+                    "radius": cluster_radius,
+                    "r_unp_res_num": unp_res_num,
+                    "r_atom_names": atom_names,
+                })
+
+        merged_feats = pd.DataFrame(final_features)
+
+        feat_is_directed = merged_feats["type"].isin(["HD", "OA"])
+        directed_feats = merged_feats[feat_is_directed]
+        non_directed_feats = merged_feats[~feat_is_directed]
+
+        non_directed_pharm = t2fpharm.pharm.Pharmacophore(features=non_directed_feats)
+        non_directed_feats_clustered = _recursive_agg(non_directed_pharm).features
+        all_feats = pd.concat([directed_feats, non_directed_feats_clustered], ignore_index=True)
+
+        # Select only the features that are within the pocket
+        pocket = self.pocket(ref_pdb_id)
+        feat_centers = np.stack(all_feats["center"])
+        _, dists = pocket.nearest_point(feat_centers)
+
+        selected_feats = all_feats[dists < 0.5]
+        filtered_pharm = merged_pharm.new(
+            features=selected_feats,
+            system=ref_complex if include_extras else None,
+            pocket=pocket if include_extras else None,
+        )
+        return filtered_pharm
+
     def complex_pharmacophore(self, pdb_id: str):
         cached = self._cache.get(pdb_id, {}).get("complex_pharm")
         if cached:
@@ -1165,19 +1351,18 @@ class Manager:
         filepath_ligand_plip = self.path("ligand_plip", pdb_id)
         filepath_ligand_features = self.path("ligand_features", pdb_id)
         if filepath_ligand_plip.is_file() and filepath_ligand_features.is_file():
-            plip_data = pyserials.read.from_file(filepath_ligand_plip, toml_as_dict=True)
-            features_data = pyserials.read.from_file(filepath_ligand_features, toml_as_dict=True)
-            plip_df = pd.DataFrame(plip_data)
+            features_df = io.read_df(filepath_ligand_features)
+            plip_df = io.read_df(filepath_ligand_plip)
             complex_pharm = t2fpharm.pharm.Pharmacophore(
-                features=features_data,
+                features=features_df,
                 feature_types=self.field_params["ligand_types"],
                 extra={"plip": caddpy.interaction.ProteinLigandInteractions(plip_df)},
                 system=self.complex(pdb_id),
+                name=pdb_id,
             )
         else:
             complex_pharm = t2fpharm.pharm.from_complex(
                 complex=self.complex(pdb_id),
-                pocket=self.pocket(self.ref_pdb_id(self.group_id(pdb_id))),
                 type_hbond_acceptor="OA",
                 type_hbond_donor="HD",
                 type_water_bridge_water_acceptor="OA",
@@ -1192,25 +1377,23 @@ class Manager:
                 type_pi_cation_cation="e+",
                 type_halogen_donor=None,
                 exclude_duplicates=False,
+                name=pdb_id,
             )
 
             # Add UniProt residue numbers
             feat = complex_pharm.features
-            feat[pdb_id] = feat["r_res_seq"].astype(str).str.cat(feat["r_icode"], sep="")
-            resmap = self.residue_map(self.group_id(pdb_id))[["unp_residue_number", pdb_id]]
-            feat = feat.merge(
-                resmap,
-                on=pdb_id,
-                how="left"
-            ).rename(columns={"unp_residue_number": "r_unp_res_num"}).drop(columns=[pdb_id])
+            if not feat.empty:
+                feat[pdb_id] = feat["r_res_seq"].astype(str).str.cat(feat["r_icode"], sep="")
+                resmap = self.residue_map(self.group_id(pdb_id))[["unp_residue_number", pdb_id]]
+                feat = feat.merge(
+                    resmap,
+                    on=pdb_id,
+                    how="left"
+                ).rename(columns={"unp_residue_number": "r_unp_res_num"}).drop(columns=[pdb_id])
             complex_pharm = complex_pharm.new(features=feat)
 
-            filepath_ligand_plip.write_text(
-                complex_pharm.extra["plip"].all.to_json(orient="records", indent=4)
-            )
-            filepath_ligand_features.write_text(
-                complex_pharm.features.to_json(orient="records", indent=4)
-            )
+            io.write_df(complex_pharm.extra["plip"].all, filepath_ligand_plip)
+            io.write_df(complex_pharm.features, filepath_ligand_features)
         if self._cache_enabled:
             self._cache.setdefault(pdb_id, {})["complex_pharm"] = complex_pharm
         return complex_pharm
@@ -1249,6 +1432,7 @@ class Manager:
             "pdb_aligned",
             "pdb_apo",
             "pdbqt",
+            "chemsys",
             "affinity",
             "pocket",
             "field",
@@ -1406,6 +1590,45 @@ class Manager:
         plt.show()
         return
 
+    def _find_serials(
+        self,
+        serials: Sequence[int],
+        atoms: pd.DataFrame,
+    ):
+        comp_id = atoms.iloc[0]["comp_id"]
+        atom_ids = atoms[atoms["serial"].isin(serials)]["atom_id"].tolist()
+        expanded_atom_ids = _find_bonded_atoms(atom_ids, atoms, bonds=self._ccd_bond(comp_id).exploded)
+        assert len(expanded_atom_ids) == 3, f"Got {len(expanded_atom_ids)} instead of 3 reference atoms for residue {comp_id}."
+        return atoms[atoms["atom_id"].isin(expanded_atom_ids)]["serial"].tolist()
+
+
+def _find_bonded_atoms(
+    atom_ids: list[str],
+    atoms: pd.DataFrame,
+    bonds: pd.DataFrame,
+):
+    new_atom_ids = atom_ids.copy()
+    for atom_id in atom_ids:
+        bonded_atoms = bonds[
+            (bonds["atom_id"] == atom_id) &
+            (bonds["partner_atom_id"].isin(atoms["atom_id"])) &
+            (~bonds["partner_atom_id"].isin(new_atom_ids))
+        ]
+        if bonded_atoms.empty:
+            continue
+        bonded_atom_id = bonded_atoms.sort_values(
+            ["bond_order", "pdbx_aromatic_flag"],
+            ascending=[False, False],
+        ).iloc[0]["partner_atom_id"]
+        new_atom_ids.append(bonded_atom_id)
+        if len(new_atom_ids) >= 3:
+            break
+    if len(new_atom_ids) >= 3:
+        return new_atom_ids
+    if len(atom_ids) == len(new_atom_ids):
+        raise ValueError("Could not find 3 bonded atoms.")
+    return _find_bonded_atoms(new_atom_ids, atoms, bonds)
+
 
 def _align_query_to_ref(
     ref: t2fpharm.system.System,
@@ -1462,3 +1685,17 @@ def _align_query_to_ref(
     rotation, translation, rmsd = arrayer.kabsch.kabsch_unweighted(ref_selection_coordinates, query_selection_coordinates)
     query_complex_aligned = query.new(trajectory=query.trajectory.points @ rotation + translation)
     return query_complex_aligned
+
+
+def _recursive_agg(pharm: t2fpharm.pharm.Pharmacophore) -> t2fpharm.pharm.Pharmacophore:
+    new_pharm = pharm.cluster_agg(
+        distance_threshold=4,
+        min_members=1,
+        noise_as_singleton=True,
+        center_type="mean",
+        radius_type="max",
+        per_instance=False,
+    )
+    if len(new_pharm.features) < len(pharm.features):
+        return _recursive_agg(new_pharm)
+    return new_pharm
