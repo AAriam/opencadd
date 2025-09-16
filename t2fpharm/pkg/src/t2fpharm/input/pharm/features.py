@@ -1,4 +1,5 @@
 from typing import Self, Any, Sequence
+import functools
 
 import numpy as np
 import pandas as pd
@@ -42,8 +43,15 @@ class PharmFeaturesInput(BaseModel):
     @model_validator(mode='after')
     def validate_and_normalize(self) -> Self:
         """Validate and normalize the features DataFrame."""
-        def to_array(val: Any) -> np.ndarray:
+        def to_array(val: Any, allow_none: bool = False) -> np.ndarray:
             """Convert position to a 1D numpy array of three floats."""
+            value_is_none = pd.isnull(val)
+            if not isinstance(value_is_none, bool):
+                value_is_none = value_is_none.any()
+            if value_is_none:
+                if allow_none:
+                    return None
+                raise ValueError("Position cannot be None or NaN")
             arr = np.asarray(val, dtype=float)
             if arr.shape != (3,):
                 raise ValueError(
@@ -102,6 +110,8 @@ class PharmFeaturesInput(BaseModel):
 
         # Validate and normalize 'center'
         df['center'] = df['center'].apply(to_array)
+        if 'end' in df.columns:
+            df['end'] = df['end'].apply(functools.partial(to_array, allow_none=True))
 
         # Handle 'radius' column
         if 'radius' in df.columns:
