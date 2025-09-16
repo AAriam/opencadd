@@ -7,41 +7,66 @@ import numpy as np
 import scicoda
 
 from t2fpharm.field import Field
+from t2fpharm.pharm import Pharmacophore
 from t2fpharm.pocket import Pocket
+from t2fpharm.system import System
 
 
 class StructureBasedModeler:
     def __init__(
         self,
-        atom: pd.DataFrame,
-        trajectory: np.ndarray,
+        system: System,
         field: Field | None = None,
         pocket: Pocket | None = None,
-        hbond_distance: float = 2,
-        type_hbond_donor: str = "HD",
         type_hbond_acceptor: str = "OA",
-        field_search_radius: float = 1.5,
+        type_hbond_donor: str = "HD",
         field_extrema_type: Literal["min", "max"] = "min",
-        max_pocket_distance: float = 0.5,
     ):
-        self.atom = atom
-        self.trajectory = trajectory
+        self.system = system
         self.field = field
         self.pocket = pocket
-        self.hbond_distance = hbond_distance
         self.type_hbond_donor = type_hbond_donor
         self.type_hbond_acceptor = type_hbond_acceptor
-        self.field_search_radius = field_search_radius
         self.field_extrema_type = field_extrema_type
-        self.max_pocket_distance = max_pocket_distance
 
-        self.batch_shape = trajectory.shape[:-2]
+        # Make sure autodock types are assigned
+        self.system.composition.autodock_atom_type()
+        self.atom = system.composition.atoms
+        self.trajectory = system.trajectory.points
+
+        self.batch_shape = self.trajectory.shape[:-2]
         self.batch_ndim = len(self.batch_shape)
-        self.bond = Bond(caddpy.chemsys._ccd("chem_comp_bond")).select(comp_id=atom["comp_id"])
-        self.features = self._calc()
+        self.bond = Bond(caddpy.chemsys._ccd("chem_comp_bond")).select(comp_id=self.atom["comp_id"])
+
+        self.hbond_distance = None
+        self.field_search_radius = None
+        self.max_pocket_distance = None
         return
 
-    def _calc(self) -> list[dict[str, Any]]:
+    def model(
+        self,
+        name: str = "Pharmacophore",
+        *,
+        hbond_distance: float = 2,
+        field_search_radius: float = 1.5,
+        max_pocket_distance: float = 0.5,
+        refine: bool = True,
+        in_pocket: bool = True,
+    ) -> Pharmacophore:
+        self.hbond_distance = hbond_distance
+        self.field_search_radius = field_search_radius
+        self.max_pocket_distance = max_pocket_distance
+        features = self._calculate_features(refine=refine, in_pocket=in_pocket)
+        return Pharmacophore(
+            features=features,
+            feature_types={self.type_hbond_donor, self.type_hbond_acceptor},
+            system=self.system,
+            field=self.field,
+            pocket=self.pocket,
+            name=name,
+        )
+
+    def _calculate_features(self, refine: bool, in_pocket: bool) -> list[dict[str, Any]]:
         feats = pd.concat(
             [
                 self._calc_hbond_acceptors(),
@@ -49,7 +74,7 @@ class StructureBasedModeler:
             ],
             ignore_index=True
         ).convert_dtypes()
-        if self.field is not None:
+        if refine and self.field is not None:
             grid_indices, distances, is_inside = self.field.grid.nearest_point(np.stack(feats["center"]))
             feats = feats.loc[is_inside]
             grid_indices = grid_indices[is_inside]
@@ -88,7 +113,7 @@ class StructureBasedModeler:
             extrema_values = self.field.tensor[tuple(extrema_indices.T)]
             feats["center"] = list(extrema_coords)
             feats["value"] = extrema_values
-        if self.pocket is not None:
+        if in_pocket and self.pocket is not None:
             indices, distances = self.pocket.nearest_point(np.stack(feats["center"]))
             indices = np.asarray(indices)
             distances = np.asarray(distances)
