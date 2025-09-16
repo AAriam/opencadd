@@ -641,7 +641,7 @@ def from_npz(filepath: PathLike | str) -> ChemicalSystem:
     """Create a ChemicalSystem from a .npz file."""
     data = scids.dataset.from_npz(filepath=filepath, data_key="points", return_dict=True)
     return ChemicalSystem(
-        composition=ChemicalComposition.from_records(data["atoms"]),
+        composition=ChemicalComposition(pd.DataFrame.from_records(data["atoms"])),
         trajectory=scids.pointcloud.from_array(points=data["points"], batch=data["batch"])
     )
 
