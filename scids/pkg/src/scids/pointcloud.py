@@ -800,7 +800,7 @@ class PointCloud(dataset.DataSet):
 
     def to_npz(self, filepath: PathLike | None = None, compress: bool = False) -> dict[str, Any]:
         """Save the point cloud to a .npz file."""
-        return super()._to_npz(filepath=filepath, data_key="points", compress=compress)
+        return super().to_npz(filepath=filepath, data_key="points", compress=compress)
 
     def _select_instances(self, instance_selection: Any, param_name: str = "instance_selection"):
         instances = self._data[instance_selection]
