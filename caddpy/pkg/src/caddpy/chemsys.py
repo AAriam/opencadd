@@ -318,9 +318,9 @@ class ChemicalSystem:
         kwds["atoms"] = self.composition.atoms.to_records(index=False)
         if filepath is not None:
             if compress:
-                np.savez_compressed(filepath, **kwds, allow_pickle=False)
+                np.savez_compressed(filepath, **kwds, allow_pickle=True)
             else:
-                np.savez(filepath, **kwds, allow_pickle=False)
+                np.savez(filepath, **kwds, allow_pickle=True)
         return kwds
 
     def new(
@@ -359,6 +359,7 @@ class ChemicalSystem:
 class ChemicalComposition:
     def __init__(self, atoms: pd.DataFrame):
         # Verify element symbols and assign element indices.
+        atoms = atoms.convert_dtypes()
         ref_element_symbols = np.strings.lower(scicoda.atom.symbols())
         element_symbols = atoms["element"].str.lower()
         ref_map = pd.Series(data=np.arange(len(ref_element_symbols)), index=ref_element_symbols)
