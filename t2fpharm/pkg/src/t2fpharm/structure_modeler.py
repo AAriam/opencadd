@@ -87,8 +87,11 @@ class StructureBasedModeler:
             ],
             ignore_index=True
         ).convert_dtypes()
+        feats["radius"] = 0.0
+        feats["original_center"] = feats["center"]
         if refine and self.field is not None:
-            grid_indices, distances, is_inside = self.field.grid.nearest_point(np.stack(feats["center"]))
+            old_centers = np.stack(feats["center"])
+            grid_indices, distances, is_inside = self.field.grid.nearest_point(old_centers)
             feats = feats.loc[is_inside]
             grid_indices = grid_indices[is_inside]
 
@@ -124,6 +127,7 @@ class StructureBasedModeler:
             )
             extrema_coords = self.field.grid.index_coordinates(extrema_indices[..., -3:])
             extrema_values = self.field.tensor[tuple(extrema_indices.T)]
+            feats["radius"] = np.linalg.norm(extrema_coords - old_centers[is_inside], axis=-1)
             feats["center"] = list(extrema_coords)
             feats["value"] = extrema_values
             for threshold, opposite_type in (
@@ -165,10 +169,11 @@ class StructureBasedModeler:
                 distances = distances[prefix_unpacked]
             dist_mask = distances <= self.max_pocket_distance
             indices = indices[dist_mask]
-            # indices.block_until_ready()   # flush compute/compilation
-            distances = distances[dist_mask]
             feats = feats.loc[dist_mask]
-        return feats
+            in_pocket_coords = self.pocket.grid.index_coordinates(indices)
+            dists_to_orig_center = np.linalg.norm(in_pocket_coords - np.stack(feats["original_center"]), axis=-1)
+            feats["radius"] = np.maximum(feats["radius"], dists_to_orig_center)
+        return feats.drop(columns=["original_center"])
 
     def _calc_hbond_acceptors(self):
         hd = self._merge_with_partners(self.atom[self.atom["autodock_atom_type"] == "HD"])
