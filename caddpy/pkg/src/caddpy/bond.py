@@ -29,8 +29,7 @@ class Bond:
         if validate:
             required = {
                 "atom_id_1", "atom_id_2", "value_order", "pdbx_aromatic_flag",
-                "pdbx_stereo_config", "pdbx_ordinal", "is_aa_variant",
-                "comp_id_suffix", "main_comp_id",
+                "pdbx_stereo_config", "pdbx_ordinal"
             }
             missing = required - set(df.columns)
             if missing:
@@ -55,12 +54,10 @@ class Bond:
     @property
     def exploded(self) -> pd.DataFrame:
         if self._exploded is None:
-            payload_cols = [
-                "comp_id", "value_order", "pdbx_aromatic_flag", "pdbx_stereo_config",
-                "pdbx_ordinal", "is_aa_variant", "comp_id_suffix", "main_comp_id",
-            ]
+            payload_cols = self._df.columns.difference(
+                {"atom_id_1", "atom_id_2"}
+            ).tolist()
             out_cols = ["atom_id", "partner_atom_id", *payload_cols]
-
             left = self._df.rename(
                 columns={"atom_id_1": "atom_id", "atom_id_2": "partner_atom_id"}
             )[out_cols]
