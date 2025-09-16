@@ -52,11 +52,18 @@ class StructureBasedModeler:
         max_pocket_distance: float = 0.5,
         refine: bool = True,
         in_pocket: bool = True,
+        field_acceptor_threshold: float | None = None,
+        field_donor_threshold: float | None = None,
     ) -> Pharmacophore:
         self.hbond_distance = hbond_distance
         self.field_search_radius = field_search_radius
         self.max_pocket_distance = max_pocket_distance
-        features = self._calculate_features(refine=refine, in_pocket=in_pocket)
+        features = self._calculate_features(
+            refine=refine,
+            in_pocket=in_pocket,
+            field_acceptor_threshold=field_acceptor_threshold,
+            field_donor_threshold=field_donor_threshold,
+        )
         return Pharmacophore(
             features=features,
             feature_types={self.type_hbond_donor, self.type_hbond_acceptor},
@@ -66,7 +73,13 @@ class StructureBasedModeler:
             name=name,
         )
 
-    def _calculate_features(self, refine: bool, in_pocket: bool) -> list[dict[str, Any]]:
+    def _calculate_features(
+        self,
+        refine: bool,
+        in_pocket: bool,
+        field_acceptor_threshold: float | None,
+        field_donor_threshold: float | None,
+    ) -> list[dict[str, Any]]:
         feats = pd.concat(
             [
                 self._calc_hbond_acceptors(),
@@ -113,6 +126,19 @@ class StructureBasedModeler:
             extrema_values = self.field.tensor[tuple(extrema_indices.T)]
             feats["center"] = list(extrema_coords)
             feats["value"] = extrema_values
+            for threshold, opposite_type in (
+                (field_donor_threshold, self.type_hbond_acceptor),
+                (field_acceptor_threshold, self.type_hbond_donor),
+            ):
+                if threshold is not None:
+                    feats = feats[
+                        (feats["type"] == opposite_type) |
+                        (
+                            (feats["value"] <= threshold)
+                            if self.field_extrema_type == "min" else
+                            (feats["value"] >= threshold)
+                        )
+                    ]
         if in_pocket and self.pocket is not None:
             indices, distances = self.pocket.nearest_point(np.stack(feats["center"]))
             indices = np.asarray(indices)
