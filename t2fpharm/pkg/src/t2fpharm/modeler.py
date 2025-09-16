@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
 from t2fpharm.pharm import Pharmacophore
+from t2fpharm.structure_modeler import StructureBasedModeler
 from t2fpharm.input.modeler import ModelerLargestPeaksInput, ModelerSimpleInput
 from t2fpharm.input.pharm.cluster_agg import AggLinkageType, AggLinkageMetricType
 from t2fpharm.typing import PositiveInt, PositiveFloat
@@ -48,6 +49,8 @@ class Modeler:
         field: Field,
         pocket: Pocket | None = None,
         system: Any | None = None,
+        type_hbond_donor: str = "HD",
+        type_hbond_acceptor: str = "OA",
     ):
         if not isinstance(field, Field):
             raise TypeError(f"Expected Field object, got {type(field).__name__}.")
@@ -71,6 +74,9 @@ class Modeler:
             self._system = system
         elif pocket is not None:
             self._system = pocket.receptor
+        self._structure_modeler = None
+        self._type_hbond_donor = type_hbond_donor
+        self._type_hbond_acceptor = type_hbond_acceptor
         return
 
     @property
@@ -84,6 +90,40 @@ class Modeler:
     @property
     def system(self) -> Any | None:
         return self._system
+
+    def model_structure(
+        self,
+        hbond_distance: float = 2,
+        refine: bool = True,
+        in_pocket: bool = True,
+        field_search_radius: float = 1.5,
+        max_pocket_distance: float = 0.5,
+        field_extrema_type: Literal["min", "max"] = "min",
+        name: str = "Pharmacophore",
+    ) -> Pharmacophore:
+        if self._structure_modeler is None:
+            if self.system is None:
+                raise ValueError(
+                    "Cannot create StructureModeler because no system was provided. "
+                    "Please provide a system when creating the Modeler, "
+                    "or provide a receptor structure when creating the Pocket."
+                )
+            self._structure_modeler = StructureBasedModeler(
+                system=self.system,
+                field=self._field,
+                pocket=self._pocket,
+                type_hbond_acceptor=self._type_hbond_acceptor,
+                type_hbond_donor=self._type_hbond_donor,
+                field_extrema_type=field_extrema_type,
+            )
+        return self._structure_modeler.model(
+            name=name,
+            hbond_distance=hbond_distance,
+            field_search_radius=field_search_radius,
+            max_pocket_distance=max_pocket_distance,
+            refine=refine,
+            in_pocket=in_pocket,
+        )
 
     def agg(
         self,
