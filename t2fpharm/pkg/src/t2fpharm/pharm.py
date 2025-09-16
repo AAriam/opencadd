@@ -328,6 +328,7 @@ class Pharmacophore:
         center_type: CenterType | dict[str, CenterType] = "average",
         radius_type: RadiusType | dict[str, RadiusType] = "average",
         per_instance: bool = True,
+        preserve_members: bool = True,
     ) -> Self:
         """Cluster pharmacophore features using provided clustering functions.
 
@@ -444,7 +445,7 @@ class Pharmacophore:
 
         df = self._features.copy()
         df["_weights"] = args.weights
-
+        has_old_members = "members" in df.columns
         new_features: list[dict] = []
         for group_idx, group in df.groupby(
             ["instance", "type"] if per_instance else ["type"],
@@ -531,7 +532,10 @@ class Pharmacophore:
                         if weights_sum_to_zero else
                         np.average(dist_to_center, weights=cluster_weight)
                     )
-                member_indices = group.index[label_mask].to_numpy()
+                if has_old_members and preserve_members:
+                    member_indices = group["members"][label_mask].explode().to_numpy()
+                else:
+                    member_indices = group.index[label_mask].to_numpy()
                 new_features.append(
                     {
                         "instance": instance,
@@ -1395,7 +1399,10 @@ def merge(pharmacophores: Sequence[Pharmacophore]) -> Pharmacophore:
     names = _uniquify([pharm.name for pharm in pharmacophores])
     for pharm_name, pharm in zip(names, pharmacophores):
         feats = pharm.features.copy()
-        feats["instance"] = feats["instance"].apply(instance_merger, instance_prefix=pharm_name)
+        feats["instance"] = (
+            pharm_name if feats["instance"].nunique() == 1 else
+            feats["instance"].apply(instance_merger, instance_prefix=pharm_name)
+        )
         dfs.append(feats)
 
     merged_features = pd.concat(dfs, ignore_index=True)
