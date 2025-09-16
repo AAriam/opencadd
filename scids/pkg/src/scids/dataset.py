@@ -202,10 +202,11 @@ def from_npz(
     data_key: str = "data",
     scalar_keys: Sequence[str] | None = None,
     return_dict: bool = False,
+    allow_pickle: bool = True,
 ) -> DataSet | dict[str, jnp.ndarray]:
     """Convert a .npz file to a dictionary."""
     scalar_keys = scalar_keys or []
-    npz = np.load(filepath, allow_pickle=False)
+    npz = np.load(filepath, allow_pickle=allow_pickle)
     batch = []
     out = {"batch": batch}
     for key, value in npz.items():
