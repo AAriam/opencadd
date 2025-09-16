@@ -1214,6 +1214,7 @@ def from_complex(
                         row = row.to_dict() | {
                             "type": type_hbond_acceptor,
                             "center": row["l_position"],
+                            "end": row["h_position"]
                         }
                         selected.append(row)
                 else:
@@ -1222,6 +1223,7 @@ def from_complex(
                         row = row.to_dict() | {
                             "type": type_hbond_donor,
                             "center": row["h_position"],
+                            "end": row["r_position"]
                         }
                         selected.append(row)
             case "water_bridge":
@@ -1233,12 +1235,14 @@ def from_complex(
                         row = row.to_dict() | {
                             "type": type_water_bridge_ligand_acceptor,
                             "center": row["l_position"],
+                            "end": row["w_h_position"],
                         }
                         selected.append(row)
                     if type_water_bridge_water_acceptor:
                         row = row.to_dict() | {
                             "type": type_water_bridge_water_acceptor,
                             "center": row["w_o_position"],
+                            "end": row["h_position"],
                         }
                         selected.append(row)
                 else:
@@ -1247,12 +1251,14 @@ def from_complex(
                         row = row.to_dict() | {
                             "type": type_water_bridge_ligand_donor,
                             "center": row["h_position"],
+                            "end": row["w_o_position"],
                         }
                         selected.append(row)
                     if type_water_bridge_water_donor:
                         row = row.to_dict() | {
                             "type": type_water_bridge_water_donor,
                             "center": row["w_h_position"],
+                            "end": row["r_position"],
                         }
                         selected.append(row)
             case "salt_bridge":
@@ -1262,6 +1268,7 @@ def from_complex(
                         row = row.to_dict() | {
                             "type": type_anion,
                             "center": row["l_position"],
+                            "end": row["r_position"],
                         }
                         selected.append(row)
                 else:
@@ -1270,6 +1277,7 @@ def from_complex(
                         row = row.to_dict() | {
                             "type": type_cation,
                             "center": row["l_position"],
+                            "end": row["r_position"],
                         }
                         selected.append(row)
             case "hydrophobic":
@@ -1277,6 +1285,7 @@ def from_complex(
                     row = row.to_dict() | {
                         "type": type_hydrophobic,
                         "center": row["l_position"],
+                        "end": row["r_position"],
                     }
                     selected.append(row)
             case "pi_stacking":
@@ -1284,6 +1293,7 @@ def from_complex(
                     row = row.to_dict() | {
                         "type": type_aromatic,
                         "center": row["l_position"],
+                        "end": row["r_position"],
                     }
                     selected.append(row)
             case "pi_cation":
@@ -1293,6 +1303,7 @@ def from_complex(
                         row = row.to_dict() | {
                             "type": type_pi_cation_aromatic,
                             "center": row["l_position"],
+                            "end": row["r_position"],
                         }
                         selected.append(row)
                 else:
@@ -1301,6 +1312,7 @@ def from_complex(
                         row = row.to_dict() | {
                             "type": type_pi_cation_cation,
                             "center": row["l_position"],
+                            "end": row["r_position"],
                         }
                         selected.append(row)
             case "halogen":
@@ -1308,6 +1320,7 @@ def from_complex(
                     row = row.to_dict() | {
                         "type": type_halogen_donor,
                         "center": row["l_position"],
+                        "end": row["r_position"],
                     }
                     selected.append(row)
             case _:
