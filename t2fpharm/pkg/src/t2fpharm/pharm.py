@@ -1056,7 +1056,8 @@ class Pharmacophore:
             label = normalize_name(feature["label"])
             name = f"{instance}_{ftype}_{label}"
             radius = feature["radius"]
-            feat_has_direction = "end" in feature and feature["end"] is not None
+            end = feature.get("end", None)
+            feat_has_direction = isinstance(end, np.ndarray)
             if not feat_has_direction or "sphere" in directed_features_components:
                 nv.add_spheres(
                     coords=feature["center"],
