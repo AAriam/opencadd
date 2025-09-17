@@ -771,6 +771,22 @@ def _augment_atom_df(df: pd.DataFrame) -> PDBAtomMatcher:
     atom_res_key_col_name = "res_idx"
     df[atom_res_key_col_name] = residues.ngroup()
     df["atom_idx"] = np.arange(len(df), dtype=np.int32)
+
+    # Assign unique molecule index to each molecule
+    mol_keys = np.where(
+        df["res_poly"].to_numpy(),
+        pd.Series(
+            list(zip(np.repeat("poly", len(df)), df["chain_id"])),
+            index=df.index,
+        ).to_numpy(),
+        pd.Series(
+            list(zip(np.repeat("nonpoly", len(df)), df["chain_id"], df["res_seq"], df["i_code"])),
+            index=df.index,
+        ).to_numpy()
+    )
+    mol_idx, _ = pd.Series(pd.factorize(mol_keys, sort=False), index=df.index)
+    df["mol_idx"] = mol_idx
+
     matcher = PDBAtomMatcher(
         atom=df,
         ccd_atom=_ccd("chem_comp_atom"),
