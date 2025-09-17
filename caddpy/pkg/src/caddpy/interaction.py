@@ -45,7 +45,10 @@ _ARRAY_COLUMNS = [
     "w_o_position",
     "w_h_position",
     "l_serials",
-    "r_serials"
+    "r_serials",
+    "h_serials",
+    "w_o_serials",
+    "w_h_serials",
 ]
 
 _ALL_COLUMNS = [
@@ -66,13 +69,13 @@ _ALL_COLUMNS = [
     "l_position",
 
     "w_res_idx",
-    "w_o_serial",
+    "w_o_serials",
     "w_o_position",
-    "w_h_serial",
+    "w_h_serials",
     "w_h_position",
     "w_angle",
 
-    "h_serial",
+    "h_serials",
     "h_position",
 
     "dist",
@@ -428,7 +431,7 @@ def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
         return int(res_atoms.iloc[dists.argmin()]["serial"])
 
     def complete_water():
-        w_o_atom = atom[atom["serial"] == row["w_o_serial"]]
+        w_o_atom = atom[atom["serial"] == row["w_o_serials"][0]]
         if w_o_atom.empty or not np.array_equal(w_o_atom.iloc[0][["x","y","z"]].values, row["w_o_position"]):
             dists = ((atom[["x","y","z"]].values - row["w_o_position"]) ** 2).sum(axis=1)
             min_dist = dists.min()
@@ -436,7 +439,7 @@ def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
                 raise ValueError(f"Water oxygen atom not found for position {row['w_o_position']}")
             w_o_atom = atom.iloc[dists.argmin()]
             warnings.warn(
-                f"Mismatch in water oxygen position for serial {row['w_o_serial']}: "
+                f"Mismatch in water oxygen position for serial {row['w_o_serials']}: "
                 f"Expected {row['w_o_position']} but got {w_o_atom[['x','y','z']].values}. "
                 f"Changed to serial {w_o_atom['serial']}"
             )
@@ -444,7 +447,7 @@ def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
             w_o_atom = w_o_atom.iloc[0]
 
         if w_o_atom["element"] != "O":
-            raise ValueError(f"Water oxygen atom not found for serial {row['w_o_serial']}")
+            raise ValueError(f"Water oxygen atom not found for serial {row['w_o_serials']}")
 
         row["w_res_seq"] = w_o_atom["res_seq"]
 
@@ -457,7 +460,7 @@ def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
         acceptor_pos = row["l_position"] if row["r_is_d"] else row["r_position"]
         dists = ((w_h_atoms[["x","y","z"]].values - acceptor_pos) ** 2).sum(axis=1)
         donor_hydrogen = w_h_atoms.iloc[dists.argmin()]
-        row["w_h_serial"] = int(donor_hydrogen["serial"])
+        row["w_h_serials"] = [int(donor_hydrogen["serial"])]
         row["w_h_position"] = np.stack(donor_hydrogen[["x","y","z"]].values)
         return
 
@@ -516,7 +519,7 @@ def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
                 )
 
     if typ in ("hbond", "water_bridge"):
-        row["h_serial"] = get_hydrogen_serial()
+        row["h_serials"] = [get_hydrogen_serial()]
     if typ == "water_bridge":
         complete_water()
     return row
@@ -557,6 +560,8 @@ def _hbond(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
 
 def _water_bridge(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]:
     """Extract water bridge interaction data from PLIP interaction objects."""
+    # Plip only detects bridges where ligand and receptor have different roles
+    # i.e., ligand is acceptor and receptor is donor, or vice versa.
     rows = []
     for interaction in interactions:
         for entry in interaction.water_bridges:
@@ -579,7 +584,7 @@ def _water_bridge(interactions: Sequence[PLInteraction]) -> list[dict[str, Any]]
 
                     "r_is_d": entry.protisdon,
 
-                    "w_o_serial": entry.water_orig_idx,
+                    "w_o_serials": [entry.water_orig_idx],
                     "w_o_position": np.array(entry.water.coords),
                     'w_angle': entry.w_angle,
 
