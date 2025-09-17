@@ -113,7 +113,7 @@ class PDBAtomMatcher:
         ccd_atom: pd.DataFrame,
         ccd_bond: pd.DataFrame,
         *,
-        atom_res_key_col: str = "res_num",
+        atom_res_key_col: str = "res_idx",
         atom_res_name_col: str = "res_name",
         atom_name_col: str = "name",
         atom_elem_col: str = "element",
