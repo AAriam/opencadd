@@ -6,10 +6,13 @@ import pandas as pd
 import numpy as np
 from pydantic import BaseModel
 
+import caddpy
+
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
 from t2fpharm.pharm import Pharmacophore
-from t2fpharm.structure_modeler import StructureBasedModeler
+from t2fpharm.system import System
+from t2fpharm.modeler_structure import StructureBasedModeler
 from t2fpharm.input.modeler import ModelerLargestPeaksInput, ModelerSimpleInput
 from t2fpharm.input.pharm.cluster_agg import AggLinkageType, AggLinkageMetricType
 from t2fpharm.typing import PositiveInt, PositiveFloat
@@ -46,86 +49,70 @@ class Modeler:
     """
     def __init__(
         self,
-        field: Field,
+        system: System | None = None,
         pocket: Pocket | None = None,
-        system: Any | None = None,
-        type_hbond_donor: str = "HD",
-        type_hbond_acceptor: str = "OA",
+        field: Field | None = None,
     ):
-        if not isinstance(field, Field):
-            raise TypeError(f"Expected Field object, got {type(field).__name__}.")
-        if pocket is not None:
-            if not isinstance(pocket, Pocket):
-                raise TypeError(f"Expected Pocket object, got {type(pocket).__name__}.")
-            if pocket.grid != field.grid:
-                raise ValueError(
-                    "Pocket and field must have the same grid, "
-                    f"but got pocket grid {pocket.grid} and field grid {field.grid}."
-                )
-            if pocket.tensor.shape != field.tensor.shape[1:] and pocket.tensor.shape != field.tensor.shape[-3:]:
-                raise ValueError(
-                    "Pocket and field tensors must have the same shape along their last dimensions, "
-                    f"but got pocket tensor shape {pocket.tensor.shape} "
-                    f"and field tensor shape {field.tensor.shape}."
-                )
-        self._field = field
-        self._pocket = pocket
+        self._field: Field | None = None
+        self._pocket: Pocket | None = None
+
+        self.field = field
+        self.pocket = pocket
         if system:
-            self._system = system
+            self.system = system
         elif pocket is not None:
-            self._system = pocket.receptor
+            self.system = pocket.receptor
+
         self._structure_modeler = None
-        self._type_hbond_donor = type_hbond_donor
-        self._type_hbond_acceptor = type_hbond_acceptor
         return
 
     @property
     def field(self) -> Field:
         return self._field
 
+    @field.setter
+    def field(self, value: Field | None):
+        if value is None:
+            self._field = None
+            return
+        if not isinstance(value, Field):
+            raise TypeError(f"Expected Field object, got {type(value).__name__}.")
+        self._field = value
+        if self.pocket is not None:
+            self._verify_field_pocket_compatible()
+        return
+
     @property
     def pocket(self) -> Pocket | None:
         return self._pocket
 
+    @pocket.setter
+    def pocket(self, pocket: Pocket | None):
+        if pocket is None:
+            self._pocket = None
+            return
+        if not isinstance(pocket, Pocket):
+            raise TypeError(f"Expected Pocket object, got {type(pocket).__name__}.")
+        self._pocket = pocket
+        if self.field is not None:
+            self._verify_field_pocket_compatible()
+        return
+
     @property
-    def system(self) -> Any | None:
+    def system(self) -> System | None:
         return self._system
 
-    def model_structure(
-        self,
-        hbond_distance: float = 2,
-        refine: bool = True,
-        in_pocket: bool = True,
-        field_search_radius: float = 1.5,
-        max_pocket_distance: float = 0.5,
-        field_extrema_type: Literal["min", "max"] = "min",
-        name: str = "Pharmacophore",
-    ) -> Pharmacophore:
-        if self._structure_modeler is None:
-            if self.system is None:
-                raise ValueError(
-                    "Cannot create StructureModeler because no system was provided. "
-                    "Please provide a system when creating the Modeler, "
-                    "or provide a receptor structure when creating the Pocket."
-                )
-            self._structure_modeler = StructureBasedModeler(
-                system=self.system,
-                field=self._field,
-                pocket=self._pocket,
-                type_hbond_acceptor=self._type_hbond_acceptor,
-                type_hbond_donor=self._type_hbond_donor,
-                field_extrema_type=field_extrema_type,
-            )
-        return self._structure_modeler.model(
-            name=name,
-            hbond_distance=hbond_distance,
-            field_search_radius=field_search_radius,
-            max_pocket_distance=max_pocket_distance,
-            refine=refine,
-            in_pocket=in_pocket,
-        )
+    @system.setter
+    def system(self, value: System | None):
+        if value is None:
+            self._system = None
+            return
+        if not isinstance(value, System):
+            raise TypeError(f"Expected System object, got {type(value).__name__}.")
+        self._system = value
+        return
 
-    def agg(
+    def from_field_agg(
         self,
         *,
         distance_threshold: PositiveFloat | dict[str, PositiveFloat] | None = None,
@@ -137,7 +124,7 @@ class Modeler:
         noise_as_singleton: bool | dict[str, bool] = True,
         center_type: Literal["function", "midpoint", "mean", "average"] | dict[str, Literal["function", "midpoint", "mean", "average"]] = "average",
         radius_type: Literal["average", "mean", "max", "min"] = "max",
-        # Parameters for `self.simple`
+        # Parameters for `self.from_field`
         filter_function: FilterFunction | dict[str, FilterFunction] | None = None,
         filter_radius: PositiveFloat | dict[str, PositiveFloat] | None = None,
         filter_extension_mode: FilterExtensionMode | dict[str, FilterExtensionMode] = "constant",
@@ -159,7 +146,8 @@ class Modeler:
         For more information on the algorithm and parameters,
         see the documentation of those methods.
         """
-        pharm = self.simple(
+        self._verify_field_available("from_field_agg")
+        pharm = self.from_field(
             filter_function=filter_function,
             filter_radius=filter_radius,
             filter_extension_mode=filter_extension_mode,
@@ -198,7 +186,7 @@ class Modeler:
             per_instance=True,
         )
 
-    def cnn(
+    def from_field_cnn(
         self,
         *,
         max_distance: PositiveFloat | Sequence[PositiveFloat] | dict[str, PositiveFloat | Sequence[PositiveFloat]],
@@ -208,7 +196,7 @@ class Modeler:
         noise_as_singleton: bool | dict[str, bool] = True,
         center_type: Literal["function", "midpoint", "mean", "average"] | dict[str, Literal["function", "midpoint", "mean", "average"]] = "average",
         radius_type: Literal["average", "mean", "max", "min"] = "max",
-        # Parameters for `self.simple`
+        # Parameters for `self.from_field`
         filter_function: FilterFunction | dict[str, FilterFunction] | None = None,
         filter_radius: PositiveFloat | dict[str, PositiveFloat] | None = None,
         filter_extension_mode: FilterExtensionMode | dict[str, FilterExtensionMode] = "constant",
@@ -230,7 +218,8 @@ class Modeler:
         For more information on the algorithm and parameters,
         see the documentation of those methods.
         """
-        pharm = self.simple(
+        self._verify_field_available("from_field_cnn")
+        pharm = self.from_field(
             filter_function=filter_function,
             filter_radius=filter_radius,
             filter_extension_mode=filter_extension_mode,
@@ -282,14 +271,14 @@ class Modeler:
             per_instance=True,
         )
 
-    def largest_peaks(
+    def from_field_extrema(
         self,
         *,
         min_distance: PositiveFloat | dict[tuple[str, str], PositiveFloat],
         priority_value_filter: bool = True,
         priority_factor: dict[str, float] | None = None,
         max_features: PositiveInt | dict[str, PositiveInt] | None = None,
-        # Parameters for `self.simple`
+        # Parameters for `self.from_field`
         filter_function: FilterFunction | dict[str, FilterFunction] | None = None,
         filter_radius: PositiveFloat | dict[str, PositiveFloat] | None = None,
         filter_extension_mode: FilterExtensionMode | dict[str, FilterExtensionMode] = "constant",
@@ -326,7 +315,8 @@ class Modeler:
             do not all have the same scale/sign, or when you want to add bias
             to the feature selection process to favor certain types over others.
         """
-        pharm = self.simple(
+        self._verify_field_available("from_field_extrema")
+        pharm = self.from_field(
             filter_function=filter_function,
             filter_radius=filter_radius,
             filter_extension_mode=filter_extension_mode,
@@ -355,7 +345,7 @@ class Modeler:
             max_features=max_features,
         )
 
-    def simple(
+    def from_field(
         self,
         *,
         filter_function: FilterFunction | dict[str, FilterFunction] | None = None,
@@ -487,6 +477,7 @@ class Modeler:
         6. The remaining grid points are taken as pharmacophore feature centers
            and used to create a `Pharmacophore` object.
         """
+        self._verify_field_available("from_field")
         kwargs = locals()
         del kwargs["self"]
         args = ModelerSimpleInput(
@@ -494,8 +485,8 @@ class Modeler:
             feature_types=self.field.batch_instance_labels["feature"],
             grid=self.field.grid,
         )
-        tensor = self._filter(args.filter_function)
-        mask = self._mask(
+        tensor = self._field_filter(args.filter_function)
+        mask = self._field_mask(
             tensor=tensor,
             peak_type=args.peak_type,
             best_per_point=args.best_per_point,
@@ -507,14 +498,200 @@ class Modeler:
             feature_type: radius or self.field.grid.spacings[0] / 2
             for feature_type, radius in args.filter_radius.items()
         }
+
+        indices = np.argwhere(mask)
+        grid_indices = indices[:, -3:]
+        coordinates = self.field.grid.index_coordinates(grid_indices)
+        instances_ndim = indices.shape[1] - 4
+        if instances_ndim == 0:
+            instance_indices = np.zeros(indices.shape[0], dtype=int)
+        elif instances_ndim == 1:
+            instance_indices = indices[:, 1]
+        else:
+            instance_indices = list(map(tuple, indices[:, 1:-3].tolist()))
+        types = [self._feature_type(idx) for idx in indices[:, 0]]
+        radii = [feature_radius[feature_type] for feature_type in types]
+        features = pd.DataFrame(
+            {
+                "instance": instance_indices,
+                "type": types,
+                "label":list(map(tuple, grid_indices.tolist())),
+                "center": list(coordinates),
+                "radius": radii,
+                "value": self.field.tensor[mask],
+                "value_filter": tensor[mask],
+            }
+        )
         return self._pharmacophore(
-            tensor=tensor,
-            mask=mask,
-            feature_radius=feature_radius,
-            args=args
+            features=features,
+            feature_types=set(self.field.batch_instance_labels["feature"]),
+            inputs=[args.model_dump()],
+            extra={"mask": mask},
         )
 
-    def _filter(self, filter_function: dict[str, FilterFunction | None]) -> np.ndarray:
+    def from_interactions(
+        self,
+        *,
+        type_hbond_acceptor: str | None = "OA",
+        type_hbond_donor: str | None = "HD",
+        type_water_bridge_water_acceptor: str | None = "OA",
+        type_water_bridge_water_donor: str | None = "HD",
+        type_water_bridge_ligand_acceptor: str | None = None,
+        type_water_bridge_ligand_donor: str | None = None,
+        type_anion: str | None = "e-",
+        type_cation: str | None = "e+",
+        type_hydrophobic: str | None = "C",
+        type_aromatic: str | None = "A",
+        type_pi_cation_aromatic: str | None = "A",
+        type_pi_cation_cation: str | None = "e+",
+        type_halogen_donor: str | None = None,
+        name: str | None = None,
+    ):
+        """Create a pharmacophore from a receptor–ligand complex.
+
+        This function uses the PLIP library to analyze the interactions
+        between the receptor and ligand(s) in the provided complex.
+        The non-receptor interaction centers
+        are then converted into pharmacophore features.
+
+        Note that if any of the `type_*` parameters are set to `None`,
+        the corresponding feature type will not be included in the pharmacophore.
+
+        Parameters
+        ----------
+        complex
+            Complex structure containing both receptor and ligand(s).
+        type_hbond_acceptor
+            Feature type ID for hydrogen bond acceptors in the ligand.
+        type_water_bridge_water_acceptor
+            Feature type ID for water bridge acceptors in the water molecule.
+            This is the oxygen atom of the water molecule.
+        type_water_bridge_water_donor
+            Feature type ID for water bridge donors in the water molecule.
+            This is the hydrogen atom of the water molecule.
+        type_water_bridge_ligand_acceptor
+            Feature type ID for water bridge acceptors in the ligand.
+            Water bridge acceptors are hydrogen bond acceptors
+            that interact with the receptor through a water molecule.
+        type_water_bridge_ligand_donor
+            Feature type ID for water bridge donors in the ligand.
+            Water bridge donors are hydrogen bond donors
+            that interact with the receptor through a water molecule.
+        type_anion
+            Feature type ID for anionic centers in the ligand.
+        type_cation
+            Feature type ID for cationic centers in the ligand.
+        type_hydrophobic
+            Feature type ID for hydrophobic centers in the ligand.
+        type_aromatic
+            Feature type ID for aromatic centers in the ligand.
+        pocket
+            Optional pocket to filter features based on their coverage.
+            If provided, only features that are within the pocket will be included.
+        receptor
+            Optional structure to associate with the pharmacophore.
+            This is only used for visualization purposes.
+        """
+        self._verify_system_available("from_interactions")
+        plip = caddpy.interaction.from_chemsys(self.system, add_polar_hydrogens=False)
+        feat_dfs = []
+
+        for feat_name, interaction_name, sel_col, sel_val, center_col, end_col in (
+            # Hydrogen bonds
+            (type_hbond_acceptor, "hbond", "r_is_d", True, "l_position", "h_position"),
+            (type_hbond_donor, "hbond", "r_is_d", False, "h_position", "r_position"),
+
+            # Water bridges
+            # Plip only detects bridges where ligand and receptor have different roles
+            # i.e., ligand is acceptor and receptor is donor, or vice versa.
+            # Ligand and water are acceptors:
+            (type_water_bridge_ligand_acceptor, "water_bridge", "r_is_d", True, "l_position", "w_h_position"),
+            (type_water_bridge_water_acceptor, "water_bridge", "r_is_d", True, "w_o_position", "h_position"),
+            # Ligand and water are donors:
+            (type_water_bridge_ligand_donor, "water_bridge", "r_is_d", False, "h_position", "w_o_position"),
+            (type_water_bridge_water_donor, "water_bridge", "r_is_d", False, "w_h_position", "r_position"),
+
+            # Salt bridges
+            (type_anion, "salt_bridge", "r_is_cation", True, "l_position", "r_position"),  # Ligand is anion
+            (type_cation, "salt_bridge", "r_is_cation", False, "l_position", "r_position"),  # Ligand is cation
+
+            # Hydrophobic interactions
+            (type_hydrophobic, "hydrophobic", None, None, "l_position", "r_position"),
+
+            # Pi-stacking interactions
+            (type_aromatic, "pi_stacking", None, None, "l_position", "r_position"),
+
+            # Pi-cation interactions
+            (type_pi_cation_aromatic, "pi_cation", "r_is_cation", True, "l_position", "r_position"),  # Ligand is aromatic
+            (type_pi_cation_cation, "pi_cation", "r_is_cation", False, "l_position", "r_position"),  # Ligand is cation
+
+            # Halogen bonds
+            (type_halogen_donor, "halogen", None, None, "l_position", "r_position"),
+        ):
+            if feat_name is None:
+                continue
+            sel = getattr(plip, interaction_name)
+            if sel.empty:
+                continue
+            if sel_col is not None:
+                sel = sel[sel[sel_col] == sel_val]
+            sel = sel.rename(columns={"type": "interaction"})
+            sel["type"] = feat_name
+            sel["center"] = sel[center_col]
+            sel["end"] = sel[end_col]
+            feat_dfs.append(sel)
+        if feat_dfs:
+            feats = pd.concat(feat_dfs, ignore_index=True)
+        else:
+            feats = pd.DataFrame(columns=plip.all.columns.tolist() + ["interaction", "center", "end"])
+        return self._pharmacophore(
+            features=feats,
+            feature_types={
+                feature_type for feature_type in (
+                    type_hbond_acceptor,
+                    type_hbond_donor,
+                    type_water_bridge_ligand_acceptor,
+                    type_water_bridge_ligand_donor,
+                    type_water_bridge_water_acceptor,
+                    type_anion,
+                    type_cation,
+                    type_hydrophobic,
+                    type_aromatic,
+                    type_pi_cation_aromatic,
+                    type_pi_cation_cation,
+                    type_halogen_donor
+                ) if feature_type is not None
+            },
+            inputs=[],
+            extra={"plip": plip},
+            name=name or f"{self.system.name} Pharmacophore",
+        )
+
+    def from_structure(
+        self,
+        *,
+        type_hbond_donor: str = "HD",
+        type_hbond_acceptor: str = "OA",
+        hbond_distance: float = 2,
+        name: str | None = None,
+    ) -> Pharmacophore:
+        if self._structure_modeler is None:
+            self._verify_system_available("from_structure")
+            self._structure_modeler = StructureBasedModeler(self.system)
+        feats = self._structure_modeler.model(
+            hbond_distance=hbond_distance,
+            type_hbond_acceptor=type_hbond_acceptor,
+            type_hbond_donor=type_hbond_donor,
+        )
+        return self._pharmacophore(
+            features=feats,
+            feature_types={type_hbond_donor, type_hbond_acceptor},
+            inputs=[],
+            extra={},
+            name=name or f"{self.system.name} Pharmacophore",
+        )
+
+    def _field_filter(self, filter_function: dict[str, FilterFunction | None]) -> np.ndarray:
         """Apply the specified filter functions to the field tensor."""
         tensor = np.empty_like(self.field.tensor)
         for feature_field_idx, feature_field in enumerate(self.field.tensor):
@@ -530,7 +707,7 @@ class Modeler:
                 )
         return tensor
 
-    def _mask(
+    def _field_mask(
         self,
         tensor: np.ndarray,
         peak_type: dict[str, Literal["min", "max"]],
@@ -539,14 +716,14 @@ class Modeler:
         threshold_percentile: dict[str, float | None],
         threshold_include_equal: dict[str, bool],
     ):
-        mask = self._mask_best_per_point(
+        mask = self._field_mask_best_per_point(
             tensor=tensor,
             peak_type=peak_type,
             best_per_point=best_per_point,
         )
         if self.pocket is not None:
             mask = np.logical_and(mask, self.pocket.tensor)
-        mask = self._mask_threshold(
+        mask = self._field_mask_threshold(
             tensor=tensor,
             mask=mask,
             peak_type=peak_type,
@@ -556,7 +733,7 @@ class Modeler:
         )
         return mask
 
-    def _mask_threshold(
+    def _field_mask_threshold(
         self,
         tensor: np.ndarray,
         mask: np.ndarray,
@@ -595,7 +772,7 @@ class Modeler:
                 )
         return mask
 
-    def _mask_best_per_point(
+    def _field_mask_best_per_point(
         self,
         tensor: np.ndarray,
         peak_type: dict[str, Literal["min", "max"]],
@@ -658,45 +835,55 @@ class Modeler:
 
     def _pharmacophore(
         self,
-        tensor: np.ndarray,
-        mask: np.ndarray,
-        args: BaseModel,
-        feature_radius: dict[str, PositiveFloat | None],
+        features: pd.DataFrame,
+        feature_types: set[str],
+        inputs: list[dict[str, Any]],
+        extra: dict[str, Any] | None = None,
+        name: str = "Pharmacophore",
     ) -> Pharmacophore:
-        indices = np.argwhere(mask)
-        grid_indices = indices[:, -3:]
-        coordinates = self.field.grid.index_coordinates(grid_indices)
-        instances_ndim = indices.shape[1] - 4
-        if instances_ndim == 0:
-            instance_indices = np.zeros(indices.shape[0], dtype=int)
-        elif instances_ndim == 1:
-            instance_indices = indices[:, 1]
-        else:
-            instance_indices = list(map(tuple, indices[:, 1:-3].tolist()))
-        types = [self._feature_type(idx) for idx in indices[:, 0]]
-        radii = [feature_radius[feature_type] for feature_type in types]
-        features = pd.DataFrame(
-            {
-                "instance": instance_indices,
-                "type": types,
-                "label":list(map(tuple, grid_indices.tolist())),
-                "center": list(coordinates),
-                "radius": radii,
-                "value": self.field.tensor[mask],
-                "value_filter": tensor[mask],
-            }
-        )
-        pharm = Pharmacophore(
+        return Pharmacophore(
             features=features,
-            feature_types=set(self.field.batch_instance_labels["feature"]),
-            inputs=[args.model_dump()],
+            feature_types=feature_types,
+            inputs=inputs,
             system=self.system,
             pocket=self.pocket,
             field=self.field,
-            extra={"mask": mask},
+            extra=extra,
+            name=name,
         )
-        return pharm
 
     def _feature_type(self, field_idx: int) -> str:
         """Get the feature type for a given field index."""
         return self.field.batch_instance_labels["feature"][field_idx]
+
+    def _verify_field_pocket_compatible(self):
+        if self.pocket.grid != self.field.grid:
+            raise ValueError(
+                "Pocket and field must have the same grid, "
+                f"but got pocket grid {self.pocket.grid} and field grid {self.field.grid}."
+            )
+        if self.pocket.tensor.shape != self.field.tensor.shape[1:] and self.pocket.tensor.shape != self.field.tensor.shape[-3:]:
+            raise ValueError(
+                "Pocket and field tensors must have the same shape along their last dimensions, "
+                f"but got pocket tensor shape {self.pocket.tensor.shape} "
+                f"and field tensor shape {self.field.tensor.shape}."
+            )
+        return
+
+    def _verify_system_available(self, method_name: str):
+        if self.system is None:
+            raise ValueError(
+                f"Cannot use the `{method_name}` modeling method "
+                "because no system was provided. "
+                "Please provide a system."
+            )
+        return
+
+    def _verify_field_available(self, method_name: str):
+        if self.field is None:
+            raise ValueError(
+                f"Cannot use the `{method_name}` modeling method "
+                "because no field was provided. "
+                "Please provide a field."
+            )
+        return
