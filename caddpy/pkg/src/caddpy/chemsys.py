@@ -768,8 +768,8 @@ def _pdb_pre_check(pdb: scifile.pdb.PDBFile) -> None:
 def _augment_atom_df(df: pd.DataFrame) -> PDBAtomMatcher:
     """Augment an atom DataFrame with additional columns."""
     residues = df.groupby(["chain_id", "res_seq", "i_code"], sort=False)
-    atom_res_key_col_name = "res_num"
-    df[atom_res_key_col_name] = residues.ngroup() + 1
+    atom_res_key_col_name = "res_idx"
+    df[atom_res_key_col_name] = residues.ngroup()
     df["atom_idx"] = np.arange(len(df), dtype=np.int32)
     matcher = PDBAtomMatcher(
         atom=df,
