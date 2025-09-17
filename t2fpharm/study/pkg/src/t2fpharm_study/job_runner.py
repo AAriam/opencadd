@@ -58,7 +58,7 @@ def _run(
     pharms = []
     matches = []
     if method == "largest_peaks":
-        pharm = modeler.largest_peaks(
+        pharm = modeler.from_field_extrema(
             min_distance=job["min_distance"],
             priority_factor=job["priority_factor"],
             max_features=job["max_features"],
@@ -89,7 +89,7 @@ def _run(
         matches.append(match)
         return summaries, pharms, matches
     if method == "agg":
-        pharm_base = modeler.agg(
+        pharm_base = modeler.from_field_agg(
             distance_threshold=job["distance_threshold"],
             min_members=1,
             filter_function=job.get("filter_function"),
@@ -105,7 +105,7 @@ def _run(
             threshold_include_equal=False,
         )
     elif method == "cnn":
-        pharm_base = modeler.cnn(
+        pharm_base = modeler.from_field_cnn(
             max_distance=job["max_distance"],
             min_neighbors=job["min_neighbors"],
             min_members=1,
