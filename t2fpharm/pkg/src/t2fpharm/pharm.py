@@ -10,7 +10,6 @@ import scipy.spatial
 
 import scids.functional.dist
 import scishow
-import caddpy
 import scids
 
 from t2fpharm.system import System
@@ -95,12 +94,21 @@ class Pharmacophore:
         feature_types: set[str] | None = None,
         inputs: Sequence[dict[str, Any]] | None = None,
         name: str = "Pharmacophore",
-        system: Any | None = None,
+        system: System | None = None,
         pocket: Pocket | None = None,
         field: Field | None = None,
         extra: dict[str, Any] | None = None,
     ):
         self._features = PharmFeaturesInput(features=features, feature_types=feature_types).features
+        if self._features.empty or (self._features["instance"] == 0).all():
+            self._batch_shape = np.array([], dtype=np.int64)
+        elif self._features["instance"].dtype != "object":
+            self._batch_shape = np.array([self._features["instance"].max() + 1], dtype=np.int64)
+        else:
+            self._batch_shape = np.vstack(self._features["instance"].to_numpy()).max(axis=0) + 1
+
+        if pocket is not None:
+            self._check_instance_consistency_with_pocket(pocket)
 
         if feature_types is None:
             self._feature_types = set(self._features['type'].unique())
@@ -176,7 +184,7 @@ class Pharmacophore:
         return self._name
 
     @property
-    def system(self) -> Any | None:
+    def system(self) -> System | None:
         """Chemical system associated with the pharmacophore."""
         return self._system
 
@@ -194,6 +202,144 @@ class Pharmacophore:
     def extra(self) -> dict[str, Any]:
         """Additional information related to the pharmacophore."""
         return self._extra
+
+    def filter(
+        self,
+        mask: pd.Series | np.ndarray | Sequence[bool],
+        name: str | None = None,
+    ) -> Self:
+        """Filter pharmacophore features using a boolean mask.
+
+        Parameters
+        ----------
+        mask
+            Boolean mask to filter features.
+            It can be a `pandas.Series`, a numpy array,
+            or any sequence of boolean values.
+            It must have the same length and order as `self.features`.
+
+        Returns
+        -------
+        A new `Pharmacophore` instance containing only the features
+        where the corresponding value in `mask` is `True`.
+        """
+        return self.new(
+            features=self._features[mask],
+            inputs=self.inputs + [{"action": "filter", "params": {"mask": mask}}],
+            name=name,
+        )
+
+    def refine_centers(
+        self,
+        by_field: bool = False,
+        by_pocket: bool = False,
+        field_extrema_type: Literal["min", "max"] = "min",
+        field_search_radius: float = 1.5,
+        max_pocket_distance: float = 0.5,
+    ):
+        if by_field and self._field is None:
+            raise ValueError("Cannot refine by field: No field associated with the pharmacophore.")
+        if by_pocket and self._pocket is None:
+            raise ValueError("Cannot refine by pocket: No pocket associated with the pharmacophore.")
+
+        feats = self._features.copy()
+        feats["original_center"] = feats["center"]
+
+        if by_field:
+            feats = self._refine_by_field(
+                feats=feats,
+                field_search_radius=field_search_radius,
+                field_extrema_type=field_extrema_type,
+            )
+        if by_pocket:
+            feats = self._refine_by_pocket(
+                feats=feats,
+                max_pocket_distance=max_pocket_distance,
+            )
+        return self.new(features=feats.drop(columns=["original_center"]))
+
+    def _refine_by_field(
+        self,
+        feats: pd.DataFrame,
+        field_search_radius: float = 1.5,
+        field_extrema_type: Literal["min", "max"] = "min",
+    ) -> pd.DataFrame:
+        field = self._field
+        old_centers = np.stack(feats["center"])
+        grid_indices, _, is_inside = field.grid.nearest_point(old_centers)
+        feats = feats.loc[is_inside]
+        grid_indices = grid_indices[is_inside]
+        field_prefix_indices = feats["type"].map(
+            {val: idx for idx, val in enumerate(field.batch_instance_labels["feature"])}
+        ).to_numpy().reshape(-1, 1)
+        if self._batch_shape.size > 0:
+            # Merge instance indices with grid indices to get full field indices
+            instances = feats["instance"]
+            N = len(feats)
+            if instances.dtype != "object":
+                field_prefix_indices = np.concatenate(
+                    [field_prefix_indices, instances.to_numpy().reshape(-1, 1)],
+                    axis=1
+                )
+            else:
+                vals = instances.tolist()
+                K = len(vals[0]) + 1
+                # Stack rows into a 2D array of shape (N, K)
+                # Using a single allocation via np.empty + fill for speed/robustness
+                prefix = np.empty((N, K), dtype=np.int64)
+                for i, (feature_prefix, instance_prefix) in enumerate(zip(field_prefix_indices, vals)):
+                    prefix[i, 0] = feature_prefix
+                    prefix[i, 1:] = instance_prefix
+                field_prefix_indices = prefix
+        field_indices = np.concatenate([field_prefix_indices, grid_indices], axis=1)
+        footprint = field.grid.footprint_spherical(field_search_radius)
+        extrema_indices = _extrema_under_footprint(
+            field=field.tensor,
+            field_indices=field_indices,
+            footprint=footprint,
+            maximize=(field_extrema_type == "max"),
+        )
+        extrema_coords = field.grid.index_coordinates(extrema_indices[..., -3:])
+        extrema_values = field.tensor[tuple(extrema_indices.T)]
+        feats["radius"] = np.linalg.norm(extrema_coords - old_centers[is_inside], axis=-1)
+        feats["center"] = list(extrema_coords)
+        feats["value"] = extrema_values
+        return feats
+
+    def _refine_by_pocket(
+        self,
+        feats: pd.DataFrame,
+        max_pocket_distance: float
+    ) -> pd.DataFrame:
+        pocket = self._pocket
+        indices, distances = pocket.nearest_point(np.stack(feats["center"]))
+        if self._batch_shape.size > 0:
+            instances = feats["instance"]
+            N = len(feats)
+            if instances.dtype != "object":
+                prefix = np.empty((N, 2), dtype=np.int64)
+                prefix[:, 0] = instances.to_numpy()
+                prefix[:, 1] = np.arange(N, dtype=np.int64)
+            else:
+                vals = instances.tolist()
+                batch_n_dim = len(vals[0])
+                K = batch_n_dim + 1
+                # Stack rows into a 2D array of shape (N, K)
+                # Using a single allocation via np.empty + fill for speed/robustness
+                prefix = np.empty((N, K), dtype=np.int64)
+                for i, (instance_prefix) in enumerate(vals):
+                    prefix[i, 0:batch_n_dim] = instance_prefix
+                    prefix[i, batch_n_dim] = i
+            prefix_unpacked = tuple(prefix.T)
+            indices = indices[prefix_unpacked]
+            distances = distances[prefix_unpacked]
+        dist_mask = distances <= max_pocket_distance
+        indices = indices[dist_mask]
+        feats = feats.loc[dist_mask]
+        in_pocket_coords = pocket.grid.index_coordinates(indices)
+        dists_to_orig_center = np.linalg.norm(in_pocket_coords - np.stack(feats["original_center"]), axis=-1)
+        feats["radius"] = np.maximum(feats["radius"], dists_to_orig_center)
+        return feats
 
     def remove_overlaps(
         self,
@@ -982,7 +1128,7 @@ class Pharmacophore:
         nglwidget: scishow.nglview.NGLWidget | None = None,
         instances: Sequence[Any] | None = None,
         feature_types: Sequence[str] | None = None,
-        system: Any | Literal[False] | None = None,
+        system: System | Literal[False] | None = None,
         default_radius: float = 1.5,
         min_radius: float = 1.0,
         show_box: bool = True,
@@ -995,6 +1141,7 @@ class Pharmacophore:
         override_radius: bool = False,
         gui: bool = True,
         directed_features_components: set[Literal["sphere", "arrow"]] = {"arrow"},
+        add_residues: bool = True,
     ):
         def feature_color(feature_id: str) -> tuple[float, float, float] | tuple[int, int, int]:
             """Get color for a feature type, defaulting to gray if not set."""
@@ -1013,11 +1160,15 @@ class Pharmacophore:
         feature_colors = feature_colors or {}
 
         # System
+        atoms = None
+        system_comp = None
         if system is not False:
             if system is not None:
-                nv.add_trajectory(system)
+                atoms = system.composition.atoms
+                system_comp = nv.add_trajectory(system)
             elif self.system is not None:
-                nv.add_trajectory(self.system)
+                atoms = self.system.composition.atoms
+                system_comp = nv.add_trajectory(self.system)
 
         # Pocket
         if self.pocket is not None:
@@ -1082,16 +1233,10 @@ class Pharmacophore:
                     0.25,
                     f"{name} Direction",
                 )
-            # if "points" in feature:
-            #     nv.add_spheres(
-            #         coords=feature["points"],
-            #         radii=self.field.grid.spacings[0] / 2,
-            #         name=f"{name} Points",
-            #         colors=feature_color(feature["type"]),
-            #         representation_params=scishow.nglview.RepresentationParameters(
-            #             visible=show_feature_points,
-            #         )
-            #     )
+            if atoms is not None and add_residues and "res_idx" in feature and pd.notna(feature["res_idx"]):
+                res = atoms[atoms["res_idx"] == feature["res_idx"]].iloc[0]
+                res_sel = f"{res["res_seq"]}^{res["i_code"]}:{res["chain_id"]}"
+                system_comp.add_ball_and_stick(res_sel, name=f"{name} Residue")
         if gui:
             nv.display(gui=True)
         return nv
@@ -1140,236 +1285,21 @@ class Pharmacophore:
             extra=extra if extra is not None else self.extra,
         )
 
-
-def from_complex(
-    complex: System,
-    *,
-    type_hbond_acceptor: str | None = "OA",
-    type_hbond_donor: str | None = "HD",
-    type_water_bridge_water_acceptor: str | None = "OA",
-    type_water_bridge_water_donor: str | None = "HD",
-    type_water_bridge_ligand_acceptor: str | None = None,
-    type_water_bridge_ligand_donor: str | None = None,
-    type_anion: str | None = "e-",
-    type_cation: str | None = "e+",
-    type_hydrophobic: str | None = "C",
-    type_aromatic: str | None = "A",
-    type_pi_cation_aromatic: str | None = "A",
-    type_pi_cation_cation: str | None = "e+",
-    type_halogen_donor: str | None = None,
-    exclude_duplicates: bool = False,
-    pocket: Pocket | None = None,
-    name: str | None = None,
-):
-    """Create a pharmacophore from a receptor–ligand complex.
-
-    This function uses the PLIP library to analyze the interactions
-    between the receptor and ligand(s) in the provided complex.
-    The non-receptor interaction centers
-    are then converted into pharmacophore features.
-
-    Note that if any of the `type_*` parameters are set to `None`,
-    the corresponding feature type will not be included in the pharmacophore.
-
-    Parameters
-    ----------
-    complex
-        Complex structure containing both receptor and ligand(s).
-    type_hbond_acceptor
-        Feature type ID for hydrogen bond acceptors in the ligand.
-    type_water_bridge_water_acceptor
-        Feature type ID for water bridge acceptors in the water molecule.
-        This is the oxygen atom of the water molecule.
-    type_water_bridge_water_donor
-        Feature type ID for water bridge donors in the water molecule.
-        This is the hydrogen atom of the water molecule.
-    type_water_bridge_ligand_acceptor
-        Feature type ID for water bridge acceptors in the ligand.
-        Water bridge acceptors are hydrogen bond acceptors
-        that interact with the receptor through a water molecule.
-    type_water_bridge_ligand_donor
-        Feature type ID for water bridge donors in the ligand.
-        Water bridge donors are hydrogen bond donors
-        that interact with the receptor through a water molecule.
-    type_anion
-        Feature type ID for anionic centers in the ligand.
-    type_cation
-        Feature type ID for cationic centers in the ligand.
-    type_hydrophobic
-        Feature type ID for hydrophobic centers in the ligand.
-    type_aromatic
-        Feature type ID for aromatic centers in the ligand.
-    pocket
-        Optional pocket to filter features based on their coverage.
-        If provided, only features that are within the pocket will be included.
-    receptor
-        Optional structure to associate with the pharmacophore.
-        This is only used for visualization purposes.
-    """
-    plip = caddpy.interaction.from_chemsys(complex, add_polar_hydrogens=False)
-
-    out = []
-    for _, row in plip.all.iterrows():
-        selected: list[dict] = []
-        match row["type"]:
-            case "hbond":
-                if row["r_is_d"]:
-                    # Ligand is acceptor
-                    if type_hbond_acceptor:
-                        row = row.to_dict() | {
-                            "type": type_hbond_acceptor,
-                            "center": row["l_position"],
-                            "end": row["h_position"]
-                        }
-                        selected.append(row)
-                else:
-                    # Ligand is donor
-                    if type_hbond_donor:
-                        row = row.to_dict() | {
-                            "type": type_hbond_donor,
-                            "center": row["h_position"],
-                            "end": row["r_position"]
-                        }
-                        selected.append(row)
-            case "water_bridge":
-                # Plip only detects bridges where ligand and receptor have different roles
-                # i.e., ligand is acceptor and receptor is donor, or vice versa.
-                if row["r_is_d"]:
-                    # Ligand and water are acceptors
-                    if type_water_bridge_ligand_acceptor:
-                        row = row.to_dict() | {
-                            "type": type_water_bridge_ligand_acceptor,
-                            "center": row["l_position"],
-                            "end": row["w_h_position"],
-                        }
-                        selected.append(row)
-                    if type_water_bridge_water_acceptor:
-                        row = row.to_dict() | {
-                            "type": type_water_bridge_water_acceptor,
-                            "center": row["w_o_position"],
-                            "end": row["h_position"],
-                        }
-                        selected.append(row)
-                else:
-                    # Ligand and water are donors
-                    if type_water_bridge_ligand_donor:
-                        row = row.to_dict() | {
-                            "type": type_water_bridge_ligand_donor,
-                            "center": row["h_position"],
-                            "end": row["w_o_position"],
-                        }
-                        selected.append(row)
-                    if type_water_bridge_water_donor:
-                        row = row.to_dict() | {
-                            "type": type_water_bridge_water_donor,
-                            "center": row["w_h_position"],
-                            "end": row["r_position"],
-                        }
-                        selected.append(row)
-            case "salt_bridge":
-                if row["r_is_cation"]:
-                    # Ligand is anion
-                    if type_anion:
-                        row = row.to_dict() | {
-                            "type": type_anion,
-                            "center": row["l_position"],
-                            "end": row["r_position"],
-                        }
-                        selected.append(row)
-                else:
-                    # Ligand is cation
-                    if type_cation:
-                        row = row.to_dict() | {
-                            "type": type_cation,
-                            "center": row["l_position"],
-                            "end": row["r_position"],
-                        }
-                        selected.append(row)
-            case "hydrophobic":
-                if type_hydrophobic:
-                    row = row.to_dict() | {
-                        "type": type_hydrophobic,
-                        "center": row["l_position"],
-                        "end": row["r_position"],
-                    }
-                    selected.append(row)
-            case "pi_stacking":
-                if type_aromatic:
-                    row = row.to_dict() | {
-                        "type": type_aromatic,
-                        "center": row["l_position"],
-                        "end": row["r_position"],
-                    }
-                    selected.append(row)
-            case "pi_cation":
-                if row["r_is_cation"]:
-                    # Ligand is aromatic
-                    if type_pi_cation_aromatic:
-                        row = row.to_dict() | {
-                            "type": type_pi_cation_aromatic,
-                            "center": row["l_position"],
-                            "end": row["r_position"],
-                        }
-                        selected.append(row)
-                else:
-                    # Ligand is cation
-                    if type_pi_cation_cation:
-                        row = row.to_dict() | {
-                            "type": type_pi_cation_cation,
-                            "center": row["l_position"],
-                            "end": row["r_position"],
-                        }
-                        selected.append(row)
-            case "halogen":
-                if type_halogen_donor:
-                    row = row.to_dict() | {
-                        "type": type_halogen_donor,
-                        "center": row["l_position"],
-                        "end": row["r_position"],
-                    }
-                    selected.append(row)
-            case _:
-                continue
-        # Sometimes a single atom can be involved
-        # in multiple interactions of the same type, e.g., hydrophobic interactions with different residues.
-        # Therefore, we only add a new feature if not already present
-        if exclude_duplicates:
-            for feat in selected:
-                for entry in out:
-                    if (
-                        entry["instance"] == feat["instance"] and
-                        entry["type"] == feat["type"] and
-                        np.allclose(entry["center"], feat["center"])
-                    ):
-                        break
-                else:
-                    out.append(feat)
-        else:
-            out.extend(selected)
-    if pocket is not None:
-        positions = np.stack([feature["center"] for feature in out])
-        coverages = pocket.point_coverage(positions)
-        out = [feature for feature, coverage in zip(out, coverages) if coverage]
-    return Pharmacophore(
-        features=out,
-        name=name or complex.name,
-        extra={"plip": plip},
-        system=complex,
-        pocket=pocket,
-        feature_types=[
-            feature_type for feature_type in (
-                type_hbond_acceptor,
-                type_hbond_donor,
-                type_water_bridge_ligand_acceptor,
-                type_water_bridge_ligand_donor,
-                type_water_bridge_water_acceptor,
-                type_anion,
-                type_cation,
-                type_hydrophobic,
-                type_aromatic
-            ) if feature_type is not None
-        ]
-    )
+    def _check_instance_consistency_with_pocket(self, pocket: Pocket) -> None:
+        """Check if the pharmacophore instances are consistent with the pocket instances."""
+        if pocket.batch_ndim != self._batch_shape.size:
+            raise ValueError(
+                f"Instance dimensions of the pharmacophore ({self._batch_shape}) "
+                f"and the pocket ({pocket.batch_ndim}) do not match."
+            )
+        if self._batch_shape.size == 0:
+            return
+        if (pocket.batch_shape < self._batch_shape).any():
+            raise ValueError(
+                f"The pocket has fewer instances ({pocket.batch_shape}) "
+                f"than the pharmacophore ({self._batch_shape})."
+            )
+        return
 
 
 def merge(pharmacophores: Sequence[Pharmacophore]) -> Pharmacophore:
@@ -1454,3 +1384,138 @@ def _uniquify(strings: list[str]) -> list[str]:
             running_counts[s] += 1
             result.append(f"{s}_{running_counts[s]}")
     return result
+
+
+def _extrema_under_footprint(
+    field: np.ndarray,
+    field_indices: np.ndarray,
+    footprint: np.ndarray,
+    *,
+    maximize: bool = False,
+) -> np.ndarray:
+    """Return argmin/argmax indices in `field` under a 3D boolean footprint centered at given indices.
+
+    Places the center of `footprint` (which must have odd lengths along each axis) on each
+    index in `field_indices`, applies natural clipping at borders, and finds the index in
+    `field` (same global coordinates) of the **extreme** value (minimum by default;
+    maximum if `maximize=True`) among locations where `footprint` is True.
+    The footprint operates over the **last three axes** of `field`. All leading axes
+    (if any) are taken exactly from each row of `field_indices`.
+
+    Parameters
+    ----------
+    field
+        N-dimensional array (N >= 3). The last 3 axes are the spatial axes affected by
+        the footprint. Must be indexable with integer coordinates from `field_indices`.
+    field_indices
+        2D array of shape (K, N) with integer indices. Each row specifies a global index
+        in `field` at which the *center* of `footprint` is placed.
+    footprint
+        3D boolean array with odd shape along each axis (so it has a unique center).
+        This footprint is aligned with the last 3 axes of `field`.
+
+    Returns
+    -------
+    np.ndarray
+        Array of shape (K, N) with the global indices (same order as `field_indices`)
+        of the selected extreme (min or max) element in `field` under the footprint
+        for each placement.
+
+    Raises
+    -------
+    ValueError
+        If input shapes/dtypes are invalid (e.g., N < 3, footprint not 3D, footprint
+        has even length on any axis, or `field_indices` shape mismatch).
+
+    Notes
+    ------
+    - If the footprint region is partially outside the array, only the in-bounds portion
+      is considered.
+    - If, after clipping, there are no True cells in the footprint slice (should not happen
+      when the footprint center is True and the center is in-bounds), this function falls
+      back to returning the original `field_indices` row for that placement.
+    """
+    if field.ndim < 3:
+        raise ValueError(f"`field` must be at least 3D; got {field.ndim}D")
+    if footprint.ndim != 3:
+        raise ValueError(f"`footprint` must be 3D; got {footprint.ndim}D")
+    if any(s % 2 == 0 for s in footprint.shape):
+        raise ValueError(f"`footprint` must have odd lengths; got shape {footprint.shape}")
+    if field_indices.ndim != 2 or field_indices.shape[1] != field.ndim:
+        raise ValueError(
+            f"`field_indices` must have shape (K, {field.ndim}); got {field_indices.shape}"
+        )
+    if not np.issubdtype(field_indices.dtype, np.integer):
+        raise ValueError("`field_indices` must be of integer dtype")
+
+    N = field.ndim
+    K = field_indices.shape[0]
+    out = np.empty((K, N), dtype=np.int64)
+
+    # Radii (half-sizes) of the footprint along its 3 axes
+    rad_z, rad_y, rad_x = (d // 2 for d in footprint.shape)
+
+    # Helper to compute slice bounds (field and footprint) for one axis with center c, radius r, and limit L
+    def _bounds(c: int, r: int, L: int) -> tuple[slice, slice]:
+        # Field slice [f0:f1)
+        f0 = max(0, c - r)
+        f1 = min(L, c + r + 1)
+        # Map back to footprint slice [p0:p1)
+        # Position of f0 in footprint coords:
+        p0 = r - (c - f0)
+        # Length matches field segment:
+        p1 = p0 + (f1 - f0)
+        return slice(f0, f1), slice(p0, p1)
+
+    # Precompute for speed
+    field_shape_last3 = field.shape[-3:]
+
+    # Choose comparator
+    extreme = np.argmax if maximize else np.argmin
+
+    for k in range(K):
+        idx = field_indices[k]
+        # Split index into leading axes (if any) and last-3 axes
+        lead_idx = tuple(idx[:-3]) if N > 3 else ()
+        zc, yc, xc = (int(idx[-3]), int(idx[-2]), int(idx[-1]))
+
+        # Bounds per last-3 axes
+        (fz, pz) = _bounds(zc, rad_z, field_shape_last3[0])
+        (fy, py) = _bounds(yc, rad_y, field_shape_last3[1])
+        (fx, px) = _bounds(xc, rad_x, field_shape_last3[2])
+
+        # Extract field view and footprint slice
+        fview = field[(*lead_idx, fz, fy, fx)]
+        pview = footprint[pz, py, px]
+
+        # Guard: ensure pview has any True
+        if not pview.any():
+            # Fallback to center (should be rare if center of footprint is True)
+            out[k] = idx
+            continue
+
+        # Mask invalid cells by setting them to +inf/-inf depending on min/max
+        # Copy only if needed
+        view = fview
+        if not pview.all():
+            # We must ignore where pview is False
+            if maximize:
+                masked = np.where(pview, view, -np.inf)
+            else:
+                masked = np.where(pview, view, np.inf)
+            flat_idx = extreme(masked.ravel())
+        else:
+            flat_idx = extreme(view.ravel())
+
+        # Convert flat idx back to local (z,y,x) offsets
+        local_zyx = np.unravel_index(flat_idx, fview.shape)
+        # Compose global index
+        gz = fz.start + local_zyx[0]
+        gy = fy.start + local_zyx[1]
+        gx = fx.start + local_zyx[2]
+
+        if N > 3:
+            out[k, :-3] = np.array(lead_idx, dtype=np.int64)
+        out[k, -3:] = (gz, gy, gx)
+
+    return out
