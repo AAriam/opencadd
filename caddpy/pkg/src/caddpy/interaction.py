@@ -52,10 +52,7 @@ _ALL_COLUMNS = [
     "instance",
     "type",
 
-    "r_chain_id",
-    "r_res_name",
-    "r_res_seq",
-    "r_icode",
+    "r_res_idx",
     "r_serials",
     "r_type",
     "r_position",
@@ -63,18 +60,12 @@ _ALL_COLUMNS = [
     "r_is_cation",
     "is_sidechain",
 
-    "l_chain_id",
-    "l_res_name",
-    "l_res_seq",
-    "l_icode",
+    "l_res_idx",
     "l_serials",
     "l_type",
     "l_position",
 
-    "w_chain_id",
-    "w_res_name",
-    "w_res_seq",
-    "w_icode",
+    "w_res_idx",
     "w_o_serial",
     "w_o_position",
     "w_h_serial",
@@ -377,10 +368,13 @@ def from_chemsys(
     """
     globs = globals()
 
+    # PLIP has a bug where if a residue has an insertion code,
+    # it re-numbers the residue number since it can't handle insertion codes properly.
+    # This results in reported atom serial numbers not matching those in the input PDB file.
+    # Here we work around this by temporarily removing insertion codes and renumbering residues.
     atoms = complex.composition.atoms.copy()
-    atoms.rename(columns={"res_seq": "orig_res_seq", "i_code": "orig_i_code"}, inplace=True)
     atoms["i_code"] = ""
-    atoms["res_seq"] = atoms["res_num"]
+    atoms["res_seq"] = atoms["res_idx"]
     complex = complex.new(composition=atoms)
 
     pdbs = complex.to_pdb(multimodel=False)
@@ -402,10 +396,19 @@ def from_chemsys(
         for attr_name in INTERACTION_TYPES:
             func = globs[f"_{attr_name}"]
             rows = func(interaction_sets)
-            corrected_rows = [{"instance": idx[0] if len(idx) == 1 else idx, **_correct_res(row, pdb.atom)} for row in rows]
+            corrected_rows = [
+                {"instance": idx[0] if len(idx) == 1 else idx, **_correct_res(row, pdb.atom)}
+                for row in rows
+            ]
             all_rows.extend(corrected_rows)
-
     df = pd.DataFrame(all_rows).convert_dtypes()
+    df.rename(
+        columns={
+            f"{prefix}_res_seq": f"{prefix}_res_idx"
+            for prefix in ("l", "r", "w") if f"{prefix}_res_seq" in df.columns
+        },
+        inplace=True,
+    )
     df = df[[col for col in _ALL_COLUMNS if col in df.columns]]
     return ProteinLigandInteractions(df, complex)
 
@@ -414,14 +417,13 @@ def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
     """Correct residue numbers to match those in the PDB file."""
     def get_hydrogen_serial() -> int:
         prefix = "r" if row["r_is_d"] else "l"
-        res_atoms = atom[
-            (atom["chain_id"] == row[f"{prefix}_chain_id"]) &
-            (atom["orig_res_seq"] == row[f"{prefix}_res_seq"]) &
-            (atom["orig_i_code"] == row[f"{prefix}_icode"])
-        ]
+        res_atoms = atom[(atom["res_seq"] == row[f"{prefix}_res_seq"])]
         dists = ((res_atoms[["x","y","z"]].values - row["h_position"]) ** 2).sum(axis=1)
         min_dist = dists.min()
         if min_dist > 1e-8:
+            warnings.warn(
+                f"Hydrogen atom not found for position {row['h_position']} in {row}"
+            )
             return np.nan
         return int(res_atoms.iloc[dists.argmin()]["serial"])
 
@@ -444,16 +446,9 @@ def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
         if w_o_atom["element"] != "O":
             raise ValueError(f"Water oxygen atom not found for serial {row['w_o_serial']}")
 
-        row["w_chain_id"] = w_o_atom["chain_id"]
-        row["w_res_name"] = w_o_atom["res_name"]
-        row["w_res_seq"] = w_o_atom["orig_res_seq"]
-        row["w_icode"] = w_o_atom["orig_i_code"]
+        row["w_res_seq"] = w_o_atom["res_seq"]
 
-        water_atoms = atom[
-            (atom["chain_id"] == row["w_chain_id"]) &
-            (atom["orig_res_seq"] == row["w_res_seq"]) &
-            (atom["orig_i_code"] == row["w_icode"])
-        ]
+        water_atoms = atom[(atom["res_seq"] == row["w_res_seq"])]
         if len(water_atoms) < 3:
             raise ValueError(f"Less than 3 atoms found for water residue {row['w_res_name']} {row['w_chain_id']}{row['w_res_seq']}{row['w_icode']}")
         w_h_atoms = water_atoms[water_atoms["element"] == "H"]
@@ -509,7 +504,7 @@ def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
                 )
 
         # Verify chain ID and residue name match
-        for col in ("chain_id", "res_name"):
+        for col in ("chain_id", "res_name", "res_seq"):
             values = atoms[col].unique()
             if len(values) != 1:
                 raise ValueError(f"Multiple values found for {prefix}_{col} in {typ} interaction: {values}")
@@ -519,16 +514,6 @@ def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
                 raise ValueError(
                     f"Mismatch in {prefix}_{col} between PLIP and original PDB: {plip_val} != {orig_val}"
                 )
-
-        # Override correct residue number
-        res_seqs = atoms["res_seq"].unique()
-        if len(res_seqs) != 1:
-            raise ValueError(
-                f"Multiple residue numbers found for {prefix}_res_seq in {typ} interaction: {serials}. "
-                f"Interaction: {row}"
-            )
-        row[f"{prefix}_res_seq"] = atoms.iloc[0]["orig_res_seq"]
-        row[f"{prefix}_icode"] = atoms.iloc[0]["orig_i_code"]
 
     if typ in ("hbond", "water_bridge"):
         row["h_serial"] = get_hydrogen_serial()
