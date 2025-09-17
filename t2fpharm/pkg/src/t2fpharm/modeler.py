@@ -534,17 +534,12 @@ class Modeler:
         *,
         type_hbond_acceptor: str | None = "OA",
         type_hbond_donor: str | None = "HD",
-        type_water_bridge_water_acceptor: str | None = "OA",
-        type_water_bridge_water_donor: str | None = "HD",
-        type_water_bridge_ligand_acceptor: str | None = None,
-        type_water_bridge_ligand_donor: str | None = None,
         type_anion: str | None = "e-",
         type_cation: str | None = "e+",
         type_hydrophobic: str | None = "C",
         type_aromatic: str | None = "A",
-        type_pi_cation_aromatic: str | None = "A",
-        type_pi_cation_cation: str | None = "e+",
-        type_halogen_donor: str | None = None,
+        type_halogen_acceptor: str | None = "XA",
+        type_halogen_donor: str | None = "XD",
         name: str | None = None,
     ):
         """Create a pharmacophore from a receptor–ligand complex.
@@ -563,20 +558,6 @@ class Modeler:
             Complex structure containing both receptor and ligand(s).
         type_hbond_acceptor
             Feature type ID for hydrogen bond acceptors in the ligand.
-        type_water_bridge_water_acceptor
-            Feature type ID for water bridge acceptors in the water molecule.
-            This is the oxygen atom of the water molecule.
-        type_water_bridge_water_donor
-            Feature type ID for water bridge donors in the water molecule.
-            This is the hydrogen atom of the water molecule.
-        type_water_bridge_ligand_acceptor
-            Feature type ID for water bridge acceptors in the ligand.
-            Water bridge acceptors are hydrogen bond acceptors
-            that interact with the receptor through a water molecule.
-        type_water_bridge_ligand_donor
-            Feature type ID for water bridge donors in the ligand.
-            Water bridge donors are hydrogen bond donors
-            that interact with the receptor through a water molecule.
         type_anion
             Feature type ID for anionic centers in the ligand.
         type_cation
@@ -585,61 +566,76 @@ class Modeler:
             Feature type ID for hydrophobic centers in the ligand.
         type_aromatic
             Feature type ID for aromatic centers in the ligand.
-        pocket
-            Optional pocket to filter features based on their coverage.
-            If provided, only features that are within the pocket will be included.
-        receptor
-            Optional structure to associate with the pharmacophore.
-            This is only used for visualization purposes.
+        type_halogen_acceptor
+            Feature type ID for halogen bond acceptors in the ligand.
+        type_halogen_donor
+            Feature type ID for halogen bond donors in the ligand.
+        name
+            Optional name for the pharmacophore.
         """
         self._verify_system_available("from_interactions")
         plip = caddpy.interaction.from_chemsys(self.system, add_polar_hydrogens=False)
+        feats = plip.all.rename(columns={"type": "interaction"})
+
+        r_is_donor = feats["r_is_d"].fillna(False).astype(bool) if "r_is_d" in feats else pd.Series(False, index=feats.index)
+        r_is_cation = feats["r_is_cation"].fillna(False).astype(bool) if "r_is_cation" in feats else pd.Series(False, index=feats.index)
+        r_is_acceptor = ~r_is_donor
+        r_is_anion = ~r_is_cation
+
+        interaction_df = {
+            name: feats[(feats["interaction"] == interaction_type) & condition]
+            for name, interaction_type, condition in (
+                ("hbond_acceptor",    "hbond", r_is_acceptor),
+                ("hbond_donor",       "hbond", r_is_donor),
+                ("wbridge_acceptor",  "water_bridge", r_is_acceptor),
+                ("wbridge_donor",     "water_bridge", r_is_donor),
+                ("saltbridge_anion",  "salt_bridge", r_is_anion),
+                ("saltbridge_cation", "salt_bridge", r_is_cation),
+                ("hydrophobic",       "hydrophobic", True),
+                ("aromatic",          "pi_stacking", True),
+                ("pication_aromatic", "pi_cation", r_is_anion),
+                ("pication_cation",   "pi_cation", r_is_cation),
+                ("halogen_acceptor",  "halogen", r_is_acceptor),
+            )
+        }
+
+        atom = self.system.composition.atoms
+        atom_serial_to_idx = dict(zip(atom["serial"], atom["atom_idx"]))
         feat_dfs = []
-
-        for feat_name, interaction_name, sel_col, sel_val, center_col, end_col in (
-            # Hydrogen bonds
-            (type_hbond_acceptor, "hbond", "r_is_d", True, "l_position", "h_position"),
-            (type_hbond_donor, "hbond", "r_is_d", False, "h_position", "r_position"),
-
-            # Water bridges
-            # Plip only detects bridges where ligand and receptor have different roles
-            # i.e., ligand is acceptor and receptor is donor, or vice versa.
-            # Ligand and water are acceptors:
-            (type_water_bridge_ligand_acceptor, "water_bridge", "r_is_d", True, "l_position", "w_h_position"),
-            (type_water_bridge_water_acceptor, "water_bridge", "r_is_d", True, "w_o_position", "h_position"),
-            # Ligand and water are donors:
-            (type_water_bridge_ligand_donor, "water_bridge", "r_is_d", False, "h_position", "w_o_position"),
-            (type_water_bridge_water_donor, "water_bridge", "r_is_d", False, "w_h_position", "r_position"),
-
-            # Salt bridges
-            (type_anion, "salt_bridge", "r_is_cation", True, "l_position", "r_position"),  # Ligand is anion
-            (type_cation, "salt_bridge", "r_is_cation", False, "l_position", "r_position"),  # Ligand is cation
-
-            # Hydrophobic interactions
-            (type_hydrophobic, "hydrophobic", None, None, "l_position", "r_position"),
-
-            # Pi-stacking interactions
-            (type_aromatic, "pi_stacking", None, None, "l_position", "r_position"),
-
-            # Pi-cation interactions
-            (type_pi_cation_aromatic, "pi_cation", "r_is_cation", True, "l_position", "r_position"),  # Ligand is aromatic
-            (type_pi_cation_cation, "pi_cation", "r_is_cation", False, "l_position", "r_position"),  # Ligand is cation
-
-            # Halogen bonds
-            (type_halogen_donor, "halogen", None, None, "l_position", "r_position"),
+        for df_name,              center, end,   res,  serial, res_rev, serial_rev, feat,                feat_rev in (
+            ("hbond_acceptor",    "h",    "r",   "r",  "r",    "l",     "l",        type_hbond_donor,    type_hbond_acceptor),
+            ("hbond_donor",       "l",    "h",   "r",  "r",    "l",     "l",        type_hbond_acceptor, type_hbond_donor),
+            ("wbridge_acceptor",  "h",    "w_o", "w",  "w_o",  "l",     "l",        type_hbond_donor,    type_hbond_acceptor),
+            ("wbridge_acceptor",  "w_h",  "r",   "r",  "r",    "w",     "w_h",      type_hbond_donor,    type_hbond_acceptor),
+            ("wbridge_donor",     "l",    "w_h", "w",  "w_h",  "l",     "l",        type_hbond_acceptor, type_hbond_donor),
+            ("wbridge_donor",     "w_o",  "h",   "r",  "r",    "w",     "w_o",      type_hbond_acceptor, type_hbond_donor),
+            ("saltbridge_anion",  "l",    "r",   "r",  "r",    "l",     "l",        type_cation,         type_anion),
+            ("saltbridge_cation", "l",    "r",   "r",  "r",    "l",     "l",        type_anion,          type_cation),
+            ("hydrophobic",       "l",    "r",   "r",  "r",    "l",     "l",        type_hydrophobic,    type_hydrophobic),
+            ("aromatic",          "l",    "r",   "r",  "r",    "l",     "l",        type_aromatic,       type_aromatic),
+            ("pication_aromatic", "l",    "r",   "r",  "r",    "l",     "l",        type_cation,         type_aromatic),
+            ("pication_cation",   "l",    "r",   "r",  "r",    "l",     "l",        type_aromatic,       type_cation),
+            ("halogen_acceptor",  "l",    "r",   "r",  "r",    "l",     "l",        type_halogen_donor,  type_halogen_acceptor),
         ):
-            if feat_name is None:
+            df = interaction_df[df_name]
+            if df.empty:
                 continue
-            sel = getattr(plip, interaction_name)
-            if sel.empty:
-                continue
-            if sel_col is not None:
-                sel = sel[sel[sel_col] == sel_val]
-            sel = sel.rename(columns={"type": "interaction"})
-            sel["type"] = feat_name
-            sel["center"] = sel[center_col]
-            sel["end"] = sel[end_col]
-            feat_dfs.append(sel)
+            for c, e, r, s, f in (
+                (center, end, res, serial, feat),
+                (end, center, res_rev, serial_rev, feat_rev),
+            ):
+                if f is None:
+                    continue
+                dff = df.copy()
+                dff["type"] = f
+                dff["center"] = dff[f"{c}_position"]
+                dff["end"] = dff[f"{e}_position"]
+                dff["res_idx"] = dff[f"{r}_res_idx"]
+                dff["atom_idxs"] = dff[f"{s}_serials"].apply(
+                    lambda arr: np.array([atom_serial_to_idx[s] for s in arr])
+                )
+                dff = dff[["type", "center", "end", "res_idx", "atom_idxs", "interaction"]]
+                feat_dfs.append(dff)
         if feat_dfs:
             feats = pd.concat(feat_dfs, ignore_index=True)
         else:
@@ -650,15 +646,11 @@ class Modeler:
                 feature_type for feature_type in (
                     type_hbond_acceptor,
                     type_hbond_donor,
-                    type_water_bridge_ligand_acceptor,
-                    type_water_bridge_ligand_donor,
-                    type_water_bridge_water_acceptor,
                     type_anion,
                     type_cation,
                     type_hydrophobic,
                     type_aromatic,
-                    type_pi_cation_aromatic,
-                    type_pi_cation_cation,
+                    type_halogen_acceptor,
                     type_halogen_donor
                 ) if feature_type is not None
             },
