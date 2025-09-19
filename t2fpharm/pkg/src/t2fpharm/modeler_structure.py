@@ -1,44 +1,52 @@
-from typing import Any, Literal
+from typing import Literal
 from caddpy.bond import Bond
 import caddpy
 
 import pandas as pd
 import numpy as np
-import scicoda
 
-from t2fpharm.field import Field
 from t2fpharm.pharm import Pharmacophore
-from t2fpharm.pocket import Pocket
 from t2fpharm.system import System
 
 
 class StructureBasedModeler:
     def __init__(self, system: System):
-        self.system = system
+        self._system = system
         # Make sure autodock types are assigned
-        self.system.composition.autodock_atom_type()
-        self.atom = system.composition.atoms
-        self.trajectory = system.trajectory.points
+        self._system.composition.autodock_atom_type()
+        self._atom = system.composition.atoms
+        self._trajectory = system.trajectory.points
 
-        self.batch_shape = self.trajectory.shape[:-2]
-        self.batch_ndim = len(self.batch_shape)
-        self.bond = Bond(caddpy.chemsys._ccd("chem_comp_bond")).select(comp_id=self.atom["comp_id"])
+        self._batch_shape = self._trajectory.shape[:-2]
+        self._batch_ndim = len(self._batch_shape)
+        self._bond = Bond(caddpy.chemsys._ccd("chem_comp_bond")).select(comp_id=self._atom["comp_id"])
 
-        self.hbond_distance = None
-        self.type_hbond_donor = None
-        self.type_hbond_acceptor = None
+        self._len_hbond = None
+        self._type_hbond_donor = None
+        self._type_hbond_acceptor = None
         return
 
     def model(
         self,
         *,
-        hbond_distance: float = 2,
+        len_hbond: float = 2.5,
+        len_ionic: float = 3.0,
+        len_hydrophobic: float = 4.0,
+        surface_dist_ionic: float = 2.0,
+        surface_dist_hydrophobic: float = 2.0,
         type_hbond_acceptor: str = "OA",
         type_hbond_donor: str = "HD",
+        type_anionic: str = "e-",
+        type_cationic: str = "e+",
+        type_hydrophobic: str = "C",
     ) -> Pharmacophore:
-        self.hbond_distance = hbond_distance
-        self.type_hbond_donor = type_hbond_donor
-        self.type_hbond_acceptor = type_hbond_acceptor
+        self._len_hbond = len_hbond
+        self._len_ionic = len_ionic
+        self._type_hbond_donor = type_hbond_donor
+        self._type_hbond_acceptor = type_hbond_acceptor
+        self._type_anionic = type_anionic
+        self._type_cationic = type_cationic
+        self._type_hydrophobic = type_hydrophobic
         feats = pd.concat(
             [
                 self._calc_hbond_acceptors(),
@@ -49,26 +57,52 @@ class StructureBasedModeler:
         feats["radius"] = 0.0
         return feats
 
+    def _calc_electrostatic(self) -> pd.DataFrame:
+        dfs = []
+        charges = self._atom["charge"]
+        for ftype, charge in ((self._type_anionic, "positive"), (self._type_cationic, "negative")):
+            selector = (charges > 0) if charge == "positive" else (charges < 0)
+            df = self._calc_electrostatic_coords(self._atom[selector], ftype)
+            dfs.append(df)
+        return pd.concat(dfs, ignore_index=True)
+
+    def _cal_electrostatic_coords(self, atoms: pd.DataFrame, feature_type: str) -> pd.DataFrame:
+        atom_idx = atoms["atom_idx"].to_numpy()
+        center_coords = self._trajectory[..., atom_idx, :]
+        end_coords = sample_spherical_surface(
+            center=center_coords,
+            radius=self._len_ionic,
+            distance=self._surface_dist_ionic,
+        )
+        df = self._create_df(
+                res_idx=atoms["res_idx"].to_numpy(),
+                atom_idx=[(int(idx),) for idx in atoms["atom_idx"]],
+                feature_type=feature_type,
+                center=feature_coords,
+                end=end_coords,
+            )
+        return df
+
     def _calc_hbond_acceptors(self):
-        hd = self._merge_with_partners(self.atom[self.atom["autodock_atom_type"] == "HD"])
+        hd = self._merge_with_partners(self._atom[self._atom["autodock_atom_type"] == "HD"])
         atom_idx = hd["atom_idx"].to_numpy()
-        donor_coords = self.trajectory[..., atom_idx, :]
-        accep_coords = self.trajectory[..., hd["partner_atom_idx"].to_numpy(), :]
+        donor_coords = self._trajectory[..., atom_idx, :]
+        accep_coords = self._trajectory[..., hd["partner_atom_idx"].to_numpy(), :]
         accep_to_donor = donor_coords - accep_coords
         distances = np.linalg.norm(accep_to_donor, axis=-1, keepdims=True)
         accep_to_donor_unit = accep_to_donor / distances
-        feature_coords = donor_coords + accep_to_donor_unit * self.hbond_distance
+        feature_coords = donor_coords + accep_to_donor_unit * self._len_hbond
         return self._create_df(
             res_idx=hd["res_idx"].to_numpy(),
             atom_idx=[(int(idx),) for idx in atom_idx],
-            feature_type=self.type_hbond_acceptor,
+            feature_type=self._type_hbond_acceptor,
             center=feature_coords,
             end=donor_coords,
         )
 
     def _calc_hbond_donors(self):
-        oa = self.atom[self.atom["autodock_atom_type"] == "OA"]
-        na = self.atom[self.atom["autodock_atom_type"] == "NA"]
+        oa = self._atom[self._atom["autodock_atom_type"] == "OA"]
+        na = self._atom[self._atom["autodock_atom_type"] == "NA"]
         oam = self._merge_with_partners(oa)
         nam = self._merge_with_partners(na)
 
@@ -77,7 +111,7 @@ class StructureBasedModeler:
         nam_n["partner_res_num"] = nam_n["res_idx"] - 1
         nam_n["partner_atom_id"] = "C"
         nam_n = nam_n.merge(
-            self.atom[["res_idx", "atom_id", "atom_idx"]].rename(
+            self._atom[["res_idx", "atom_id", "atom_idx"]].rename(
                     columns={"res_idx": "partner_res_num", "atom_id": "partner_atom_id", "atom_idx": "partner_atom_idx"}
                 ),
                 how="left",
@@ -112,19 +146,19 @@ class StructureBasedModeler:
         center_indices = grouped.index.to_numpy()
         partner_indices = [partners for partners in grouped["partner_atom_idx"]]
         partner_indices_columnwise = list(map(list, zip(*partner_indices)))
-        center_coords = self.trajectory[..., center_indices, :]
-        partners_coords = [self.trajectory[..., p_indices, :] for p_indices in partner_indices_columnwise]
+        center_coords = self._trajectory[..., center_indices, :]
+        partners_coords = [self._trajectory[..., p_indices, :] for p_indices in partner_indices_columnwise]
         feat_coords = fill_tetrahedral(
             center_coords,
             *partners_coords,
-            length=self.hbond_distance,
+            length=self._len_hbond,
         )
         n_partners_per_center = len(partner_indices[0])
         n_features_per_center = 4 - n_partners_per_center
         return self._create_df(
             res_idx=np.repeat(grouped["res_idx"], n_features_per_center),
             atom_idx=[(int(idx),) for idx in np.repeat(center_indices, n_features_per_center)],
-            feature_type=self.type_hbond_donor,
+            feature_type=self._type_hbond_donor,
             center=feat_coords.reshape(-1, 3),
             end=np.stack([center_coords]*n_features_per_center, axis=-2).reshape(-1, 3),
         )
@@ -138,7 +172,7 @@ class StructureBasedModeler:
                     "atom_idx": "oxygen_atom_idx",
                     "partner_atom_idx": "atom_idx",
                 }
-            ).merge(self.atom, on="atom_idx", how="left"),
+            ).merge(self._atom, on="atom_idx", how="left"),
             extra_cols=["element_index"],
             drop_if_any_missing=False
         )
@@ -152,17 +186,17 @@ class StructureBasedModeler:
         in_plane_indices = partners["partner_atom_idx"].to_numpy()
         o_indices = partners["oxygen_atom_idx"].to_numpy()
 
-        o_coords = self.trajectory[..., o_indices, :]
+        o_coords = self._trajectory[..., o_indices, :]
         feat_coords = fill_trigonal(
             o_coords,
-            self.trajectory[..., p1_indices, :],
-            in_plane=self.trajectory[..., in_plane_indices, :],
-            length=self.hbond_distance,
+            self._trajectory[..., p1_indices, :],
+            in_plane=self._trajectory[..., in_plane_indices, :],
+            length=self._len_hbond,
         )
         return self._create_df(
             res_idx=np.repeat(partners["oxygen_res_idx"], 2),
             atom_idx=[(int(idx),) for idx in np.repeat(o_indices, 2)],
-            feature_type=self.type_hbond_donor,
+            feature_type=self._type_hbond_donor,
             center=feat_coords.reshape(-1, 3),
             end=np.stack([o_coords]*2, axis=-2).reshape(-1, 3),
         )
@@ -177,19 +211,19 @@ class StructureBasedModeler:
         center_indices = grouped.index.to_numpy()
         partner_indices = [partners for partners in grouped["partner_atom_idx"]]
         partner_indices_columnwise = list(map(list, zip(*partner_indices)))
-        center_coords = self.trajectory[..., center_indices, :]
-        partners_coords = [self.trajectory[..., p_indices, :] for p_indices in partner_indices_columnwise]
+        center_coords = self._trajectory[..., center_indices, :]
+        partners_coords = [self._trajectory[..., p_indices, :] for p_indices in partner_indices_columnwise]
         feat_coords = fill_trigonal(
             center_coords,
             *partners_coords,
-            length=self.hbond_distance,
+            length=self._len_hbond,
         )
         n_partners_per_center = len(partner_indices[0])
         n_features_per_center = 3 - n_partners_per_center
         return self._create_df(
             res_idx=np.repeat(grouped["res_idx"], n_features_per_center),
             atom_idx=[(int(idx),) for idx in np.repeat(center_indices, n_features_per_center)],
-            feature_type=self.type_hbond_donor,
+            feature_type=self._type_hbond_donor,
             center=feat_coords.reshape(-1, 3),
             end=np.stack([center_coords]*n_features_per_center, axis=-2).reshape(-1, 3),
         )
@@ -202,17 +236,17 @@ class StructureBasedModeler:
         center: np.ndarray,
         end: np.ndarray,
     ):
-        if self.batch_ndim == 0:
+        if self._batch_ndim == 0:
             instance = None
         else:
             instance = (
-                np.repeat(np.arange(self.batch_shape[0]), repeats=len(atom_idx))
-                if self.batch_ndim == 1 else
-                [tuple(x) for x in np.repeat(list(np.ndindex(self.batch_shape)), repeats=len(atom_idx), axis=0).tolist()]
+                np.repeat(np.arange(self._batch_shape[0]), repeats=len(atom_idx))
+                if self._batch_ndim == 1 else
+                [tuple(x) for x in np.repeat(list(np.ndindex(self._batch_shape)), repeats=len(atom_idx), axis=0).tolist()]
             )
             center = center.reshape(-1, 3)
             end = end.reshape(-1, 3)
-        n_instances = int(np.prod(self.batch_shape))
+        n_instances = int(np.prod(self._batch_shape))
         cols = {
             "res_idx": np.tile(res_idx, n_instances),
             "atom_idxs": atom_idx * n_instances,
@@ -221,7 +255,7 @@ class StructureBasedModeler:
             "center": list(center),
             "end": list(end),
         }
-        if self.batch_ndim == 0:
+        if self._batch_ndim == 0:
             cols.pop("instance")
         return pd.DataFrame(cols).convert_dtypes()
 
@@ -235,12 +269,12 @@ class StructureBasedModeler:
         dfm = (
             df
             .merge(
-                self.bond.exploded[["comp_id", "atom_id", "partner_atom_id"]],
+                self._bond.exploded[["comp_id", "atom_id", "partner_atom_id"]],
                 how="left",
                 on=["comp_id", "atom_id"],
             )
             .merge(
-                self.atom[["res_idx", "atom_id", "atom_idx"] + extra_cols].rename(
+                self._atom[["res_idx", "atom_id", "atom_idx"] + extra_cols].rename(
                     columns={"atom_id": "partner_atom_id", "atom_idx": "partner_atom_idx"} | {
                         col: f"partner_{col}" for col in extra_cols
                     }
@@ -613,6 +647,81 @@ def _resolve_scales(
         # Fallback: per-center specification (...,)
         base = np.broadcast_to(arr, center[..., 0].shape)
         return np.broadcast_to(base[..., None], (*center.shape[:-1], N))
+
+
+def sample_spherical_surface(
+    center: np.ndarray,
+    radius: float,
+    distance: float,
+) -> np.ndarray:
+    """Sample quasi-uniform points on the surface of a sphere.
+
+    This function uses the Fibonacci lattice method
+    to generate coordinates for nearly uniform points on the
+    surface of a sphere with given `center` and `radius`.
+    The number of points is chosen based on the surface area
+    of the sphere and the requested point spacing `distance`.
+
+    Parameters
+    ----------
+    center
+        An array of shape (..., 3) giving the coordinates of the center point(s).
+        Broadcasting is supported: multiple centers will produce one set of points per center.
+    radius
+        The radius of the sphere.
+    distance
+        Approximate geodesic spacing between sampled points on
+        the sphere surface.
+
+    Returns
+    -------
+    An array of shape (..., M, 3) giving the coordinates of the sampled points,
+    where M is the number of points sampled on the sphere's surface.
+
+    Notes
+    -----
+    - This uses a quasi-uniform Fibonacci sphere distribution,
+      which avoids clustering at the poles compared to spherical
+      grids.
+    - The actual spacing may not be exactly `distance`, but is
+      close on average across the sphere.
+    """
+    center = np.asarray(center, dtype=float)
+
+    if center.shape[-1] != 3:
+        raise ValueError("`center` must have shape (..., 3)")
+
+    # --- Estimate number of points ---
+    # Surface area of sphere: 4πr²
+    surface_area = 4.0 * np.pi * radius**2
+    # Area per point ~ distance², so N ~ surface_area / distance²
+    n_points = max(1, int(np.round(surface_area / (distance**2))))
+
+    # --- Fibonacci sphere algorithm ---
+    # Golden angle increment
+    golden_angle = np.pi * (3.0 - np.sqrt(5.0))
+
+    # Indices
+    idx = np.arange(n_points)
+
+    # y-coordinates uniformly spaced in [-1, 1]
+    y = 1.0 - 2.0 * (idx + 0.5) / n_points
+    r_xy = np.sqrt(1.0 - y**2)
+
+    theta = golden_angle * idx
+    x = r_xy * np.cos(theta)
+    z = r_xy * np.sin(theta)
+
+    # Unit vectors on sphere surface
+    unit_points = np.stack((x, y, z), axis=-1)
+
+    # Scale to radius
+    sphere_points = radius * unit_points  # (M, 3)
+
+    # Broadcast to each center: (..., M, 3)
+    # Add newaxis at -2 to match sphere_points
+    result = center[..., None, :] + sphere_points
+    return result
 
 
 def _calculate_angles_at_center(
