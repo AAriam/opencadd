@@ -632,7 +632,7 @@ class Modeler:
                 dff["end"] = dff[f"{e}_position"]
                 dff["res_idx"] = dff[f"{r}_res_idx"]
                 dff["atom_idxs"] = dff[f"{s}_serials"].apply(
-                    lambda arr: np.array([atom_serial_to_idx[s] for s in arr])
+                    lambda arr: tuple(atom_serial_to_idx[s] for s in arr)
                 )
                 dff = dff[["type", "center", "end", "res_idx", "atom_idxs", "interaction"]]
                 feat_dfs.append(dff)
@@ -671,7 +671,7 @@ class Modeler:
             self._verify_system_available("from_structure")
             self._structure_modeler = StructureBasedModeler(self.system)
         feats = self._structure_modeler.model(
-            hbond_distance=hbond_distance,
+            len_hbond=hbond_distance,
             type_hbond_acceptor=type_hbond_acceptor,
             type_hbond_donor=type_hbond_donor,
         )
