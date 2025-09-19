@@ -662,22 +662,38 @@ class Modeler:
     def from_structure(
         self,
         *,
-        type_hbond_donor: str = "HD",
+        len_hbond: float = 2.5,
+        len_ionic: float = 3.0,
+        len_hydrophobic: float = 4.0,
         type_hbond_acceptor: str = "OA",
-        hbond_distance: float = 2,
+        type_hbond_donor: str = "HD",
+        type_anionic: str = "e-",
+        type_cationic: str = "e+",
+        type_hydrophobic: str = "C",
         name: str | None = None,
     ) -> Pharmacophore:
         if self._structure_modeler is None:
             self._verify_system_available("from_structure")
             self._structure_modeler = StructureBasedModeler(self.system)
         feats = self._structure_modeler.model(
-            len_hbond=hbond_distance,
+            len_hbond=len_hbond,
+            len_ionic=len_ionic,
+            len_hydrophobic=len_hydrophobic,
             type_hbond_acceptor=type_hbond_acceptor,
             type_hbond_donor=type_hbond_donor,
+            type_anionic=type_anionic,
+            type_cationic=type_cationic,
+            type_hydrophobic=type_hydrophobic,
         )
         return self._pharmacophore(
             features=feats,
-            feature_types={type_hbond_donor, type_hbond_acceptor},
+            feature_types={
+                type_hbond_donor,
+                type_hbond_acceptor,
+                type_cationic,
+                type_anionic,
+                type_hydrophobic,
+            },
             inputs=[],
             extra={},
             name=name or f"{self.system.name} Pharmacophore",
