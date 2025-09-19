@@ -784,7 +784,7 @@ def _augment_atom_df(df: pd.DataFrame) -> PDBAtomMatcher:
             index=df.index,
         ).to_numpy()
     )
-    mol_idx, _ = pd.Series(pd.factorize(mol_keys, sort=False), index=df.index)
+    mol_idx = pd.Series(pd.factorize(mol_keys, sort=False)[0], index=df.index)
     df["mol_idx"] = mol_idx
 
     matcher = PDBAtomMatcher(
