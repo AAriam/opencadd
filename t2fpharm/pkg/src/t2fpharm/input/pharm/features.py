@@ -59,6 +59,13 @@ class PharmFeaturesInput(BaseModel):
                 )
             return arr
 
+        def to_tuple(seq):
+            if not isinstance(seq, (list, tuple, np.ndarray)):
+                raise TypeError("Series contains mixed scalars and sequences.")
+            if not all(isinstance(el, (int, np.integer)) for el in seq):
+                raise ValueError(f"Non-integer element found in {seq}")
+            return tuple(int(el) for el in seq)
+
         df = self.features
         if df.empty:
             df = pd.DataFrame(
@@ -82,6 +89,17 @@ class PharmFeaturesInput(BaseModel):
         # Validate 'instance'
         if "instance" not in df.columns:
             df["instance"] = 0
+        else:
+            first_instance = df['instance'].iloc[0]
+            if isinstance(first_instance, (int, np.integer)):
+                if not df['instance'].map(lambda x: isinstance(x, (int, np.integer))).all():
+                    raise TypeError("Series contains non-integers alongside integers.")
+                df['instance'] = df['instance'].astype(int)
+
+            elif isinstance(first_instance, (list, tuple, np.ndarray)):
+                df['instance'] = df['instance'].map(to_tuple)
+            else:
+                raise TypeError(f"Unsupported type {type(first_instance)} in Series.")
 
         # Validate 'type'
         if not pd.api.types.is_string_dtype(df['type']):
@@ -128,5 +146,5 @@ class PharmFeaturesInput(BaseModel):
         main_cols = ['instance', 'type', 'label', 'center', 'radius']
         extra_cols = [col for col in df.columns if col not in main_cols]
         all_cols = main_cols + extra_cols
-        self.features = df[all_cols].convert_dtypes().sort_values(['instance', 'type', 'label']).reset_index(drop=True)
+        self.features = df[all_cols].convert_dtypes().sort_values(['instance', 'type', 'label'])
         return self
