@@ -463,6 +463,202 @@ class Pharmacophore:
             extra=self.extra,
         )
 
+    def convert_feature_radial_to_vector(
+        self,
+        distance: PositiveFloat | dict[str, PositiveFloat] = 2.0,
+        feature_type: str | Sequence[str] | None = None,
+        mask: pd.Series | np.ndarray | Sequence[bool] | None = None,
+        merge: bool = True,
+    ) -> Self:
+        """Convert radial features to vector features.
+
+        This method transforms features
+        represented in a radial format (i.e., with `radius` and `end` without `center`)
+        into a vector format (i.e., with `center`, `end`, and `radius`).
+        This is done by using the Fibonacci lattice method
+        to sample quasi-uniformly distributed points
+        on the radial feature's spherical surface,
+        `center_distance` apart from each other.
+        These points are then used as the `center`
+        of new vector features with radius `center_distance / 2`,
+        all pointing towards the original radial feature's `end`.
+
+        Parameters
+        ----------
+        distance
+            Desired distance between the centers
+            of the new vector features on the spherical surface.
+            This can be a single value for all feature types,
+            or a dictionary mapping a feature type to its corresponding distance.
+            If a dictionary is provided,
+            only feature types present in the dictionary
+            will be vectorized; other feature types will be ignored.
+        feature_type
+            Feature type(s) to convert.
+            If `None`, all vector feature types are converted.
+            If a string, only features of that type are converted.
+            If a sequence of strings, only features of those types are converted.
+        mask
+            Optional boolean mask to select which features
+            to consider for conversion, for more control
+            alongside the `feature_type` argument.
+            It can be a `pandas.Series`, a numpy array,
+            or any sequence of boolean values.
+            It must have the same length and order as `self.features`.
+            If provided, only features where the corresponding value in `mask` is `True`
+            will be considered for conversion.
+        merge
+            - If `True`, return a Pharmacophore instance
+            containing all remaining features from `self`
+            along with the newly created vector features.
+            - If `False`, return a Pharmacophore instance
+            containing only the newly created vector features.
+
+        Returns
+        -------
+        A new Pharmacophore instance containing the vectorized radial features,
+        optionally along with the remaining features from `self`.
+        """
+        def vectorize_group(group: pd.DataFrame, radius: float, feature_type: str) -> pd.DataFrame:
+            centers = _sample_spherical_surface(  # shape=(N, M, 3)
+                center=np.stack(group["end"]),  # shape=(N, 3)
+                radius=radius,
+                distance=distance[feature_type],
+            )
+            n_centers_per_feat = centers.shape[1]
+            idx = group.index.repeat(n_centers_per_feat)  # repeat each row's index
+            out = group.loc[idx].copy()
+            out["center"] = list(centers.reshape(-1, 3))
+
+            # Vectorized sub-labels within each (instance, label) group
+            sub_labels = out.groupby(["instance", "label"], sort=False).cumcount()
+            if isinstance(out["label"].iloc[0], tuple):
+                out["label"] = [(*lbl, s) for lbl, s in zip(out["label"], sub_labels)]
+            else:
+                out["label"] = [(lbl, s) for lbl, s in zip(out["label"], sub_labels)]
+            return out
+
+        if isinstance(distance, float):
+            distance = {t: distance for t in self.feature_types}
+
+        feats_all = self._features
+        feat_is_radial = feats_all["center"].isnull()
+        feat_is_requested = feats_all["type"].isin(distance.keys())
+        feat_mask = feat_is_radial & feat_is_requested
+        if feature_type is not None:
+            if isinstance(feature_type, str):
+                feature_type = [feature_type]
+            feat_mask = feat_mask & feats_all["type"].isin(feature_type)
+        if mask is not None:
+            if len(mask) != len(feats_all):
+                raise ValueError("Mask length must match number of features.")
+            feat_mask = feat_mask & mask
+        feats_selected = feats_all[feat_mask]
+
+        feats_grouped = feats_selected.groupby(["type", "radius"], sort=False, group_keys=False)
+        feats_dfs = [
+            vectorize_group(
+                group=sub_df,
+                radius=radius,
+                feature_type=feat_type,
+            ) for (feat_type, radius), sub_df in feats_grouped
+        ]
+        feats_vectorized = pd.concat(feats_dfs)
+
+        if merge:
+            feats_remaining = feats_all[~feat_mask].copy()
+            feats_remaining["label"] = feats_remaining["label"].apply(lambda x: (x, 0) if not isinstance(x, tuple) else x)
+            feats_out = pd.concat([feats_remaining, feats_vectorized])
+        else:
+            feats_out = feats_vectorized
+        return self.new(features=feats_out)
+
+    def convert_feature_vector_to_radial(
+        self,
+        feature_type: str | Sequence[str] | None = None,
+        mask: pd.Series | np.ndarray | Sequence[bool] | None = None,
+        merge: bool = True,
+    ) -> Self:
+        """Convert vector features to radial features.
+
+        This method transforms features
+        represented in a vector format (i.e., with `center`, `end`, and `radius`)
+        into a radial format (i.e., with `radius` and `end` without `center`).
+        This is done by grouping vector features that share the same
+        (`instance`, `type`, `res_idx`, `atom_idxs`) values,
+        and replacing them with a single radial feature
+        placed at the average of their `end` points,
+        with a `radius` equal to the mean length of the vectors.
+
+        Parameters
+        ----------
+        feature_type
+            Feature type(s) to convert.
+            If `None`, all vector feature types are converted.
+            If a string, only features of that type are converted.
+            If a sequence of strings, only features of those types are converted.
+        mask
+            Optional boolean mask to select which features
+            to consider for conversion, for more control
+            alongside the `feature_type` argument.
+            It can be a `pandas.Series`, a numpy array,
+            or any sequence of boolean values.
+            It must have the same length and order as `self.features`.
+            If provided, only features where the corresponding value in `mask` is `True`
+            will be considered for conversion.
+        merge
+            - If `True`, return a Pharmacophore instance
+            containing all remaining features from `self`
+            along with the newly created radial features.
+            - If `False`, return a Pharmacophore instance
+            containing only the newly created radial features.
+
+        Returns
+        -------
+        A new Pharmacophore instance containing the radial features,
+        optionally (when `merge=True`) along with the remaining features from `self`.
+        """
+        def radialize_group(group: pd.DataFrame) -> pd.DataFrame:
+            centers = np.stack(group["center"])
+            ends = np.stack(group["end"])
+            lengths = np.linalg.norm(ends - centers, axis=-1)
+
+            row = group.sort_values("label").iloc[0].copy()
+            row["end"] = np.mean(ends, axis=0)
+            row["radius"] = np.mean(lengths)
+            if isinstance(row["label"], tuple):
+                row["label"] = row["label"][:-1]
+            return row
+
+        feats_all = self._features
+        feat_mask = feats_all[["center", "end", "res_idx", "atom_idxs"]].notnull().all(axis=1)
+        if feature_type is not None:
+            if isinstance(feature_type, str):
+                feature_type = [feature_type]
+            feat_mask = feat_mask & feats_all["type"].isin(feature_type)
+        if mask is not None:
+            if len(mask) != len(feat_mask):
+                raise ValueError("Mask length must match number of features.")
+            feat_mask = feat_mask & mask
+        feats_selected = feats_all[feat_mask]
+
+        feats_grouped = feats_selected.groupby(["instance", "type", "res_idx", "atom_idxs"], sort=False, group_keys=False)
+        feats_rows = [radialize_group(group=sub_df) for _, sub_df in feats_grouped]
+        feats_radialized = pd.DataFrame(feats_rows).drop(columns=["center"])
+
+        if merge:
+            feats_remaining = feats_all[~feat_mask].copy()
+            if feats_remaining.empty:
+                feats_out = feats_radialized
+            else:
+                feats_remaining["label"] = feats_remaining["label"].apply(lambda x: x if not isinstance(x, tuple) else x[:-1])
+                feats_out = pd.concat([feats_remaining, feats_radialized])
+        else:
+            feats_out = feats_radialized
+        if "center" not in feats_out.columns:
+            feats_out["center"] = pd.Series([None] * len(feats_out), dtype=object)
+        return self.new(features=feats_out)
+
     def cluster(
         self,
         function: ClusteringFunction | dict[str, ClusteringFunction],
@@ -1127,19 +1323,20 @@ class Pharmacophore:
         instances: Sequence[Any] | None = None,
         feature_types: Sequence[str] | None = None,
         system: System | Literal[False] | None = None,
-        default_radius: float = 1.5,
         min_radius: float = 1.0,
         show_box: bool = True,
         show_pocket: bool = True,
         show_fields: bool = False,
         field_only_in_pocket: bool = True,
         show_feature_centers: bool = True,
-        show_feature_points: bool = False,
         feature_colors: dict[str, tuple[float, float, float] | tuple[int, int, int]] | None = None,
-        override_radius: bool = False,
+        override_radius: dict[str, float] | None = None,
         gui: bool = True,
-        directed_features_components: set[Literal["sphere", "arrow"]] = {"arrow"},
+        comp_point_feats: set[Literal["center"]] = {"center"},
+        comp_vector_feats: set[Literal["center", "vector"]] = {"vector"},
+        comp_radial_feats: set[Literal["center", "surface"]] = {"surface"},
         add_residues: bool = True,
+        feature_sort_columns: Sequence[str] = ("instance", "type", "label"),
     ):
         def feature_color(feature_id: str) -> tuple[float, float, float] | tuple[int, int, int]:
             """Get color for a feature type, defaulting to gray if not set."""
@@ -1156,6 +1353,7 @@ class Pharmacophore:
 
         nv = nglwidget or scishow.nglview.NGLWidget()
         feature_colors = feature_colors or {}
+        override_radius = override_radius or {}
 
         # System
         atoms = None
@@ -1197,9 +1395,7 @@ class Pharmacophore:
                 )
 
         # Features
-        for _, feature in self.features.sort_values(
-            ["instance", "type", "value" if "value" in self.features else "label"]
-        ).iterrows():
+        for _, feature in self.features.sort_values(list(feature_sort_columns)).iterrows():
             if instances is not None and feature["instance"] not in instances:
                 continue
             if feature_types is not None and feature["type"] not in feature_types:
@@ -1209,12 +1405,61 @@ class Pharmacophore:
             label = normalize_name(feature["label"])
             name = f"{instance}_{ftype}_{label}"
             radius = feature["radius"]
+            center = feature.get("center", None)
             end = feature.get("end", None)
-            feat_has_direction = isinstance(end, np.ndarray)
-            if not feat_has_direction or "sphere" in directed_features_components:
+
+            # Display feature's interacting residue as ball-and-stick
+            if atoms is not None and add_residues and "res_idx" in feature and pd.notna(feature["res_idx"]):
+                res = atoms[atoms["res_idx"] == feature["res_idx"]].iloc[0]
+                res_sel = f"{res["res_seq"]}^{res["i_code"]}:{res["chain_id"]}"
+                system_comp.add_ball_and_stick(res_sel, name=f"{name} Residue")
+
+            # Display radial feature
+            feat_is_radial = center is None
+            if feat_is_radial:
+                if "surface" in comp_radial_feats:
+                    nv.add_spheres(
+                        coords=end,
+                        radii=radius,
+                        name=f"{name} Surface",
+                        colors=feature_color(feature["type"]),
+                        representation_params=scishow.nglview.RepresentationParameters(
+                            opacity=0.4,
+                            visible=show_feature_centers,
+                            lazy=True,
+                        )
+                    )
+                if "center" in comp_point_feats:
+                    nv.add_spheres(
+                        coords=end,
+                        radii=override_radius.get(feature["type"], max(radius, min_radius)),
+                        name=f"{name} End",
+                        colors=feature_color(feature["type"]),
+                        representation_params=scishow.nglview.RepresentationParameters(
+                            opacity=0.8,
+                            visible=show_feature_centers,
+                            lazy=True,
+                        )
+                    )
+                continue
+
+            # Display vector of vector features
+            feat_is_vector = end is not None
+            if feat_is_vector and "vector" in comp_vector_feats:
+                nv.shape.add_arrow(
+                    center.tolist(),
+                    end.tolist(),
+                    feature_color(feature["type"]),
+                    0.25,
+                    f"{name} Vector",
+                )
+
+            # Display center of point or vector features
+            comp = comp_vector_feats if feat_is_vector else comp_point_feats
+            if "center" in comp:
                 nv.add_spheres(
-                    coords=feature["center"],
-                    radii=max(radius, min_radius) if not override_radius else default_radius,
+                    coords=center,
+                    radii=override_radius.get(feature["type"], max(radius, min_radius)),
                     name=f"{name} Center",
                     colors=feature_color(feature["type"]),
                     representation_params=scishow.nglview.RepresentationParameters(
@@ -1223,18 +1468,6 @@ class Pharmacophore:
                         lazy=True,
                     )
                 )
-            if feat_has_direction and "arrow" in directed_features_components:
-                nv.shape.add_arrow(
-                    feature["center"].tolist(),
-                    feature["end"].tolist(),
-                    feature_color(feature["type"]),
-                    0.25,
-                    f"{name} Direction",
-                )
-            if atoms is not None and add_residues and "res_idx" in feature and pd.notna(feature["res_idx"]):
-                res = atoms[atoms["res_idx"] == feature["res_idx"]].iloc[0]
-                res_sel = f"{res["res_seq"]}^{res["i_code"]}:{res["chain_id"]}"
-                system_comp.add_ball_and_stick(res_sel, name=f"{name} Residue")
         if gui:
             nv.display(gui=True)
         return nv
@@ -1338,7 +1571,7 @@ def merge(
         feats["merge_origin"] = pharm.name
         dfs.append(feats)
 
-    merged_features = pd.concat(dfs, ignore_index=True)
+    merged_features = pd.concat(dfs)
     feature_types = set().union(*(ph.feature_types for ph in pharmacophores))
 
     return Pharmacophore(
@@ -1484,6 +1717,81 @@ def _extrema_under_footprint(
         out[k, -3:] = (gz, gy, gx)
 
     return out
+
+
+def _sample_spherical_surface(
+    center: np.ndarray,
+    radius: float,
+    distance: float,
+) -> np.ndarray:
+    """Sample quasi-uniform points on the surface of a sphere.
+
+    This function uses the Fibonacci lattice method
+    to generate coordinates for nearly uniform points on the
+    surface of a sphere with given `center` and `radius`.
+    The number of points is chosen based on the surface area
+    of the sphere and the requested point spacing `distance`.
+
+    Parameters
+    ----------
+    center
+        An array of shape (..., 3) giving the coordinates of the center point(s).
+        Broadcasting is supported: multiple centers will produce one set of points per center.
+    radius
+        The radius of the sphere.
+    distance
+        Approximate geodesic spacing between sampled points on
+        the sphere surface.
+
+    Returns
+    -------
+    An array of shape (..., M, 3) giving the coordinates of the sampled points,
+    where M is the number of points sampled on the sphere's surface.
+
+    Notes
+    -----
+    - This uses a quasi-uniform Fibonacci sphere distribution,
+      which avoids clustering at the poles compared to spherical
+      grids.
+    - The actual spacing may not be exactly `distance`, but is
+      close on average across the sphere.
+    """
+    center = np.asarray(center, dtype=float)
+
+    if center.shape[-1] != 3:
+        raise ValueError("`center` must have shape (..., 3)")
+
+    # --- Estimate number of points ---
+    # Surface area of sphere: 4πr²
+    surface_area = 4.0 * np.pi * radius**2
+    # Area per point ~ distance², so N ~ surface_area / distance²
+    n_points = max(1, int(np.round(surface_area / (distance**2))))
+
+    # --- Fibonacci sphere algorithm ---
+    # Golden angle increment
+    golden_angle = np.pi * (3.0 - np.sqrt(5.0))  # ~2.4
+
+    # Indices
+    idx = np.arange(n_points)
+
+    # y-coordinates uniformly spaced in [-1, 1]
+    y = 1.0 - 2.0 * (idx + 0.5) / n_points
+    r_xy = np.sqrt(1.0 - y**2)
+
+    theta = golden_angle * idx
+    x = r_xy * np.cos(theta)
+    z = r_xy * np.sin(theta)
+
+    # Unit vectors on sphere surface
+    unit_points = np.stack((x, y, z), axis=-1)
+
+    # Scale to radius
+    sphere_points = radius * unit_points  # (M, 3)
+
+    # Broadcast to each center: (..., M, 3)
+    # Add newaxis at -2 to match sphere_points
+    result = center[..., None, :] + sphere_points
+    return result
 
 
 def _uniquify(strings: list[str]) -> list[str]:
