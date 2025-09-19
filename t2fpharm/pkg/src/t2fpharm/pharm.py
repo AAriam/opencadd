@@ -102,10 +102,8 @@ class Pharmacophore:
         self._features = PharmFeaturesInput(features=features, feature_types=feature_types).features
         if self._features.empty or (self._features["instance"] == 0).all():
             self._batch_shape = np.array([], dtype=np.int64)
-        elif self._features["instance"].dtype != "object":
-            self._batch_shape = np.array([self._features["instance"].max() + 1], dtype=np.int64)
         else:
-            self._batch_shape = np.vstack(self._features["instance"].to_numpy()).max(axis=0) + 1
+            self._batch_shape = np.vstack(self._features["instance"]).max(axis=0) + 1
 
         if pocket is not None:
             self._check_instance_consistency_with_pocket(pocket)
@@ -313,7 +311,7 @@ class Pharmacophore:
     ) -> pd.DataFrame:
         pocket = self._pocket
         indices, distances = pocket.nearest_point(np.stack(feats["center"]))
-        if self._batch_shape.size > 0:
+        if pocket.batch_ndim > 0:
             instances = feats["instance"]
             N = len(feats)
             if instances.dtype != "object":
@@ -1287,13 +1285,13 @@ class Pharmacophore:
 
     def _check_instance_consistency_with_pocket(self, pocket: Pocket) -> None:
         """Check if the pharmacophore instances are consistent with the pocket instances."""
+        if pocket.batch_ndim == 0 or self._batch_shape.size == 0:
+            return
         if pocket.batch_ndim != self._batch_shape.size:
             raise ValueError(
                 f"Instance dimensions of the pharmacophore ({self._batch_shape}) "
                 f"and the pocket ({pocket.batch_ndim}) do not match."
             )
-        if self._batch_shape.size == 0:
-            return
         if (pocket.batch_shape < self._batch_shape).any():
             raise ValueError(
                 f"The pocket has fewer instances ({pocket.batch_shape}) "
@@ -1302,7 +1300,13 @@ class Pharmacophore:
         return
 
 
-def merge(pharmacophores: Sequence[Pharmacophore]) -> Pharmacophore:
+def merge(
+    pharmacophores: Sequence[Pharmacophore],
+    name: str = "Merged Pharmacophore",
+    system: System | int | None = 0,
+    pocket: Pocket | int | None = 0,
+    field: Field | int | None = 0,
+) -> Pharmacophore:
     """Merge multiple pharmacophores into a single one.
 
     Parameters
@@ -1326,13 +1330,12 @@ def merge(pharmacophores: Sequence[Pharmacophore]) -> Pharmacophore:
         raise ValueError("No pharmacophores to merge.")
 
     dfs = []
-    names = _uniquify([pharm.name for pharm in pharmacophores])
-    for pharm_name, pharm in zip(names, pharmacophores):
+    for idx, pharm in enumerate(pharmacophores):
         feats = pharm.features.copy()
         feats["instance"] = (
-            pharm_name if feats["instance"].nunique() == 1 else
-            feats["instance"].apply(instance_merger, instance_prefix=pharm_name)
+            feats["instance"].apply(instance_merger, instance_prefix=idx)
         )
+        feats["merge_origin"] = pharm.name
         dfs.append(feats)
 
     merged_features = pd.concat(dfs, ignore_index=True)
@@ -1341,49 +1344,11 @@ def merge(pharmacophores: Sequence[Pharmacophore]) -> Pharmacophore:
     return Pharmacophore(
         features=merged_features,
         feature_types=feature_types,
+        system=system if not isinstance(system, int) else pharmacophores[system].system,
+        pocket=pocket if not isinstance(pocket, int) else pharmacophores[pocket].pocket,
+        field=field if not isinstance(field, int) else pharmacophores[field].field,
+        name=name,
     )
-
-
-def _uniquify(strings: list[str]) -> list[str]:
-    """Return list with duplicates suffixed by incrementing counters.
-
-    Each repeated string is suffixed with _{i}, where i starts from 1
-    for the first occurrence of that duplicate. Strings that occur only
-    once are left unchanged. The output preserves order and length of
-    the input list, and ensures all values in the returned list are
-    unique.
-
-    Parameters
-    ----------
-    strings
-        List of input strings, possibly with duplicates.
-
-    Returns
-    -------
-    list[str]
-        New list of strings, same length and order as input,
-        with duplicates enumerated by suffix while singletons
-        remain unchanged.
-
-    Examples
-    --------
-    >>> uniquify(["a", "b", "a", "c", "b", "a", "d"])
-    ['a_1', 'b_1', 'a_2', 'c', 'b_2', 'a_3', 'd']
-    """
-    total_counts: defaultdict[str, int] = defaultdict(int)
-    for s in strings:
-        total_counts[s] += 1
-
-    running_counts: defaultdict[str, int] = defaultdict(int)
-    result: list[str] = []
-
-    for s in strings:
-        if total_counts[s] == 1:
-            result.append(s)
-        else:
-            running_counts[s] += 1
-            result.append(f"{s}_{running_counts[s]}")
-    return result
 
 
 def _extrema_under_footprint(
@@ -1519,3 +1484,45 @@ def _extrema_under_footprint(
         out[k, -3:] = (gz, gy, gx)
 
     return out
+
+
+def _uniquify(strings: list[str]) -> list[str]:
+    """Return list with duplicates suffixed by incrementing counters.
+
+    Each repeated string is suffixed with _{i}, where i starts from 1
+    for the first occurrence of that duplicate. Strings that occur only
+    once are left unchanged. The output preserves order and length of
+    the input list, and ensures all values in the returned list are
+    unique.
+
+    Parameters
+    ----------
+    strings
+        List of input strings, possibly with duplicates.
+
+    Returns
+    -------
+    list[str]
+        New list of strings, same length and order as input,
+        with duplicates enumerated by suffix while singletons
+        remain unchanged.
+
+    Examples
+    --------
+    >>> uniquify(["a", "b", "a", "c", "b", "a", "d"])
+    ['a_1', 'b_1', 'a_2', 'c', 'b_2', 'a_3', 'd']
+    """
+    total_counts: defaultdict[str, int] = defaultdict(int)
+    for s in strings:
+        total_counts[s] += 1
+
+    running_counts: defaultdict[str, int] = defaultdict(int)
+    result: list[str] = []
+
+    for s in strings:
+        if total_counts[s] == 1:
+            result.append(s)
+        else:
+            running_counts[s] += 1
+            result.append(f"{s}_{running_counts[s]}")
+    return result
