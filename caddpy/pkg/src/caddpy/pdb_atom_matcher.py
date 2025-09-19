@@ -471,6 +471,7 @@ class PDBAtomMatcher:
             right_on=[self.ccd_comp_id_col, self.ccd_canon_atom_id_col],
             suffixes=(self.col_merge_suffix, ""),
         ).drop(columns=[self._tmp_comp_id_col, self._tmp_canon_atom_id_col])
+        merged = self._correct_formal_charges(merged)
 
         # Delete overlapping columns that got suffixed
         for col_name_orig in self.atom_merged.columns.intersection(self.ccd_atom.columns):
@@ -821,6 +822,26 @@ class PDBAtomMatcher:
         details = pd.DataFrame(rows).sort_values("cost", ascending=True).reset_index(drop=True)
         return new_pairs, details
 
+    @staticmethod
+    def _correct_formal_charges(df: pd.DataFrame, charge_col: str = "charge") -> pd.DataFrame:
+        """Correct formal charges for linking atoms in polymeric chains.
+
+        For linking atoms (e.g. N-terminal N, C-terminal C), the formal charge
+        is -1 instead of 0. This function corrects that in-place.
+
+        Parameters
+        ----------
+        df
+            DataFrame with `charge_col` and `atom_id` columns.
+        charge_col
+            Name of the column with formal charges.
+        """
+        is_poly = df["res_poly"]
+        is_linking_atom = df["atom_id"].isin({"N", "C"})
+        has_neg_charge = df[charge_col] < 0
+        needs_correction = is_poly & is_linking_atom & has_neg_charge
+        df.loc[needs_correction, charge_col] += 1
+        return df
 
 def _kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Optimal rigid transform (R, t) with no scaling: R @ Q + t ≈ P.
