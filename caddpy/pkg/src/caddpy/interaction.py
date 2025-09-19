@@ -44,6 +44,9 @@ _ARRAY_COLUMNS = [
     "h_position",
     "w_o_position",
     "w_h_position",
+]
+
+_TUPLE_COLUMNS = [
     "l_serials",
     "r_serials",
     "h_serials",
@@ -119,6 +122,11 @@ class ProteinLigandInteractions:
         for col in _ARRAY_COLUMNS:
             if col in data.columns:
                 data[col] = data[col].apply(to_ndarray)
+        for col in _TUPLE_COLUMNS:
+            if col in data.columns:
+                data[col] = data[col].apply(
+                    lambda x: tuple(x) if isinstance(x, (list, np.ndarray)) else x
+                )
 
         self._all = data.convert_dtypes()
         for attr_name in INTERACTION_TYPES:
@@ -387,6 +395,7 @@ def from_chemsys(
     plip_config.NOHYDRO = not add_polar_hydrogens
 
     for idx, pdb in np.ndenumerate(pdbs):
+        index = idx[0] if len(idx) == 1 else idx
         pdb_complex = PDBComplex()
         # The `as_string` argument for `load_pdb` does not work: https://github.com/pharmai/plip/issues/186
         with tempfile.NamedTemporaryFile(mode="w+", suffix=".pdb") as temp_file:
@@ -400,8 +409,10 @@ def from_chemsys(
             func = globs[f"_{attr_name}"]
             rows = func(interaction_sets)
             corrected_rows = [
-                {"instance": idx[0] if len(idx) == 1 else idx, **_correct_res(row, pdb.atom)}
-                for row in rows
+                {
+                    "instance": index,
+                    **_correct_res(row, pdb.atom, complex.name, index)
+                } for row in rows
             ]
             all_rows.extend(corrected_rows)
     df = pd.DataFrame(all_rows).convert_dtypes()
@@ -416,7 +427,12 @@ def from_chemsys(
     return ProteinLigandInteractions(df, complex)
 
 
-def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
+def _correct_res(
+    row: dict[str, Any],
+    atom: pd.DataFrame,
+    complex_name: str,
+    complex_instance: int | tuple[int, ...]
+) -> dict[str, Any]:
     """Correct residue numbers to match those in the PDB file."""
     def get_hydrogen_serial() -> int:
         prefix = "r" if row["r_is_d"] else "l"
@@ -425,26 +441,41 @@ def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
         min_dist = dists.min()
         if min_dist > 1e-8:
             warnings.warn(
-                f"Hydrogen atom not found for position {row['h_position']} in {row}"
+                f"Error in PLIP results for complex '{complex_name}' at instance {complex_instance}: "
+                f"No matching hydrogen found for the reported interaction:\n{row}\n"
+                f"The minimum distance is {min_dist} for the residue atoms:\n{res_atoms}"
             )
             return np.nan
         return int(res_atoms.iloc[dists.argmin()]["serial"])
 
     def complete_water():
-        w_o_atom = atom[atom["serial"] == row["w_o_serials"][0]]
-        if w_o_atom.empty or not np.array_equal(w_o_atom.iloc[0][["x","y","z"]].values, row["w_o_position"]):
+        oxygen_serial = row["w_o_serials"][0]
+        w_o_atoms = atom[atom["serial"] == oxygen_serial]
+        if w_o_atoms.empty or not np.allclose(
+            w_o_atoms.iloc[0][["x","y","z"]].to_numpy(),
+            row["w_o_position"]
+        ):
             dists = ((atom[["x","y","z"]].values - row["w_o_position"]) ** 2).sum(axis=1)
             min_dist = dists.min()
             if min_dist > 1e-8:
                 raise ValueError(f"Water oxygen atom not found for position {row['w_o_position']}")
             w_o_atom = atom.iloc[dists.argmin()]
+            row["w_o_serials"] = [int(w_o_atom["serial"])]
+            if w_o_atoms.empty:
+                serial_situation = "does not exist in the PDB file"
+            else:
+                position_based_on_serial = w_o_atoms.iloc[0][["x","y","z"]].to_numpy()
+                serial_situation = f"corresponds to position {position_based_on_serial}"
             warnings.warn(
-                f"Mismatch in water oxygen position for serial {row['w_o_serials']}: "
-                f"Expected {row['w_o_position']} but got {w_o_atom[['x','y','z']].values}. "
-                f"Changed to serial {w_o_atom['serial']}"
+                f"Error in PLIP results for complex '{complex_name}' at instance {complex_instance}: "
+                f"Mismatch in water oxygen position for the reported interaction:\n{row}\n"
+                f"Position of the reported oxygen is {row['w_o_position']} "
+                f"which matches the oxygen serial {w_o_atom['serial']}, "
+                f"but the reported serial {oxygen_serial} {serial_situation}. "
+                f"Changed to the matching serial {w_o_atom['serial']} in atom:\n{w_o_atom}"
             )
         else:
-            w_o_atom = w_o_atom.iloc[0]
+            w_o_atom = w_o_atoms.iloc[0]
 
         if w_o_atom["element"] != "O":
             raise ValueError(f"Water oxygen atom not found for serial {row['w_o_serials']}")
@@ -469,6 +500,7 @@ def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
     for prefix in ("l", "r"):
         serials = row[f"{prefix}_serials"]
         atoms = atom[atom["serial"].isin(serials)]
+        # Interactions with one atom (serial)
         if typ in ("hbond", "water_bridge", "hydrophobic", "halogen", "metal"):
             if atoms.empty or not np.allclose(row[f"{prefix}_position"], np.stack(atoms.iloc[0][["x","y","z"]])):
                 dists = ((atom[["x","y","z"]].values - row[f"{prefix}_position"]) ** 2).sum(axis=1)
@@ -482,11 +514,15 @@ def _correct_res(row: dict[str, Any], atom: pd.DataFrame) -> dict[str, Any]:
                 old_serial = serials[0]
                 row[f"{prefix}_serials"] = serials = [int(correct_atom["serial"])]
                 warnings.warn(
-                    f"Mismatch in {prefix}_position in {typ} interaction for serial {old_serial}: "
+                    f"Error in PLIP results for complex '{complex_name}' at instance {complex_instance}: "
+                    f"Mismatch in {prefix}_position for the reported interaction:\n{row}\n"
+
+
                     f"Expected {row[f'{prefix}_position']} but got {atoms.iloc[0][['x','y','z']].values if not atoms.empty else "N/A"}. "
                     f"Changed to serial {serials[0]}"
                 )
                 atoms = atom[atom["serial"].isin(serials)]
+        # Interactions with multiple atoms
         else:
             if atoms.empty or np.linalg.norm(
                 row[f"{prefix}_position"] - atoms[["x","y","z"]].mean(axis=0).to_numpy()
