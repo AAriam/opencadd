@@ -177,15 +177,15 @@ def from_ligand(
     system: ChemicalSystem,
     ligand_mask: ArrayLike,
     ligand_radii: ArrayLike | None = None,
-    ligand_radii_offset: float | Sequence[float] = 2.5,
-    psp_count_lower: int | None = None,
+    ligand_radii_offset: float | Sequence[float] = 5.0,
+    psp_count_lower: int | None = 6,
     psp_count_upper: int | None = None,
     psp_dist_lower: float | None = None,
     psp_dist_upper: float | None = None,
     psp_dist_lower_mode: Literal["any", "all", "max", "min", "mean"] = "all",
     psp_dist_upper_mode: Literal["any", "all", "max", "min", "mean"] = "any",
-    erosion_radius: float = 0,
-    opening_radius: float = 0,
+    radius_opening: float = 1.0,
+    radius_erosion: float = 0.0,
     morphology_order: tuple[Literal["opening", "erosion"], Literal["opening", "erosion"]] = ("opening", "erosion"),
     grid: float | Sequence[float] | Grid = 0.3,
     trim: bool = True,
@@ -217,14 +217,14 @@ def from_ligand(
         A non-negative real number or a sequence of non-negative real numbers
         to be added to the ligand radii.
         This is useful when `ligand_radii` is not provided.
-    erosion_radius
-        A non-negative real number representing the radius of the morphological erosion operation
-        applied to the pocket voxels.
-        If `0`, no erosion is applied.
-    opening_radius
+    radius_opening
         A non-negative real number representing the radius of the morphological opening operation
         applied to the pocket voxels.
         If `0`, no opening is applied.
+    radius_erosion
+        A non-negative real number representing the radius of the morphological erosion operation
+        applied to the pocket voxels.
+        If `0`, no erosion is applied.
     morphology_order
         A tuple of two distinct strings, either `("opening", "erosion")` or `("erosion", "opening")`,
         specifying the order of morphological operations applied to the pocket voxels.
@@ -295,10 +295,10 @@ def from_ligand(
 
     for morphology_operation in morphology_order:
         if morphology_operation == "opening":
-            morphology_radius = opening_radius
+            morphology_radius = radius_opening
             morphology_func = sp.ndimage.binary_opening
         else:
-            morphology_radius = erosion_radius
+            morphology_radius = radius_erosion
             morphology_func = sp.ndimage.binary_erosion
         if morphology_radius > 0:
             pocket_voxels = morphology_func(
