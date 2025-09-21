@@ -449,9 +449,9 @@ class PointCloud(dataset.DataSet):
 
     def minimize_aabb(
         self,
-        instance_selection: Any = None,
         mode: Literal["per_instance", "one_for_all", "one_for_slice"] = "per_instance",
         algorithm: Literal["pca", "hull", "best"] = "best",
+        instance: Any = None,
     ) -> "PointCloud":
         """Minimize the [axis-aligned minimum bounding box](https://en.wikipedia.org/wiki/Minimum_bounding_box#Axis-aligned_minimum_bounding_box) volume of the point cloud.
 
@@ -461,11 +461,6 @@ class PointCloud(dataset.DataSet):
 
         Parameters
         ----------
-        instance_selection
-            Slice of instances to consider.
-            By default, all instances are considered.
-            This is only applicable when the point cloud
-            has shape `(n_instances, n_samples, n_features)`.
         mode
             Mode of application (only applicable when the point cloud
             has shape `(n_instances, n_samples, n_features)`.):
@@ -486,6 +481,9 @@ class PointCloud(dataset.DataSet):
             - "best": For 2D points, this is the same as "hull".
               For 3D points, this runs both "pca" and "hull",
               and returns the one with the smallest volume.
+        instance
+            Slice of instances to consider.
+            By default, all instances are considered.
         """
         if mode not in ("per_instance", "one_for_all", "one_for_slice"):
             raise exception.InputError(
@@ -493,26 +491,26 @@ class PointCloud(dataset.DataSet):
                 message="The `mode` parameter must be one of 'per_instance', 'one_for_all', or 'one_for_slice'."
             )
         if self.batch_ndim == 0:
-            if instance_selection is not None:
+            if instance is not None:
                 raise exception.InputError(
                     name="instance",
                     message="The `instance` parameter is not applicable when there are no prefix dimensions."
                 )
             bbout = bbo.run(points=self.points, method=algorithm)
             return PointCloud(points=bbout.points)
-        if instance_selection is None:
-            instance_selection = slice(None)
-        instances = self._select_instances(instance_selection)
+        if instance is None:
+            instance = slice(None)
+        instances = self.select_instance(instance)
         if mode == "per_instance":
             bbo_output = bbo.run(points=instances, method=algorithm)
-            new_points = self._data.at[instance_selection].set(bbo_output.points)
+            new_points = self._data.at[instance].set(bbo_output.points)
             return PointCloud(new_points)
         combined_points = instances.reshape(-1, self.point_dim)
         bbo_output = bbo.run(points=combined_points, method=algorithm)
         if mode == "one_for_all":
             new_points = self._data @ bbo_output.rotation
             return PointCloud(new_points)
-        new_points = self._data.at[instance_selection].set(bbo_output.points.reshape(instances.shape))
+        new_points = self._data.at[instance].set(bbo_output.points.reshape(instances.shape))
         return PointCloud(new_points)
 
     @atypecheck
@@ -663,7 +661,7 @@ class PointCloud(dataset.DataSet):
         min_neighbors: PositiveInt | Sequence[PositiveInt],
         min_members: PositiveInt = 1,
         max_members: PositiveInt | None = None,
-        instance_selection: Any = (),
+        instance: Any = (),
     ) -> Num[Array, "*batch_selection_shape {self.point_count}"]:
         """Cluster points using the Common Nearest Neighbors (CNN) algorithm.
 
@@ -780,7 +778,7 @@ class PointCloud(dataset.DataSet):
             }
         )
         n_points = self.point_count
-        instances = self._select_instances(instance_selection)
+        instances = self.select_instance(instance)
         if instances.ndim == 2:
             instances = instances.reshape(1, *instances.shape)
             single_instance = True
@@ -801,22 +799,6 @@ class PointCloud(dataset.DataSet):
     def to_npz(self, filepath: PathLike | None = None, compress: bool = False) -> dict[str, Any]:
         """Save the point cloud to a .npz file."""
         return super().to_npz(filepath=filepath, data_key="points", compress=compress)
-
-    def _select_instances(self, instance_selection: Any, param_name: str = "instance_selection"):
-        instances = self._data[instance_selection]
-        if instances.ndim < 2:
-            raise exception.InputError(
-                name=param_name,
-                message=f"Selection must yield at least a 2D array, "
-                        f"but got {instances.ndim}D array with shape {instances.shape}."
-            )
-        if instances.shape[-2:] != self.points.shape[-2:]:
-            raise exception.InputError(
-                name=param_name,
-                message=f"Selection must yield an array with the same shape as self along the last two axes, "
-                        f"but got {instances.shape[-2:]} instead of {self.points.shape[-2:]}."
-            )
-        return instances
 
     def _rmsd(self, points, weights=None):
         if weights is not None:
