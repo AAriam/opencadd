@@ -189,7 +189,7 @@ class DataSet:
         ] = "constant",
         extension_constant: int | float | bool | Sequence[
             int | float | bool | tuple[int | float | bool, int | float | bool] | None
-        ] = 0.0,
+        ] = 0,
     ) -> np.ndarray:
         """Get a stencil of values around specified indices in the field.
 
@@ -197,10 +197,10 @@ class DataSet:
         ----------
         indices
             Integer array of shape `(*indices_batch_shape, self._data.ndim)`
-            containing indices of the stencil center point(s) in `self.tensor`.
+            containing indices of the stencil center point(s) in `self._data`.
         shape
             Sequence of size `self._data.ndim`
-            specifying the number of neighbors along each axis in `self.tensor`.
+            specifying the number of neighbors along each axis in `self._data`.
             Each element of the sequence can be either:
             - A single non-negative integer, indicating that the stencil should extend
               `s` elements in both directions along that axis.
@@ -213,7 +213,7 @@ class DataSet:
             Mode for extending the field when stencils go out of bounds.
             This can either be a single string applied to all stencil dimensions,
             or a sequence of size `self._data.ndim`
-            specifying the mode for each axis in `self.tensor`.
+            specifying the mode for each axis in `self._data`.
             Each element of the sequence can be either:
             - A single string, indicating the extension mode to use for both directions
               along that axis.
@@ -236,7 +236,7 @@ class DataSet:
             Constant value k to use when `extension_mode` is "constant".
             This can either be a single float applied to all stencil dimensions,
             or a sequence of size `self._data.ndim` specifying the constant for each axis
-            in `self.tensor`.
+            in `self._data`.
             Each element of the sequence can be either:
             - A single float, indicating the constant value to use for both directions
               along that axis.
@@ -257,6 +257,12 @@ class DataSet:
         For example, if `indices` has shape `(10, 3)`, and `shape = [5, (3, 0), 0]`,
         the resulting `stencil_shape` would be `(5 + 1 + 5, 3 + 1 + 0) = (11, 4)`,
         and the output would have shape `(10, 11, 4)`.
+
+        Notes
+        -----
+        - When multiple axes would prescribe different constants for the
+          same out-of-bounds location, **the lowest axis index wins** (deterministic).
+        - Dtype promotion occurs only if any constant is actually used.
         """
         def map_wrap(x: np.ndarray, n: int) -> np.ndarray:
             if n <= 0:
@@ -276,12 +282,19 @@ class DataSet:
             return np.where(r < n, r, p - r)
 
         def map_reflect_inclusive(x: np.ndarray, n: int) -> np.ndarray:
-            # 'mirror' (include edge): period = 2*n
+            # reflect (inclusive): period = 2*n
             if n == 0:
                 return np.zeros_like(x)
             p = 2 * n
             r = np.mod(x, p)
             return np.where(r < n, r, 2 * n - 1 - r)
+
+        def result_const_dtype(data_dtype: np.dtype, constants: Iterable[Any]) -> np.dtype:
+            """Minimal helper to compute a safe result dtype when constants are mixed in."""
+            consts = [c for c in constants if c is not None]
+            if not consts:
+                return data_dtype
+            return np.result_type(data_dtype, np.array(consts).dtype)
 
         # Validate and normalize `indices`
         indices = np.asarray(indices, dtype=int)
@@ -394,7 +407,8 @@ class DataSet:
                 _extension_constant.append(tuple(dim_const))
             extension_constant = _extension_constant
 
-        # Validate consistency of `shape` and `extension_mode`
+        # Validate consistency of `shape` and `extension_mode`:
+        # None modes only allowed for zero stencil on that dir
         for idx_1, (dim_shape, dim_mode) in enumerate(zip(shape, extension_mode)):
             for idx_2 , (dir_shape, dir_mode) in enumerate(zip(dim_shape, dim_mode)):
                 if dir_mode is None and dir_shape != 0:
@@ -403,7 +417,8 @@ class DataSet:
                         message=f"extension_mode for axis {idx_1} in direction {idx_2} is None, but shape is {dir_shape}."
                     )
 
-        # Validate consistency of `extension_mode` and `extension_constant`
+        # Validate consistency of `extension_mode` and `extension_constant`:
+        # None constants only allowed when mode is not 'constant' or dir_shape is 0
         for idx_1, (dim_mode, dim_const) in enumerate(zip(extension_mode, extension_constant)):
             for idx_2 , (dir_mode, dir_const) in enumerate(zip(dim_mode, dim_const)):
                 if dir_mode == "constant" and dir_const is None:
@@ -411,6 +426,15 @@ class DataSet:
                         name="extension_constant",
                         message=f"extension_mode for axis {idx_1} in direction {idx_2} is 'constant', but extension_constant is None."
                     )
+
+        # Guard zero-length dims with nonzero stencil
+        for ax, n in enumerate(self._data.shape):
+            s_neg, s_pos = shape[ax]
+            if (s_neg or s_pos) and n == 0:
+                raise exception.InputError(
+                    name="shape",
+                    message=f"Axis {ax} has length 0; nonzero stencil requires nonempty axis."
+                )
 
         data = self._data
         D = data.ndim
@@ -420,20 +444,19 @@ class DataSet:
         B = int(np.prod(batch_shape, dtype=int)) if batch_shape else 1
         indices_2d = indices.reshape((B, D))
 
-        # Precompute strides for flat indexing
-        strides = np.empty(D, dtype=np.int64)
+        # Flat strides (use intp for safe indexing)
+        strides = np.empty(D, dtype=np.intp)
         mult = 1
         for i in range(D - 1, -1, -1):
             strides[i] = mult
             mult *= dims[i]
         data_flat = data.ravel()
 
-        # Offsets per axis, and which axes contribute to output shape
+        # Per-axis offsets and contribution flags
         per_axis_offsets: list[np.ndarray] = []
         per_axis_sizes: list[int] = []
         contribute_axis: list[bool] = []
-
-        for ax, (s_neg, s_pos) in enumerate(shape):
+        for s_neg, s_pos in shape:
             if s_neg == 0 and s_pos == 0:
                 per_axis_offsets.append(np.array([0], dtype=int))
                 per_axis_sizes.append(1)
@@ -443,21 +466,20 @@ class DataSet:
                 per_axis_sizes.append(s_neg + 1 + s_pos)
                 contribute_axis.append(True)
 
-        # For each axis, build mapped indices (within bounds) and constant masks/values.
+        # Dtype for constants (only matters if any constant is applied)
+        const_dtype = result_const_dtype(data.dtype, [c for pair in extension_constant for c in pair])
+
         mapped_per_axis: list[np.ndarray] = []
         const_mask_per_axis: list[np.ndarray] = []
         const_value_per_axis: list[np.ndarray] = []
 
+        # Per-axis mapping to valid indices + constant masks
         for ax in range(D):
-            offs = per_axis_offsets[ax]                      # (S_ax,)
-            S = offs.size
-            base = indices_2d[:, ax][:, None]               # (B,1)
-            raw = base + offs[None, :]                       # (B,S)
+            offs = per_axis_offsets[ax]                # (S_ax,)
+            base = indices_2d[:, ax][:, None]         # (B,1)
+            raw = base + offs[None, :]                # (B,S)
 
-            # In-bounds mask
             in_bounds = (raw >= 0) & (raw < dims[ax])
-
-            # Out-of-bounds side masks
             neg_oob = raw < 0
             pos_oob = raw >= dims[ax]
 
@@ -466,17 +488,15 @@ class DataSet:
 
             mapped = np.empty_like(raw)
             const_mask = np.zeros_like(raw, dtype=bool)
-            const_vals = np.empty_like(raw, dtype=float)
+            const_vals = np.empty_like(raw, dtype=const_dtype)
 
-            # Start with identity where in-bounds
             mapped[in_bounds] = raw[in_bounds]
 
-            # Apply negative side
+            # Negative side
             if mode_neg == "constant":
                 const_mask |= neg_oob
-                const_vals[neg_oob] = float(k_neg)  # safe cast
-                # mapped indices for constant positions can be arbitrary valid index
-                # (won't be used); choose 0 for stability
+                if k_neg is not None:
+                    const_vals[neg_oob] = k_neg
                 mapped[neg_oob] = 0
             elif mode_neg == "wrap":
                 mapped[neg_oob] = map_wrap(raw[neg_oob], dims[ax])
@@ -486,77 +506,69 @@ class DataSet:
                 mapped[neg_oob] = map_reflect_inclusive(raw[neg_oob], dims[ax])
             elif mode_neg == "mirror":
                 mapped[neg_oob] = map_reflect_exclusive(raw[neg_oob], dims[ax])
-            else:
-                # mode_neg is None only when shape (0,0); but then neg_oob is False because offs=[0]
-                pass
 
-            # Apply positive side
+            # Positive side
             if mode_pos == "constant":
                 const_mask |= pos_oob
-                const_vals[pos_oob] = float(k_pos)  # safe cast
+                if k_pos is not None:
+                    const_vals[pos_oob] = k_pos
                 mapped[pos_oob] = 0
             elif mode_pos == "wrap":
                 mapped[pos_oob] = map_wrap(raw[pos_oob], dims[ax])
             elif mode_pos == "nearest":
                 mapped[pos_oob] = map_nearest(raw[pos_oob], dims[ax])
             elif mode_pos == "reflect":
-                mapped[pos_oob] = map_reflect_exclusive(raw[pos_oob], dims[ax])
-            elif mode_pos == "mirror":
                 mapped[pos_oob] = map_reflect_inclusive(raw[pos_oob], dims[ax])
-            else:
-                # mode_pos is None only when shape (0,0); but then pos_oob is False because offs=[0]
-                pass
+            elif mode_pos == "mirror":
+                mapped[pos_oob] = map_reflect_exclusive(raw[pos_oob], dims[ax])
 
-            mapped_per_axis.append(mapped.astype(np.int64, copy=False))
+            mapped_per_axis.append(mapped.astype(np.intp, copy=False))
             const_mask_per_axis.append(const_mask)
             const_value_per_axis.append(const_vals)
 
-        # Build broadcasted index grids of shape (B, S0, S1, ..., S_{D-1})
+        # Broadcast to full grid
         out_shape_full = (B, *per_axis_sizes)
         index_grids: list[np.ndarray] = []
         const_mask_grid = np.zeros(out_shape_full, dtype=bool)
-        const_value_grid = np.zeros(out_shape_full, dtype=float)
+        const_value_grid = np.zeros(out_shape_full, dtype=const_dtype)
 
         for ax in range(D):
-            # reshape mapped indices to expand at axis position
+            # Shape for broadcasting axis ax
             shape_ax = [B] + [1] * D
             shape_ax[1 + ax] = per_axis_sizes[ax]
+
             grid_ax = mapped_per_axis[ax].reshape(shape_ax)
             grid_ax = np.broadcast_to(grid_ax, out_shape_full)
             index_grids.append(grid_ax)
 
-            # constant mask/value accumulation:
             cm = const_mask_per_axis[ax].reshape(shape_ax)
             cm = np.broadcast_to(cm, out_shape_full)
             cv = const_value_per_axis[ax].reshape(shape_ax)
             cv = np.broadcast_to(cv, out_shape_full)
 
-            # If multiple axes demand constant fill at the same position with different values,
-            # prefer the first axis (lowest index) deterministically.
+            # First-axis-wins where constants conflict
             const_value_grid = np.where(~const_mask_grid & cm, cv, const_value_grid)
             const_mask_grid |= cm
 
-        # Compute flat indices and gather
-        lin = np.zeros(out_shape_full, dtype=np.int64)
+        # Flat gather
+        lin = np.zeros(out_shape_full, dtype=np.intp)
         for ax in range(D):
             lin += index_grids[ax] * strides[ax]
 
-        gathered = data_flat[lin]  # shape (B, S0, S1, ..., S_{D-1})
+        gathered = data_flat[lin]
 
-        # Inject constants where required
-        # Upcast carefully to accommodate constants; numpy will pick appropriate dtype.
+        # Apply constants if any
         if const_mask_grid.any():
             gathered = gathered.astype(np.result_type(gathered.dtype, const_value_grid.dtype), copy=False)
             gathered = np.where(const_mask_grid, const_value_grid, gathered)
 
-        # Reshape back to (*batch_shape, *stencil_shape_nonzero)
-        # First restore batch dims, then drop axes with (0,0)
+        # Restore batch dims
         if batch_shape:
             gathered = gathered.reshape((*batch_shape, *per_axis_sizes))
         else:
             gathered = gathered.reshape((*per_axis_sizes,))
 
-        # Remove dimensions for axes where shape was (0,0)
+        # Drop non-contributing stencil axes
         if any(not c for c in contribute_axis):
             # Build slicing that squeezes those axes AFTER the batch dims.
             slicer: list[slice | int] = [slice(None)] * (gathered.ndim)
