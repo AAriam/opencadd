@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from jax.typing import ArrayLike, DTypeLike
     from scids.grid import Grid
     from scids.typing import PathLike
+    from scids.dataset import FieldExtensionMode
 
 
 class Field(dataset.DataSet):
@@ -100,6 +101,86 @@ class Field(dataset.DataSet):
         This represents the total number of values for each grid point.
         """
         return self._field_size
+
+    def stencil(
+        self,
+        indices: ArrayLike,
+        shape: Sequence[int | tuple[int, int]],
+        extension_mode: FieldExtensionMode | Sequence[
+            FieldExtensionMode | tuple[FieldExtensionMode, FieldExtensionMode] | None
+        ] = "constant",
+        extension_constant: float | Sequence[
+            float | tuple[float, float] | None
+        ] = 0.0,
+    ) -> np.ndarray:
+        """Get a stencil of values around specified indices in the field.
+
+        Parameters
+        ----------
+        indices
+            Integer array of shape `(*indices_batch_shape, self.tensor.ndim)`
+            containing indices of the stencil center point(s) in `self.tensor`.
+        shape
+            Sequence of size `self.tensor.ndim`
+            specifying the number of neighbors along each axis in `self.tensor`.
+            Each element of the sequence can be either:
+            - A single non-negative integer, indicating that the stencil should extend
+              `s` elements in both directions along that axis.
+              This results in a total size of `s + 1 + s` in that dimension.
+            - A tuple `(s1, s2)`, indicating that the stencil should extend
+              `s1` elements in the negative direction and `s2` elements
+              in the positive direction along that axis.
+              This results in a total size of `s1 + 1 + s2` in that dimension.
+        extension_mode
+            Mode for extending the field when stencils go out of bounds.
+            This can either be a single string applied to all stencil dimensions,
+            or a sequence of size `self.tensor.ndim`
+            specifying the mode for each axis in `self.tensor`.
+            Each element of the sequence can be either:
+            - A single string, indicating the extension mode to use for both directions
+              along that axis.
+            - A tuple `(mode1, mode2)`, indicating the extension modes to use
+              for the negative and positive directions along that axis, respectively.
+            - `None`, for axes not included in the stencil (i.e. with shape 0).
+
+            Supported modes are:
+            - "constant": Pads with a constant value k specified by `extension_constant`
+              (k k k k | a b c ... x y z | k k k k).
+            - "mirror": Pads with the reflection of the vector mirrored on the first/last value
+              (z y x ... c b | a b c ... x y z | y x ... c b a).
+            - "nearest": Pads with the nearest edge value
+              (a a a a | a b c ... x y z | z z z z).
+            - "reflect": Pads with the reflection of the vector mirrored along the edge
+              (z y x ... c b a | a b c ... x y z | z y x ... c b a).
+            - "wrap": Pads with the wrap of the vector along that dimension
+              (a b c ... x y z | a b c ... x y z | a b c ... x y z).
+        extension_constant
+            Constant value k to use when `extension_mode` is "constant".
+            This can either be a single float applied to all stencil dimensions,
+            or a sequence of size `self.tensor.ndim` specifying the constant for each axis
+            in `self.tensor`.
+            Each element of the sequence can be either:
+            - A single float, indicating the constant value to use for both directions
+              along that axis.
+            - A tuple `(k1, k2)`, indicating the constant values to use
+              for the negative and positive directions along that axis, respectively.
+            - `None`, for axes not included in the stencil (i.e. with shape 0) or
+              when the corresponding `extension_mode` is not "constant".
+
+        Returns
+        -------
+        Array of shape `(*indices_batch_shape, *stencil_shape)`,
+        containing the stencil values around the specified field elements.
+        `stencil_shape` is determined by `shape` parameter;
+        its number of dimensions is equal to the number of non-zero elements in `shape`,
+        and its size along each dimension is determined
+        by the corresponding element `(s1, s2)` in `shape` (where `s1 = s2` if a single integer `s` is provided)
+        as `s1 + 1 + s2`.
+        For example, if `indices` has shape `(10, 3)`, and `shape = [5, (3, 0), 0]`,
+        the resulting `stencil_shape` would be `(5 + 1 + 5, 3 + 1 + 0) = (11, 4)`,
+        and the output would have shape `(10, 11, 4)`.
+        """
+        return self._stencil(indices=indices, shape=shape, extension_mode=extension_mode, extension_constant=extension_constant)
 
     def holes(self) -> jnp.ndarray:
         """Get the holes in the field.
