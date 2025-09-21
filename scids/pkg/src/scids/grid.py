@@ -57,6 +57,7 @@ class Grid:
         self._mgrid = jnp.asarray(np.mgrid[slices])
         self._coordinates: jnp.ndarray = jnp.stack(self._mgrid, axis=-1)
 
+        self._point_circumradius = 0.5 * np.linalg.norm(self._spacing)
         self._point_count = np.prod(self._shape)
         self._point_volume = np.prod(self._spacing)
         self._indices: np.ndarray = np.array(list(np.ndindex(*self._shape))).reshape(
@@ -145,6 +146,17 @@ class Grid:
         return self._point_volume
 
     @property
+    def point_circumradius(self) -> float:
+        """Circumradius of a single grid point.
+
+        This is the radius of the smallest n-sphere
+        that can enclose the hypercube defined by the grid spacings.
+        For an n-dimensional grid, this is half the length of the space diagonal
+        of the hypercube, i.e., half the Euclidean norm of the spacings.
+        """
+        return self._point_circumradius
+
+    @property
     def points(self) -> scids.pointcloud.PointCloud:
         """DynamicPointCloud object representing the grid points."""
         return self._pointcloud
@@ -215,27 +227,63 @@ class Grid:
         uniq_sq = np.array(unique_vals)
         return np.sqrt(uniq_sq)
 
-    def nearest_point(self, points: ArrayLike) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def point_coverage(
+        self,
+        points: ArrayLike,
+        tolerance: float | ArrayLike | None = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Check if points are within the grid.
+
+        Parameters
+        ----------
+        points
+            Array of shape `(*points_batch_shape, self.dimension)`,
+            containing the coordinates of points in the same space as the grid.
+        tolerance
+            Non-negative distance tolerance(s) for coverage check.
+            If None (default), a point is considered inside the grid
+            if it falls within the grid bounds.
+            If positive, a point is considered inside the grid
+            if it is within the specified tolerance from any grid point.
+            This can be a scalar or an array broadcastable to `(*points_batch_shape,)`.
+
+        Returns
+        -------
+        is_inside
+            A boolean array of shape `(*points_batch_shape,)` indicating whether each point
+            is inside the grid (within given tolerance).
+        indices
+            An array of shape `(*points_batch_shape, self.dimension)`
+            containing the indices of the nearest grid point
+            for each point in the input.
+        distances
+            An array of shape `(*points_batch_shape,)` containing the distances
+            from each point in the input to the nearest grid point.
+        """
+        indices, distances = self.nearest_point(points)
+        if tolerance is None:
+            tolerance = self.point_circumradius
+        is_inside = distances <= tolerance
+        return is_inside, indices, distances
+
+    def nearest_point(self, points: ArrayLike) -> tuple[np.ndarray, np.ndarray]:
         """Find the nearest grid point for each point in the input.
 
         Parameters
         ----------
         points
-            An array of shape `(..., self.dimension)`,
+            An array of shape `(*points_batch_shape, self.dimension)`,
             containing the coordinates of points in the same space as the grid.
 
         Returns
         -------
         indices
-            An array of shape `(..., self.dimension)`
+            An array of shape `(*points_batch_shape, self.dimension)`
             containing the indices of the nearest grid point
             for each point in the input.
         distances
-            An array of shape `(...)` containing the distances
+            An array of shape `(*points_batch_shape,)` containing the distances
             from each point in the input to the nearest grid point.
-        is_inside
-            A boolean array of shape `(...)` indicating whether each point
-            is inside the grid bounds.
         """
         points = np.asarray(points)
         if points.ndim < 1 or points.shape[-1] != self.dimension:
@@ -245,11 +293,10 @@ class Grid:
                 f"but input had shape {points.shape}."
             )
         uvw = (points - self.lower_bounds) / self.spacings
-        is_inside = np.all((uvw >= -0.5) & (uvw <= (self.shape - 0.5)), axis=-1)
         indices = np.clip(np.rint(uvw).astype(int), min=0, max=self.shape - 1)
         self_coords = self.index_coordinates(indices)
         distances = np.linalg.norm(points - self_coords, axis=-1)
-        return indices, distances, is_inside
+        return indices, distances
 
     def index_coordinates(self, indices: ArrayLike) -> np.ndarray:
         """Get coordinates of grid points given their indices.
