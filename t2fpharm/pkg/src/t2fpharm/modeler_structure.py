@@ -14,14 +14,17 @@ class StructureBasedModeler:
         self._system = system
         # Make sure autodock types are assigned
         self._system.composition.autodock_atom_type()
-        self._atom = system.composition.atoms
         self._trajectory = system.trajectory.points
 
         self._batch_shape = self._trajectory.shape[:-2]
         self._batch_ndim = len(self._batch_shape)
-        self._bond = Bond(caddpy.chemsys._ccd("chem_comp_bond")).select(comp_id=self._atom["comp_id"])
-
+        self._bond = Bond(caddpy.chemsys._ccd("chem_comp_bond")).select(
+            comp_id=self._system.composition.atoms["comp_id"]
+        )
+        self._atom = None
         self._len_hbond = None
+        self._len_ionic = None
+        self._len_hydrophobic = None
         self._type_hbond_donor = None
         self._type_hbond_acceptor = None
         return
@@ -29,62 +32,76 @@ class StructureBasedModeler:
     def model(
         self,
         *,
+        type_hbond_acceptor: str | None = "OA",
+        type_hbond_donor: str | None = "HD",
+        type_anionic: str | None = "e-",
+        type_cationic: str | None = "e+",
+        type_hydrophobic: str | None = "C",
+        atom_mask: pd.Series | np.ndarray | Sequence[bool] | None = None,
         len_hbond: float = 2.5,
         len_ionic: float = 3.0,
         len_hydrophobic: float = 4.0,
-        surface_dist_ionic: float = 2.0,
-        surface_dist_hydrophobic: float = 2.0,
-        type_hbond_acceptor: str = "OA",
-        type_hbond_donor: str = "HD",
-        type_anionic: str = "e-",
-        type_cationic: str = "e+",
-        type_hydrophobic: str = "C",
     ) -> Pharmacophore:
-        self._len_hbond = len_hbond
-        self._len_ionic = len_ionic
         self._type_hbond_donor = type_hbond_donor
         self._type_hbond_acceptor = type_hbond_acceptor
         self._type_anionic = type_anionic
         self._type_cationic = type_cationic
         self._type_hydrophobic = type_hydrophobic
-        feats = pd.concat(
-            [
-                self._calc_hbond_acceptors(),
-                self._calc_hbond_donors(),
-            ],
-            ignore_index=True
-        ).convert_dtypes()
-        feats["radius"] = 0.0
-        return feats
 
-    def _calc_electrostatic(self) -> pd.DataFrame:
+        self._atom = self._system.composition.atoms
+        if atom_mask is not None:
+            self._atom = self._atom[atom_mask]
+
+        self._len_hbond = len_hbond
+        self._len_ionic = len_ionic
+        self._len_hydrophobic = len_hydrophobic
+
+        self._feats = (
+            pd.concat(
+                [
+                    *self._calc_non_directed_interactions(),
+                    *self._calc_hbond_acceptors(),
+                    *self._calc_hbond_donors(),
+                ],
+                ignore_index=True
+            )
+            .convert_dtypes()
+            .sort_values(
+                (["instance"] if self._batch_ndim > 0 else []) + ["type", "res_idx", "atom_idxs"]
+            )
+        )
+        return self._feats
+
+    def _calc_non_directed_interactions(self) -> list[pd.DataFrame]:
         dfs = []
         charges = self._atom["charge"]
-        for ftype, charge in ((self._type_anionic, "positive"), (self._type_cationic, "negative")):
-            selector = (charges > 0) if charge == "positive" else (charges < 0)
-            df = self._calc_electrostatic_coords(self._atom[selector], ftype)
-            dfs.append(df)
-        return pd.concat(dfs, ignore_index=True)
-
-    def _cal_electrostatic_coords(self, atoms: pd.DataFrame, feature_type: str) -> pd.DataFrame:
-        atom_idx = atoms["atom_idx"].to_numpy()
-        center_coords = self._trajectory[..., atom_idx, :]
-        end_coords = sample_spherical_surface(
-            center=center_coords,
-            radius=self._len_ionic,
-            distance=self._surface_dist_ionic,
-        )
-        df = self._create_df(
-                res_idx=atoms["res_idx"].to_numpy(),
-                atom_idx=[(int(idx),) for idx in atoms["atom_idx"]],
-                feature_type=feature_type,
-                center=feature_coords,
+        for ftype, radius, df_atom in (
+            (self._type_anionic, self._len_ionic, self._atom[charges > 0]),
+            (self._type_cationic, self._len_ionic, self._atom[charges < 0]),
+            (self._type_hydrophobic, self._len_hydrophobic, self._hydrophobic_atoms())
+        ):
+            if ftype is None or df_atom.empty:
+                continue
+            atom_idx = df_atom["atom_idx"].to_numpy()
+            end_coords = self._trajectory[..., atom_idx, :]
+            df = self._create_df(
+                res_idx=df_atom["res_idx"].to_numpy(),
+                atom_idx=[(int(idx),) for idx in atom_idx],
+                feature_type=ftype,
+                center=None,
                 end=end_coords,
+                radius=radius,
             )
-        return df
+            dfs.append(df)
+        return dfs
 
-    def _calc_hbond_acceptors(self):
-        hd = self._merge_with_partners(self._atom[self._atom["autodock_atom_type"] == "HD"])
+    def _calc_hbond_acceptors(self) -> list[pd.DataFrame]:
+        if self._type_hbond_acceptor is None:
+            return []
+        hd = self._atom[self._atom["autodock_atom_type"] == "HD"]
+        if hd.empty:
+            return []
+        hd = self._merge_with_partners(hd)
         atom_idx = hd["atom_idx"].to_numpy()
         donor_coords = self._trajectory[..., atom_idx, :]
         accep_coords = self._trajectory[..., hd["partner_atom_idx"].to_numpy(), :]
@@ -92,49 +109,50 @@ class StructureBasedModeler:
         distances = np.linalg.norm(accep_to_donor, axis=-1, keepdims=True)
         accep_to_donor_unit = accep_to_donor / distances
         feature_coords = donor_coords + accep_to_donor_unit * self._len_hbond
-        return self._create_df(
+        df = self._create_df(
             res_idx=hd["res_idx"].to_numpy(),
             atom_idx=[(int(idx),) for idx in atom_idx],
             feature_type=self._type_hbond_acceptor,
             center=feature_coords,
             end=donor_coords,
         )
+        return [df]
 
-    def _calc_hbond_donors(self):
+    def _calc_hbond_donors(self) -> list[pd.DataFrame]:
+        if self._type_hbond_donor is None:
+            return []
+        dfs = []
         oa = self._atom[self._atom["autodock_atom_type"] == "OA"]
         na = self._atom[self._atom["autodock_atom_type"] == "NA"]
-        oam = self._merge_with_partners(oa)
-        nam = self._merge_with_partners(na)
+        if not oa.empty:
+            oam = self._merge_with_partners(oa)
+            o_num_partners = oam.groupby("atom_idx")["atom_idx"].transform("count")
+            oa1 = oam[o_num_partners == 1]
+            oa2 = oam[o_num_partners == 2]
+            dfs.extend([self._calc_oa1(oa1), self._calc_tetrahedral_acceptor(oa2)])
+        if not na.empty:
+            nam = self._merge_with_partners(na)
+            # Add backbone bonding partner (C from previous residue) for amide nitrogens
+            nam_n = nam[(nam["res_poly"]) & (nam["atom_id"]=="N") & (nam["res_idx"] != 1)].copy()
+            nam_n["partner_res_num"] = nam_n["res_idx"] - 1
+            nam_n["partner_atom_id"] = "C"
+            nam_n = nam_n.merge(
+                self._atom[["res_idx", "atom_id", "atom_idx"]].rename(
+                        columns={"res_idx": "partner_res_num", "atom_id": "partner_atom_id", "atom_idx": "partner_atom_idx"}
+                    ),
+                    how="left",
+                    on=["partner_res_num", "partner_atom_id"],
+            )
+            nam = pd.concat([nam, nam_n], ignore_index=True)
+            atoms_with_missing_partners = nam[nam["partner_atom_idx"].isna()]["atom_idx"].unique()
+            if len(atoms_with_missing_partners) > 0:
+                nam = nam[~nam["atom_idx"].isin(atoms_with_missing_partners)].convert_dtypes()
 
-        # Add backbone bonding partner (C from previous residue) for amide nitrogens
-        nam_n = nam[(nam["res_poly"]) & (nam["atom_id"]=="N") & (nam["res_idx"] != 1)].copy()
-        nam_n["partner_res_num"] = nam_n["res_idx"] - 1
-        nam_n["partner_atom_id"] = "C"
-        nam_n = nam_n.merge(
-            self._atom[["res_idx", "atom_id", "atom_idx"]].rename(
-                    columns={"res_idx": "partner_res_num", "atom_id": "partner_atom_id", "atom_idx": "partner_atom_idx"}
-                ),
-                how="left",
-                on=["partner_res_num", "partner_atom_id"],
-        )
-        nam = pd.concat([nam, nam_n], ignore_index=True)
-        atoms_with_missing_partners = nam[nam["partner_atom_idx"].isna()]["atom_idx"].unique()
-        if len(atoms_with_missing_partners) > 0:
-            nam = nam[~nam["atom_idx"].isin(atoms_with_missing_partners)].convert_dtypes()
-
-        o_num_partners = oam.groupby("atom_idx")["atom_idx"].transform("count")
-        n_num_partners = nam.groupby("atom_idx")["atom_idx"].transform("count")
-        oa1 = oam[o_num_partners == 1]
-        oa2 = oam[o_num_partners == 2]
-        na2 = nam[n_num_partners == 2]
-        na3 = nam[n_num_partners == 3]
-        feats = [
-            self._calc_oa1(oa1),
-            self._calc_tetrahedral_acceptor(oa2),
-            self._calc_na2(na2),
-            self._calc_tetrahedral_acceptor(na3)
-        ]
-        return pd.concat(feats, ignore_index=True)
+            n_num_partners = nam.groupby("atom_idx")["atom_idx"].transform("count")
+            na2 = nam[n_num_partners == 2]
+            na3 = nam[n_num_partners == 3]
+            dfs.extend([self._calc_na2(na2), self._calc_tetrahedral_acceptor(na3)])
+        return dfs
 
     def _calc_tetrahedral_acceptor(self, df: pd.DataFrame) -> pd.DataFrame:
         # group each atom_idx and collect its partners
@@ -233,8 +251,9 @@ class StructureBasedModeler:
         res_idx: np.ndarray,
         atom_idx: list[tuple[int, ...]],
         feature_type: str,
-        center: np.ndarray,
+        center: np.ndarray | None,
         end: np.ndarray,
+        radius: float | None = None,
     ):
         if self._batch_ndim == 0:
             instance = None
@@ -244,16 +263,18 @@ class StructureBasedModeler:
                 if self._batch_ndim == 1 else
                 [tuple(x) for x in np.repeat(list(np.ndindex(self._batch_shape)), repeats=len(atom_idx), axis=0).tolist()]
             )
-            center = center.reshape(-1, 3)
             end = end.reshape(-1, 3)
+            if center is not None:
+                center = center.reshape(-1, 3)
         n_instances = int(np.prod(self._batch_shape))
         cols = {
-            "res_idx": np.tile(res_idx, n_instances),
-            "atom_idxs": atom_idx * n_instances,
             "instance": instance,
             "type": feature_type,
-            "center": list(center),
+            "res_idx": np.tile(res_idx, n_instances),
+            "atom_idxs": atom_idx * n_instances,
+            "center": list(center) if center is not None else None,
             "end": list(end),
+            "radius": radius,
         }
         if self._batch_ndim == 0:
             cols.pop("instance")
@@ -288,6 +309,29 @@ class StructureBasedModeler:
             if len(atoms_with_missing_partners) > 0:
                 dfm = dfm[~dfm["atom_idx"].isin(atoms_with_missing_partners)]
         return dfm
+
+    def _hydrophobic_atoms(self) -> pd.DataFrame:
+        """Get a subset of `self._atom` containing only hydrophobic atoms.
+
+        Hydrophobic atoms are defined as carbon atoms with autodock type "C"
+        that are only bonded to carbon or hydrogen atoms.
+        """
+        atom_c = self._atom[self._atom["autodock_atom_type"] == "C"]
+        bond_to_merge = self._bond.exploded[["comp_id", "atom_id", "partner_atom_id"]]
+        atom_to_merge = (
+            self._atom[["comp_id", "atom_id", "type_symbol"]]
+            .drop_duplicates(keep="first")
+            .rename(
+                columns={"atom_id": "partner_atom_id", "type_symbol": "partner_type_symbol"}
+            )
+        )
+        return (
+            atom_c
+            .merge(bond_to_merge, on=["comp_id", "atom_id"], how="left")
+            .merge(atom_to_merge, on=["comp_id", "partner_atom_id"], how="left")
+            .groupby("atom_idx")
+            .filter(lambda group: set(group["partner_type_symbol"]).issubset({"C", "H"}))
+        )
 
 
 def fill_trigonal(
@@ -649,81 +693,6 @@ def _resolve_scales(
         return np.broadcast_to(base[..., None], (*center.shape[:-1], N))
 
 
-def sample_spherical_surface(
-    center: np.ndarray,
-    radius: float,
-    distance: float,
-) -> np.ndarray:
-    """Sample quasi-uniform points on the surface of a sphere.
-
-    This function uses the Fibonacci lattice method
-    to generate coordinates for nearly uniform points on the
-    surface of a sphere with given `center` and `radius`.
-    The number of points is chosen based on the surface area
-    of the sphere and the requested point spacing `distance`.
-
-    Parameters
-    ----------
-    center
-        An array of shape (..., 3) giving the coordinates of the center point(s).
-        Broadcasting is supported: multiple centers will produce one set of points per center.
-    radius
-        The radius of the sphere.
-    distance
-        Approximate geodesic spacing between sampled points on
-        the sphere surface.
-
-    Returns
-    -------
-    An array of shape (..., M, 3) giving the coordinates of the sampled points,
-    where M is the number of points sampled on the sphere's surface.
-
-    Notes
-    -----
-    - This uses a quasi-uniform Fibonacci sphere distribution,
-      which avoids clustering at the poles compared to spherical
-      grids.
-    - The actual spacing may not be exactly `distance`, but is
-      close on average across the sphere.
-    """
-    center = np.asarray(center, dtype=float)
-
-    if center.shape[-1] != 3:
-        raise ValueError("`center` must have shape (..., 3)")
-
-    # --- Estimate number of points ---
-    # Surface area of sphere: 4πr²
-    surface_area = 4.0 * np.pi * radius**2
-    # Area per point ~ distance², so N ~ surface_area / distance²
-    n_points = max(1, int(np.round(surface_area / (distance**2))))
-
-    # --- Fibonacci sphere algorithm ---
-    # Golden angle increment
-    golden_angle = np.pi * (3.0 - np.sqrt(5.0))
-
-    # Indices
-    idx = np.arange(n_points)
-
-    # y-coordinates uniformly spaced in [-1, 1]
-    y = 1.0 - 2.0 * (idx + 0.5) / n_points
-    r_xy = np.sqrt(1.0 - y**2)
-
-    theta = golden_angle * idx
-    x = r_xy * np.cos(theta)
-    z = r_xy * np.sin(theta)
-
-    # Unit vectors on sphere surface
-    unit_points = np.stack((x, y, z), axis=-1)
-
-    # Scale to radius
-    sphere_points = radius * unit_points  # (M, 3)
-
-    # Broadcast to each center: (..., M, 3)
-    # Add newaxis at -2 to match sphere_points
-    result = center[..., None, :] + sphere_points
-    return result
-
-
 def _calculate_angles_at_center(
     center: np.ndarray,
     ligands: np.ndarray,
@@ -769,5 +738,3 @@ def _calculate_angles_at_center(
     # Angles in radians
     angles = np.arccos(cos_angles)
     return angles
-
-
