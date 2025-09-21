@@ -107,20 +107,63 @@ class Pocket(Field):
             return self._pocket_atoms.copy()
         return None
 
-    def point_coverage(self, points: ArrayLike):
-        points = jnp.asarray(points)
-        if points.ndim != 2:
-            raise ValueError(
-                "Expected points to be a 2D array with shape (n_points, n_dims), "
-                f"but got a {points.ndim}D array with shape {points.shape}."
-            )
-        indices, distances, is_inside = self.grid.nearest_point(points)
-        idx_tuple = tuple(indices[..., dim] for dim in range(indices.shape[-1]))
-        return np.logical_and(is_inside, self.tensor[..., *idx_tuple])
+    def point_coverage(
+        self,
+        points: ArrayLike,
+        *,
+        tolerance: float | ArrayLike | None = None,
+        instance: Any = None,
+    ):
+        """Check if points are inside the pocket.
+
+        Parameters
+        ----------
+        points
+            Array of shape `(*points_batch_shape, 3)`
+            containing the coordinates of the
+            query points in the same space as the pocket.
+        tolerance
+            Non-negative distance tolerance.
+            If None (default), a point is considered inside the pocket
+            if it falls within a voxel that is part of the pocket.
+            If positive, a point is considered inside the pocket
+            if it is within the specified distance from any voxel center
+            that is part of the pocket.
+            This can be a scalar or an array broadcastable to
+            `(*selected_batch_shape, *points_batch_shape)`.
+        instance
+            Optional instance selector.
+            If the pocket has batch dimensions,
+            this parameter selects which instance(s) to use for the query.
+            It can be any valid NumPy indexing expression
+            (e.g., integer, slice, list/array of integers, boolean mask).
+            If `None` (default), all batch instances are used.
+
+        Returns
+        -------
+        is_inside
+            Boolean array of shape `(*selected_batch_shape, *points_batch_shape)`
+            indicating for each selected pocket instance and each point in `points`
+            whether the point is inside the pocket (within tolerance).
+        indices
+            Integer array of shape `(*selected_batch_shape, *points_batch_shape, 3)`
+            containing for each selected pocket instance and each point in `points`
+            the indices of the nearest pocket point.
+        distances
+            Float array of shape `(*selected_batch_shape, *points_batch_shape)`
+            containing for each selected pocket instance and each point in `points`
+            the distance to the nearest pocket point.
+        """
+        indices, distances = self.nearest_point(points, instance=instance)
+        if tolerance is None:
+            tolerance = self.grid.point_circumradius
+        is_inside = distances <= tolerance
+        return is_inside, indices, distances
 
     def nearest_point(
         self,
         points: np.ndarray,
+        instance: Any = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Find the nearest pocket point for each point in the input.
 
@@ -130,18 +173,26 @@ class Pocket(Field):
         Parameters
         ----------
         points
-            Array of shape (..., 3) containing the coordinates
+            Array of shape (*points_batch_shape, 3) containing the coordinates
             of the query points in the same space as the pocket.
+        instance
+            Optional instance selector.
+            If the pocket has batch dimensions,
+            this parameter selects which instance(s) to use for the query.
+            It can be any valid NumPy indexing expression
+            (e.g., integer, slice, list/array of integers, boolean mask).
+            If `None` (default), all batch instances are used.
 
         Returns
         -------
         indices
-            Integer array of shape `(*self.batch_shape, ..., 3)`
-            containing the indices of the nearest pocket point in each pocket instance
-            for each point in the input.
+            Integer array of shape `(*selected_batch_shape, *points_batch_shape, 3)`
+            containing for each selected pocket instance and each point in `points`
+            the indices of the nearest pocket point.
         distances
-            Float array of shape `(*self.batch_shape, ...)` containing the distances
-            from each point in the input to its nearest pocket point in each pocket instance.
+            Float array of shape `(*selected_batch_shape, *points_batch_shape)`
+            containing for each selected pocket instance and each point in `points`
+            the distance to the nearest pocket point.
 
         Raises
         ------
@@ -163,10 +214,11 @@ class Pocket(Field):
                 f"points have {points.shape[-1]}."
             )
 
-        mask = np.asarray(self.tensor, dtype=bool)
+        tensor = self.tensor if instance is None else self.select_instance(instance)
+        mask = np.asarray(tensor, dtype=bool)
 
-        B_shape = self.tensor.shape[:-3]
-        nx, ny, nz, _ = grid_coords.shape
+        remaining_batch_shape = tensor.shape[:-3]
+        nx, ny, nz = self.grid.shape
         N = nx * ny * nz
 
         # Flatten points leading dims into P×3 for querying; keep original shape for restore.
@@ -200,7 +252,7 @@ class Pocket(Field):
             ijk = np.stack((ii, jj, kk), axis=-1)     # (P, 3)
             return ijk, d
 
-        if not B_shape:
+        if not remaining_batch_shape:
             ijk, d = per_batch(mask)
             ijk = ijk.reshape((*point_leading, 3))
             d = d.reshape((*point_leading,))
@@ -208,7 +260,7 @@ class Pocket(Field):
 
         # Multiple batch instances: loop (robust and memory-safe). If B is huge,
         # you can parallelize outside Python or reuse trees when masks repeat.
-        B = int(np.prod(B_shape))
+        B = int(np.prod(remaining_batch_shape))
         mask_b = mask.reshape(B, nx, ny, nz)
         ijk_list: list[np.ndarray] = []
         d_list: list[np.ndarray] = []
@@ -217,8 +269,8 @@ class Pocket(Field):
             ijk_list.append(ijk_b)
             d_list.append(d_b)
 
-        ijk = np.stack(ijk_list, axis=0).reshape((*B_shape, *point_leading, 3))
-        d = np.stack(d_list, axis=0).reshape((*B_shape, *point_leading))
+        ijk = np.stack(ijk_list, axis=0).reshape((*remaining_batch_shape, *point_leading, 3))
+        d = np.stack(d_list, axis=0).reshape((*remaining_batch_shape, *point_leading))
         return ijk, d
 
 
