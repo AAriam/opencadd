@@ -2,6 +2,7 @@
 
 from typing import Sequence, Any, Self, Literal
 from collections import defaultdict
+import functools
 
 import numpy as np
 import pandas as pd
@@ -20,13 +21,38 @@ from t2fpharm.input.pharm.cluster_agg import PharmClusterAggInput, AggLinkageTyp
 from t2fpharm.input.pharm.cluster_cnn import PharmClusterCNNInput
 from t2fpharm.input.pharm.features import PharmFeaturesInput
 from t2fpharm.input.pharm.remove_overlaps import RemoveOverlapsInput
-from t2fpharm.typing import DataFrameLike, PositiveFloat, PositiveInt
+from t2fpharm.typing import DataFrameLike, PositiveFloat, PositiveInt, ArrayLike
 
 import scids.functional
 
 
 class Pharmacophore:
     """Pharmacophore.
+
+    This class represents a pharmacophore as a collection of features,
+    where each feature can be a point, vector,
+    or radial (spherical) feature in 3D space,
+    with additional associated data and identifiers.
+    It provides methods to manipulate, analyze, and visualize the pharmacophore.
+    The pharmacophore can also be associated with a chemical system,
+    binding pocket, and field, which are used for different operations
+    such as filtering and refining features.
+
+    Feature representation types are defined as follows:
+    1. **Point features** are defined by a `center` coordinate only.
+       The center represents the location of the feature's key interaction point.
+    2. **Vector features** are defined by a `center` and an `end` coordinate.
+       The end point represents the location of the feature's (expected) interacting partner.
+       Vector features also have a `radius`,
+       which is simply the length of the vector,
+       i.e., the distance between their `center` and `end` points.
+    3. **Radial features** are defined by an `end` coordinate and a `radius`.
+       The end point represents the center of the sphere,
+       and the radius defines its size.
+       Radial features do not have a `center` coordinate;
+       the center can be anywhere on the surface of the sphere.
+       They are useful for representing non-directional features
+       such as hydrophobic and ionic interactions.
 
     Parameters
     ----------
@@ -36,23 +62,47 @@ class Pharmacophore:
         converted to a DataFrame using the `pandas.DataFrame()` constructor.
         Each row in the resulting DataFrame must represent
         a pharmacophore feature with the following columns:
-        - `instance`: An identifier for the feature instance,
+        - `instance`: Integer or tuple of integers
+          representing the index of the feature instance,
           e.g., for when the pharmacophore is derived
           from multiple receptors or ligands.
           If not present, a default value of 0 is added to all features.
-        - `type`: A string representing the feature type,
+        - `type`: String or integer representing the feature type,
            e.g., "hbond_donor", "hbond_acceptor", "hydrophobic", etc.
-        - `label`: An identifier for different features of the same type
+        - `label`: A hashable identifier for different features of the same type
            within the same instance. That is, for each unique (`instance`, `type`) pair,
            each feature must have a unique label.
            Each feature in the whole pharmacophore can thus be uniquely identified
            by its (`instance`, `type`, `label`) triplet.
            If not present, it will be added with sequential integers starting from 1.
-        - `center`: A sequence of three real numbers representing
-           the 3D coordinates of the feature in some reference frame.
-        - `radius`: A non-negative real number representing the feature radius.
-           The radius defines the uncertainty of the feature center.
-           If not present, it will be added with a default value of 0.
+        - `atom_idxs`: Tuple of integers representing the indices of the atoms
+          in `system` that contribute to the feature center,
+          i.e., the atoms at `end` for vector and radial features.
+          If not present, it will be added with `None` values.
+        - `repr`: Integer specifying the feature representation:
+            - 1: Point feature defined by `center` only.
+            - 2: Vector feature defined by `center` and `end`.
+            - 3: Radial feature defined by `end` and `radius`.
+            If not present, it will be inferred from the presence of
+            the `center`, `end`, and `radius` columns.
+        - `radius`: A non-negative real number
+           representing the radius for radial features,
+           or the length of the vector for vector features.
+           For point features, this column should be `NaN`.
+        - `center`: NumPy array representing the 3D coordinates
+          of the feature's center in some reference frame.
+          For radial features, this column should be `None`.
+        - `end`: NumPy array representing the 3D coordinates
+          of the feature's end point in some reference frame.
+          For point features, this column should be `None`.
+        - `radius_tol`, `center_tol`, `end_tol`: Optional columns representing
+          the uncertainty (tolerance) in the corresponding
+          `radius`, `center`, or `end` values.
+          These are used when matching features to allow for some flexibility
+          in the feature positions and sizes.
+          When a method increases the uncertainty of a feature,
+          the corresponding tolerance value is increased accordingly.
+          If not present, they are assumed to be zero.
     feature_types
         Set of all feature types that were considered when creating the pharmacophore.
         That is, all `type` values in the `features` DataFrame must be a subset of this set.
@@ -201,143 +251,360 @@ class Pharmacophore:
         """Additional information related to the pharmacophore."""
         return self._extra
 
+    def add_atomic_data(
+        self,
+        columns: Sequence[str],
+        suffix: str = "_from_system",
+        collapse: bool = True,
+        inplace: bool = True,
+    ) -> pd.DataFrame:
+        """Add atom-specific data to the features DataFrame.
+
+        This method adds atom-specific information
+        from the `self.system.composition.atoms` DataFrame
+        as columns to the `self.features` DataFrame,
+        based on the `atom_idxs` values of each feature.
+
+        Parameters
+        ----------
+        columns
+            Name of columns in the `self.system.composition.atoms` DataFrame
+            to include in the features DataFrame of the pharmacophore.
+        suffix
+            Suffix to append to the column names from the atoms DataFrame
+            to avoid name clashes with existing columns in the features DataFrame.
+        collapse
+            Whether to collapse the values in each cell of the added columns
+            when all values are the same.
+            This is only done for columns where all rows satisfy this condition.
+            Otherwise (or if False), the values are added as tuples
+            with the same order as the `atom_idxs` values.
+        inplace
+            Whether to also modify the features DataFrame of the pharmacophore in place.
+
+        Returns
+        -------
+        DataFrame
+            Updated features DataFrame with the additional atom-specific columns.
+        """
+        def _tuple_for_row(atom_tuple: tuple[int, ...], mapping: dict[int, Any]) -> tuple[Any, ...]:
+            """Return a tuple of values for the given atom indices, preserving order."""
+            return tuple(mapping[int(idx)] for idx in atom_tuple)
+
+        def _all_equal(seq: tuple[Any, ...]) -> bool:
+            """True if all elements in seq are equal (or seq has length 0/1)."""
+            it = iter(seq)
+            try:
+                first = next(it)
+            except StopIteration:
+                return True
+            return all(el == first for el in it)
+
+        features = self._features if inplace else self._features.copy()
+        if not suffix or any(col.endswith(suffix) for col in features.columns):
+            raise ValueError(
+                f"Cannot add columns because the specified suffix '{suffix}' "
+                "is either empty or already used by existing columns in the features DataFrame."
+            )
+        atom = self.system.composition.atoms
+        missing_columns = [col for col in columns if col not in atom.columns]
+        if missing_columns:
+            raise ValueError(
+                f"Cannot add atom columns because the following columns "
+                f"are missing from the system's atoms DataFrame: {missing_columns}."
+            )
+
+        # Build fast lookup dicts for each requested column
+        atom_indexed = atom.set_index("atom_idx", drop=True)
+        index_to_values: dict[str, dict[int, Any]] = {
+            col: {int(k): v for k, v in atom_indexed[col].to_dict().items()}
+            for col in columns
+        }
+
+        # Compute and attach columns
+        for col, mapping in index_to_values.items():
+            final_name = f"{col}{suffix}" if col in features.columns else col
+            # Create tuple values per feature row (preserve atom order)
+            tuple_series = features["atom_idxs"].map(lambda t: _tuple_for_row(t, mapping))
+            if collapse:
+                # Collapse only if *every* row has identical values within its tuple
+                if bool(len(tuple_series)) and tuple_series.map(_all_equal).all():
+                    # Replace each tuple with its single representative value (or None if empty)
+                    collapsed = tuple_series.map(lambda t: (t[0] if len(t) > 0 else None))
+                    features[final_name] = collapsed
+                else:
+                    features[final_name] = tuple_series
+            else:
+                features[final_name] = tuple_series
+        return features
+
     def filter(
         self,
-        mask: pd.Series | np.ndarray | Sequence[bool],
+        mask: pd.Series | np.ndarray | Sequence[bool] | None = None,
+        operation_mask: Literal["&", "|"] = "&",
+        operation_kwargs: Literal["&", "|"] = "&",
         name: str | None = None,
+        **kwargs,
     ) -> Self:
-        """Filter pharmacophore features using a boolean mask.
+        """Filter pharmacophore features.
 
         Parameters
         ----------
         mask
-            Boolean mask to filter features.
+            Optional boolean mask to filter features.
             It can be a `pandas.Series`, a numpy array,
             or any sequence of boolean values.
             It must have the same length and order as `self.features`.
+            If `None`, only the keyword arguments are used for filtering.
+        operation_mask
+            Logical operation to combine the `mask` with the mask
+            derived from the keyword arguments, if both are provided.
+            It can be either `"&"` (logical AND) or `"|"` (logical OR).
+        operation_kwargs
+            Logical operation to combine multiple keyword argument conditions, if provided.
+            It can be either `"&"` (logical AND) or `"|"` (logical OR).
+        name
+            Optional name for the new pharmacophore.
+            If `None`, the name of the current pharmacophore is used.
+        **kwargs
+            Keyword arguments to filter features based on column values.
+            Each keyword argument must correspond to a column in `self.features`.
+            The value can be a single value or a list of values.
+            If a single value is provided, it is used to select features
+            where the column equals that value.
+            If a list is provided, it is used to select features
+            where the column value is in that list.
+
+            For example, `type="HD"` selects all hydrogen bond donor features,
+            while `type=["HD", "OA"]` selects all hydrogen bond donor and acceptor features.
 
         Returns
         -------
         A new `Pharmacophore` instance containing only the features
-        where the corresponding value in `mask` is `True`.
+        that match the provided mask and keyword argument conditions.
         """
+        if mask is not None:
+            if len(mask) != len(self._features):
+                raise ValueError(
+                    f"Mask length {len(mask)} does not match number of features {len(self._features)}."
+                )
+        reduce_func_map = {
+            "&": lambda x, y: x & y,
+            "|": lambda x, y: x | y,
+        }
+        reduce_func = {}
+        for param_name, arg in (("operation_mask", operation_mask), ("operation_kwargs", operation_kwargs)):
+            try:
+                reduce_func[param_name] = reduce_func_map[arg]
+            except KeyError:
+                raise ValueError(f"Unsupported argument for '{param_name}': '{arg}'. Use '&' or '|'.")
+
+        conditions = []
+        for col_name, value in kwargs.items():
+            if col_name not in self.features.columns:
+                raise KeyError(f"Column '{col_name}' not in features DataFrame.")
+            col = self.features[col_name]
+            if isinstance(value, str | int | float | bool):
+                func = col.eq
+            else:
+                func = col.isin
+            conditions.append(func(value))
+
+        mask_kwargs = None
+        if conditions:
+            mask_kwargs = functools.reduce(reduce_func["operation_kwargs"], conditions)
+
+        has_mask = mask is not None
+        has_mask_kwargs = mask_kwargs is not None
+        if has_mask and has_mask_kwargs:
+            mask = reduce_func["operation_mask"](mask, mask_kwargs)
+        elif has_mask_kwargs:
+            mask = mask_kwargs
+        elif not has_mask:
+            raise ValueError("No keyword conditions or mask provided for filtering.")
+
         return self.new(
             features=self._features[mask],
             inputs=self.inputs + [{"action": "filter", "params": {"mask": mask}}],
             name=name,
         )
 
-    def refine_centers(
+    def select_in_pocket(
         self,
-        by_field: bool = False,
-        by_pocket: bool = False,
-        field_extrema_type: Literal["min", "max"] = "min",
-        field_search_radius: float = 1.5,
-        max_pocket_distance: float = 0.5,
-    ):
-        if by_field and self._field is None:
-            raise ValueError("Cannot refine by field: No field associated with the pharmacophore.")
-        if by_pocket and self._pocket is None:
+        dist_tol: float | ArrayLike | None = None,
+        *,
+        center_distance: PositiveFloat | dict[str, PositiveFloat] = 2.0,
+        keep_radial: bool = False,
+    ) -> Self:
+        """Select features that are within the associated pocket.
+
+        This method first converts any radial features to vector features
+        by placing their centers at a distance of `center_distance` from each other
+        on the surface of the sphere.
+        Then, it selects only the features whose centers are within the pocket,
+        considering the specified distance tolerance `dist_tol`.
+        Finally, if `keep_radial` is `True`,
+        those remaining vector features that are generated from radial features
+        are converted back to their radial representation.
+        Note that this results in a loss of information,
+        since parts of the regenerated radial feature may extend outside the pocket.
+
+        Parameters
+        ----------
+        dist_tol
+            Distance tolerance for selecting features within the pocket.
+            It can be a single float value applied to all features,
+            or an array-like object with the same length as `self.features`,
+            specifying a different tolerance for each feature.
+            If `None`, the `center_tol` values in `self.features` are used.
+        center_distance
+            Distance between the centers of vector features
+            that are generated on the spherical surface of radial features.
+            It can be a single positive float value applied to all radial features,
+            or a dictionary mapping feature types to their corresponding distances.
+        keep_radial
+            Whether to convert vector features that were generated from radial features
+            back to their radial representation after filtering.
+
+        Returns
+        -------
+        A new `Pharmacophore` instance containing only the features
+        that are within the associated pocket.
+        """
+        def _apply_group(group: pd.DataFrame) -> pd.DataFrame:
+            is_inside, _, distances = self.pocket.point_coverage(
+                np.stack(group["center"]),
+                tolerance=group["_distance_tol"].to_numpy(),
+                instance=group.name
+            )
+            return pd.DataFrame(
+                {"_is_inside": is_inside, "_distance": distances},
+                index=group.index
+            )
+
+        if self.pocket is None:
             raise ValueError("Cannot refine by pocket: No pocket associated with the pharmacophore.")
+        has_radial = self.has_radial
+        if has_radial:
+            self.features["_converted"] = self.is_radial
+            feats = self.convert_feature_radial_to_vector(distance=center_distance).features
+        else:
+            feats = self.features.copy()
 
-        feats = self._features.copy()
-        feats["original_center"] = feats["center"]
+        if dist_tol is None:
+            dist_tol = feats["center_tol"].to_numpy()
+        elif np.isscalar(dist_tol):
+            dist_tol = np.full(len(feats), dist_tol, dtype=np.float64)
+        feats["_distance_tol"] = dist_tol
 
-        if by_field:
-            feats = self._refine_by_field(
-                feats=feats,
-                field_search_radius=field_search_radius,
-                field_extrema_type=field_extrema_type,
+        if self.pocket.batch_ndim == 0:
+            is_inside, _, distances = self.pocket.point_coverage(
+                np.stack(feats["center"]),
+                tolerance=dist_tol,
             )
-        if by_pocket:
-            feats = self._refine_by_pocket(
-                feats=feats,
-                max_pocket_distance=max_pocket_distance,
+            feats["_is_inside"] = is_inside
+            feats["_distance"] = distances
+        else:
+            pocket_results = (
+                feats.groupby("instance", sort=False, group_keys=False)
+                .apply(_apply_group)
             )
-        return self.new(features=feats.drop(columns=["original_center"]))
+            feats = feats.join(pocket_results, sort=False)
 
-    def _refine_by_field(
+        feats["center_tol"] = np.maximum(feats["center_tol"], feats["_distance"])
+        feats = feats[feats["_is_inside"]].drop(columns=["_is_inside", "_distance", "_distance_tol"])
+        filtered_pharm = self.new(features=feats)
+        if has_radial and keep_radial:
+            filtered_pharm = filtered_pharm.convert_feature_vector_to_radial(
+                mask=filtered_pharm.features["_converted"],
+                merge=True,
+            )
+        if has_radial:
+            filtered_pharm.features.drop(columns=["_converted"], inplace=True)
+        return filtered_pharm
+
+    def refine_by_field(
         self,
-        feats: pd.DataFrame,
-        field_search_radius: float = 1.5,
-        field_extrema_type: Literal["min", "max"] = "min",
+        search_radius: float = 1.5,
+        *,
+        extrema_type: Literal["min", "max"] = "min",
+        dist_tol: float | ArrayLike | None = None,
+        center_distance: PositiveFloat | dict[str, PositiveFloat] = 2.0,
+        keep_radial: bool = False,
     ) -> pd.DataFrame:
+
+        if self._field is None:
+            raise ValueError("Cannot refine by field: No field associated with the pharmacophore.")
+
+        has_radial = self.has_radial
+        if has_radial:
+            self.features["_converted"] = self.is_radial
+            feats = self.convert_feature_radial_to_vector(distance=center_distance).features
+        else:
+            feats = self.features.copy()
+
+        if dist_tol is None:
+            dist_tol = feats["center_tol"].to_numpy()
+        elif np.isscalar(dist_tol):
+            dist_tol = np.full(len(feats), dist_tol, dtype=np.float64)
+
         field = self._field
         old_centers = np.stack(feats["center"])
-        grid_indices, _, is_inside = field.grid.nearest_point(old_centers)
-        feats = feats.loc[is_inside]
-        grid_indices = grid_indices[is_inside]
+        center_is_inside_grid, grid_indices, _ = field.grid.point_coverage(old_centers, tolerance=dist_tol)
+        feats = feats.loc[center_is_inside_grid]
+        grid_indices = grid_indices[center_is_inside_grid]
+
+        instances = np.stack(feats["instance"]).reshape(len(feats), -1)
+
         field_prefix_indices = feats["type"].map(
             {val: idx for idx, val in enumerate(field.batch_instance_labels["feature"])}
         ).to_numpy().reshape(-1, 1)
-        if self._batch_shape.size > 0:
+        if field.batch_ndim > 1:
             # Merge instance indices with grid indices to get full field indices
-            instances = feats["instance"]
-            N = len(feats)
-            if instances.dtype != "object":
-                field_prefix_indices = np.concatenate(
-                    [field_prefix_indices, instances.to_numpy().reshape(-1, 1)],
-                    axis=1
-                )
-            else:
-                vals = instances.tolist()
-                K = len(vals[0]) + 1
-                # Stack rows into a 2D array of shape (N, K)
-                # Using a single allocation via np.empty + fill for speed/robustness
-                prefix = np.empty((N, K), dtype=np.int64)
-                for i, (feature_prefix, instance_prefix) in enumerate(zip(field_prefix_indices, vals)):
-                    prefix[i, 0] = feature_prefix
-                    prefix[i, 1:] = instance_prefix
-                field_prefix_indices = prefix
+            field_prefix_indices = np.concatenate([field_prefix_indices, instances], axis=1)
+
         field_indices = np.concatenate([field_prefix_indices, grid_indices], axis=1)
-        footprint = field.grid.footprint_spherical(field_search_radius)
-        extrema_indices = _extrema_under_footprint(
+        footprint = field.grid.footprint_spherical(search_radius)
+
+        if self.pocket is not None:
+            pocket = self.pocket
+            if pocket.batch_ndim == 0:
+                pocket_indices = grid_indices
+            else:
+                pocket_indices = np.concatenate([instances, grid_indices], axis=1)
+            pocket_stencils = pocket.stencil(
+                indices=pocket_indices,
+                shape=[0] * pocket.batch_ndim + list((np.array(footprint.shape) - 1) // 2),
+                extension_mode="constant",
+                extension_constant=False,
+            )
+            footprint = np.logical_and(footprint, pocket_stencils)
+
+        extremum_indices, in_footprint = _extremum_under_footprint(
             field=field.tensor,
             field_indices=field_indices,
             footprint=footprint,
-            maximize=(field_extrema_type == "max"),
+            maximize=(extrema_type == "max"),
         )
-        extrema_coords = field.grid.index_coordinates(extrema_indices[..., -3:])
-        extrema_values = field.tensor[tuple(extrema_indices.T)]
-        feats["radius"] = np.linalg.norm(extrema_coords - old_centers[is_inside], axis=-1)
-        feats["center"] = list(extrema_coords)
-        feats["value"] = extrema_values
-        return feats
+        extrema_coords = field.grid.index_coordinates(extremum_indices[..., -3:])
+        extrema_values = field.tensor[tuple(extremum_indices.T)]
 
-    def _refine_by_pocket(
-        self,
-        feats: pd.DataFrame,
-        max_pocket_distance: float
-    ) -> pd.DataFrame:
-        pocket = self._pocket
-        indices, distances = pocket.nearest_point(np.stack(feats["center"]))
-        if pocket.batch_ndim > 0:
-            instances = feats["instance"]
-            N = len(feats)
-            if instances.dtype != "object":
-                prefix = np.empty((N, 2), dtype=np.int64)
-                prefix[:, 0] = instances.to_numpy()
-                prefix[:, 1] = np.arange(N, dtype=np.int64)
-            else:
-                vals = instances.tolist()
-                batch_n_dim = len(vals[0])
-                K = batch_n_dim + 1
-                # Stack rows into a 2D array of shape (N, K)
-                # Using a single allocation via np.empty + fill for speed/robustness
-                prefix = np.empty((N, K), dtype=np.int64)
-                for i, (instance_prefix) in enumerate(vals):
-                    prefix[i, 0:batch_n_dim] = instance_prefix
-                    prefix[i, batch_n_dim] = i
-            prefix_unpacked = tuple(prefix.T)
-            indices = indices[prefix_unpacked]
-            distances = distances[prefix_unpacked]
-        dist_mask = distances <= max_pocket_distance
-        indices = indices[dist_mask]
-        feats = feats.loc[dist_mask]
-        in_pocket_coords = pocket.grid.index_coordinates(indices)
-        dists_to_orig_center = np.linalg.norm(in_pocket_coords - np.stack(feats["original_center"]), axis=-1)
-        feats["radius"] = np.maximum(feats["radius"], dists_to_orig_center)
-        return feats
+        feats["center"] = list(extrema_coords)
+        feats["center_tol"] = np.maximum(
+            feats["center_tol"],
+            np.linalg.norm(extrema_coords - old_centers[center_is_inside_grid], axis=-1)
+        )
+        feats["value"] = extrema_values
+        feats = feats[in_footprint]
+        refined_pharm = self.new(features=feats)
+        if has_radial and keep_radial:
+            refined_pharm = refined_pharm.convert_feature_vector_to_radial(
+                mask=refined_pharm.features["_converted"],
+                merge=True,
+            )
+        if has_radial:
+            refined_pharm.features.drop(columns=["_converted"], inplace=True)
+        return refined_pharm
 
     def remove_overlaps(
         self,
@@ -469,12 +736,12 @@ class Pharmacophore:
         feature_type: str | Sequence[str] | None = None,
         mask: pd.Series | np.ndarray | Sequence[bool] | None = None,
         merge: bool = True,
-    ) -> Self:
+    ) -> Self | tuple[Self, Self]:
         """Convert radial features to vector features.
 
         This method transforms features
         represented in a radial format (i.e., with `radius` and `end` without `center`)
-        into a vector format (i.e., with `center`, `end`, and `radius`).
+        into a vector format (i.e., with `center`, `radius`, and `end`).
         This is done by using the Fibonacci lattice method
         to sample quasi-uniformly distributed points
         on the radial feature's spherical surface,
@@ -509,15 +776,20 @@ class Pharmacophore:
             will be considered for conversion.
         merge
             - If `True`, return a Pharmacophore instance
-            containing all remaining features from `self`
-            along with the newly created vector features.
-            - If `False`, return a Pharmacophore instance
-            containing only the newly created vector features.
+              containing all remaining features from `self`
+              along with the newly created vector features.
+            - If `False`, return a tuple of two Pharmacophore instances:
+              the first containing only the newly created vector features,
+              and the second containing the remaining features from `self`.
 
         Returns
         -------
-        A new Pharmacophore instance containing the vectorized radial features,
-        optionally along with the remaining features from `self`.
+        Either:
+        - A new Pharmacophore instance like `self`, but with the selected radial features
+          replaced by their vectorized representations (if `merge=True`)
+        - A tuple of two Pharmacophore instances:
+          the first containing only the vectorized radial features,
+          and the second containing the remaining features from `self` (if `merge=False`).
         """
         def vectorize_group(group: pd.DataFrame, radius: float, feature_type: str) -> pd.DataFrame:
             centers = _sample_spherical_surface(  # shape=(N, M, 3)
@@ -529,6 +801,8 @@ class Pharmacophore:
             idx = group.index.repeat(n_centers_per_feat)  # repeat each row's index
             out = group.loc[idx].copy()
             out["center"] = list(centers.reshape(-1, 3))
+            out["center_tol"] = np.maximum(distance[feature_type] / 2, group["radius_tol"])
+            out["radius_tol"] = 0.0
 
             # Vectorized sub-labels within each (instance, label) group
             sub_labels = out.groupby(["instance", "label"], sort=False).cumcount()
@@ -542,9 +816,7 @@ class Pharmacophore:
             distance = {t: distance for t in self.feature_types}
 
         feats_all = self._features
-        feat_is_radial = feats_all["center"].isnull()
-        feat_is_requested = feats_all["type"].isin(distance.keys())
-        feat_mask = feat_is_radial & feat_is_requested
+        feat_mask = self.is_radial & feats_all["type"].isin(distance.keys())
         if feature_type is not None:
             if isinstance(feature_type, str):
                 feature_type = [feature_type]
@@ -564,34 +836,48 @@ class Pharmacophore:
             ) for (feat_type, radius), sub_df in feats_grouped
         ]
         feats_vectorized = pd.concat(feats_dfs)
+        feats_remaining = feats_all[~feat_mask].copy()
 
         if merge:
-            feats_remaining = feats_all[~feat_mask].copy()
-            feats_remaining["label"] = feats_remaining["label"].apply(lambda x: (x, 0) if not isinstance(x, tuple) else x)
-            feats_out = pd.concat([feats_remaining, feats_vectorized])
-        else:
-            feats_out = feats_vectorized
-        return self.new(features=feats_out)
+            if feats_remaining.empty:
+                feats_out = feats_vectorized
+            else:
+                feats_remaining["label"] = feats_remaining["label"].apply(lambda x: (x, 0) if not isinstance(x, tuple) else x)
+                feats_out = pd.concat([feats_remaining, feats_vectorized])
+            return self.new(features=feats_out)
+
+        pharm_vectorized = self.new(features=feats_vectorized)
+        pharm_remaining = self.new(features=feats_all[~feat_mask])
+        return pharm_vectorized, pharm_remaining
 
     def convert_feature_vector_to_radial(
         self,
+        groupby: Sequence[str] = ("atom_idxs",),
         feature_type: str | Sequence[str] | None = None,
         mask: pd.Series | np.ndarray | Sequence[bool] | None = None,
         merge: bool = True,
-    ) -> Self:
+    ) -> Self | tuple[Self, Self]:
         """Convert vector features to radial features.
 
         This method transforms features
         represented in a vector format (i.e., with `center`, `end`, and `radius`)
         into a radial format (i.e., with `radius` and `end` without `center`).
         This is done by grouping vector features that share the same
-        (`instance`, `type`, `res_idx`, `atom_idxs`) values,
+        `(instance, type, *groupby)` values,
         and replacing them with a single radial feature
         placed at the average of their `end` points,
         with a `radius` equal to the mean length of the vectors.
 
         Parameters
         ----------
+        groupby
+            Column names in addition to `instance` and `type` to group vector features by.
+            The default is `("atom_idxs",)`, which groups by the `atom_idxs` column.
+            This means that vector features that share the same
+            `(instance, type, atom_idxs)` values will be grouped together
+            and converted into a single radial feature.
+            Note that rows with null values in these columns are
+            excluded from the grouping and conversion process.
         feature_type
             Feature type(s) to convert.
             If `None`, all vector feature types are converted.
@@ -608,15 +894,20 @@ class Pharmacophore:
             will be considered for conversion.
         merge
             - If `True`, return a Pharmacophore instance
-            containing all remaining features from `self`
-            along with the newly created radial features.
-            - If `False`, return a Pharmacophore instance
-            containing only the newly created radial features.
+              containing all remaining features from `self`
+              along with the newly created radial features.
+            - If `False`, return a tuple of two Pharmacophore instances:
+              the first containing only the newly created radial features,
+              and the second containing the remaining features from `self`.
 
         Returns
         -------
-        A new Pharmacophore instance containing the radial features,
-        optionally (when `merge=True`) along with the remaining features from `self`.
+        Either:
+        - A new Pharmacophore instance like `self`, but with the selected vector features
+          replaced by their radial representations (if `merge=True`)
+        - A tuple of two Pharmacophore instances:
+          the first containing only the radialized features,
+          and the second containing the remaining features from `self` (if `merge=False`).
         """
         def radialize_group(group: pd.DataFrame) -> pd.DataFrame:
             centers = np.stack(group["center"])
@@ -624,14 +915,30 @@ class Pharmacophore:
             lengths = np.linalg.norm(ends - centers, axis=-1)
 
             row = group.sort_values("label").iloc[0].copy()
+            row["center"] = None
+            row["center_tol"] = 0.0
             row["end"] = np.mean(ends, axis=0)
             row["radius"] = np.mean(lengths)
+
+            ends_delta = np.linalg.norm(row["end"] - ends, axis=-1)
+            idx_largest_delta = np.argmax(ends_delta)
+            largest_delta = ends_delta[idx_largest_delta]
+            largest_delta_end_tol = group["end_tol"].iloc[idx_largest_delta]
+            row["end_tol"] = largest_delta + largest_delta_end_tol
+
+            radii = np.linalg.norm(row["end"] - centers, axis=-1)
+            radii_delta = np.abs(radii - row["radius"])
+            idx_largest_delta = np.argmax(radii_delta)
+            largest_delta = radii_delta[idx_largest_delta]
+            largest_delta_center_tol = group["center_tol"].iloc[idx_largest_delta]
+            row["radius_tol"] = largest_delta + largest_delta_center_tol
+
             if isinstance(row["label"], tuple):
                 row["label"] = row["label"][:-1]
             return row
 
         feats_all = self._features
-        feat_mask = feats_all[["center", "end", "res_idx", "atom_idxs"]].notnull().all(axis=1)
+        feat_mask = self.is_vector & feats_all[list(groupby)].notnull().all(axis=1)
         if feature_type is not None:
             if isinstance(feature_type, str):
                 feature_type = [feature_type]
@@ -642,21 +949,21 @@ class Pharmacophore:
             feat_mask = feat_mask & mask
         feats_selected = feats_all[feat_mask]
 
-        feats_grouped = feats_selected.groupby(["instance", "type", "res_idx", "atom_idxs"], sort=False, group_keys=False)
+        feats_grouped = feats_selected.groupby(["instance", "type", *groupby], sort=False, group_keys=False)
         feats_rows = [radialize_group(group=sub_df) for _, sub_df in feats_grouped]
         feats_radialized = pd.DataFrame(feats_rows).drop(columns=["center"])
+        feats_remaining = feats_all[~feat_mask].copy()
 
         if merge:
-            feats_remaining = feats_all[~feat_mask].copy()
             if feats_remaining.empty:
                 feats_out = feats_radialized
             else:
                 feats_remaining["label"] = feats_remaining["label"].apply(lambda x: x if not isinstance(x, tuple) else x[:-1])
                 feats_out = pd.concat([feats_remaining, feats_radialized])
-        else:
-            feats_out = feats_radialized
-        if "center" not in feats_out.columns:
-            feats_out["center"] = pd.Series([None] * len(feats_out), dtype=object)
+            return self.new(features=feats_out)
+
+        pharm_radialized = self.new(features=feats_radialized)
+        pharm_remaining = self.new(features=feats_all[~feat_mask])
         return self.new(features=feats_out)
 
     def cluster(
@@ -1320,10 +1627,9 @@ class Pharmacophore:
     def display(
         self,
         nglwidget: scishow.nglview.NGLWidget | None = None,
-        instances: Sequence[Any] | None = None,
-        feature_types: Sequence[str] | None = None,
+        feature_mask: pd.Series | np.ndarray | Sequence[bool] | None = None,
         system: System | Literal[False] | None = None,
-        min_radius: float = 1.0,
+        min_radius: float = 0.5,
         show_box: bool = True,
         show_pocket: bool = True,
         show_fields: bool = False,
@@ -1333,8 +1639,8 @@ class Pharmacophore:
         override_radius: dict[str, float] | None = None,
         gui: bool = True,
         comp_point_feats: set[Literal["center"]] = {"center"},
-        comp_vector_feats: set[Literal["center", "vector"]] = {"vector"},
-        comp_radial_feats: set[Literal["center", "surface"]] = {"surface"},
+        comp_vector_feats: set[Literal["center", "vector", "end"]] = {"vector"},
+        comp_radial_feats: set[Literal["end", "surface"]] = {"surface"},
         add_residues: bool = True,
         feature_sort_columns: Sequence[str] = ("instance", "type", "label"),
     ):
@@ -1395,56 +1701,28 @@ class Pharmacophore:
                 )
 
         # Features
-        for _, feature in self.features.sort_values(list(feature_sort_columns)).iterrows():
-            if instances is not None and feature["instance"] not in instances:
-                continue
-            if feature_types is not None and feature["type"] not in feature_types:
-                continue
+        features = self.features
+        if feature_mask is not None:
+            features = features[feature_mask]
+        for _, feature in features.sort_values(list(feature_sort_columns)).iterrows():
+            repr_type = feature["repr"]
             instance = normalize_name(feature["instance"])
             ftype = normalize_name(feature["type"])
             label = normalize_name(feature["label"])
             name = f"{instance}_{ftype}_{label}"
-            radius = feature["radius"]
-            center = feature.get("center", None)
-            end = feature.get("end", None)
+            feat_is_point = repr_type == 1
+            feat_is_vector = repr_type == 2
+            feat_is_radial = repr_type == 3
 
             # Display feature's interacting residue as ball-and-stick
-            if atoms is not None and add_residues and "res_idx" in feature and pd.notna(feature["res_idx"]):
-                res = atoms[atoms["res_idx"] == feature["res_idx"]].iloc[0]
-                res_sel = f"{res["res_seq"]}^{res["i_code"]}:{res["chain_id"]}"
-                system_comp.add_ball_and_stick(res_sel, name=f"{name} Residue")
-
-            # Display radial feature
-            feat_is_radial = center is None
-            if feat_is_radial:
-                if "surface" in comp_radial_feats:
-                    nv.add_spheres(
-                        coords=end,
-                        radii=radius,
-                        name=f"{name} Surface",
-                        colors=feature_color(feature["type"]),
-                        representation_params=scishow.nglview.RepresentationParameters(
-                            opacity=0.4,
-                            visible=show_feature_centers,
-                            lazy=True,
-                        )
-                    )
-                if "center" in comp_point_feats:
-                    nv.add_spheres(
-                        coords=end,
-                        radii=override_radius.get(feature["type"], max(radius, min_radius)),
-                        name=f"{name} End",
-                        colors=feature_color(feature["type"]),
-                        representation_params=scishow.nglview.RepresentationParameters(
-                            opacity=0.8,
-                            visible=show_feature_centers,
-                            lazy=True,
-                        )
-                    )
-                continue
+            if atoms is not None and add_residues and pd.notna(feature["atom_idxs"]):
+                residues = atoms[
+                    atoms["atom_idx"].isin(feature["atom_idxs"])
+                ][["res_seq", "i_code", "chain_id"]].drop_duplicates()
+                receptor_selection = residues["res_seq"].astype(str) + "^" + residues["i_code"] + ":" + residues["chain_id"]
+                system_comp.add_ball_and_stick(" ".join(receptor_selection), name=f"{name} Residue")
 
             # Display vector of vector features
-            feat_is_vector = end is not None
             if feat_is_vector and "vector" in comp_vector_feats:
                 nv.shape.add_arrow(
                     center.tolist(),
@@ -1454,12 +1732,39 @@ class Pharmacophore:
                     f"{name} Vector",
                 )
 
-            # Display center of point or vector features
-            comp = comp_vector_feats if feat_is_vector else comp_point_feats
-            if "center" in comp:
+            # Display surface of radial feature
+            if feat_is_radial and "surface" in comp_radial_feats:
                 nv.add_spheres(
-                    coords=center,
-                    radii=override_radius.get(feature["type"], max(radius, min_radius)),
+                    coords=feature["end"],
+                    radii=feature["radius"],
+                    name=f"{name} Surface",
+                    colors=feature_color(feature["type"]),
+                    representation_params=scishow.nglview.RepresentationParameters(
+                        opacity=0.4,
+                        visible=show_feature_centers,
+                        lazy=True,
+                    )
+                )
+
+            # Display end of vector features and radial features
+            if (feat_is_vector and "end" in comp_vector_feats) or (feat_is_radial and "end" in comp_radial_feats):
+                nv.add_spheres(
+                    coords=feature["end"],
+                    radii=override_radius.get(feature["type"], max(feature["end_tol"], min_radius)),
+                    name=f"{name} End",
+                    colors=feature_color(feature["type"]),
+                    representation_params=scishow.nglview.RepresentationParameters(
+                        opacity=0.8,
+                        visible=show_feature_centers,
+                        lazy=True,
+                    )
+                )
+
+            # Display center of point and vector features
+            if (feat_is_point and "center" in comp_point_feats) or (feat_is_vector and "center" in comp_vector_feats):
+                nv.add_spheres(
+                    coords=feature["center"],
+                    radii=override_radius.get(feature["type"], max(feature["center_tol"], min_radius)),
                     name=f"{name} Center",
                     colors=feature_color(feature["type"]),
                     representation_params=scishow.nglview.RepresentationParameters(
@@ -1518,7 +1823,7 @@ class Pharmacophore:
 
     def _check_instance_consistency_with_pocket(self, pocket: Pocket) -> None:
         """Check if the pharmacophore instances are consistent with the pocket instances."""
-        if pocket.batch_ndim == 0 or self._batch_shape.size == 0:
+        if pocket.batch_ndim == 0:
             return
         if pocket.batch_ndim != self._batch_shape.size:
             raise ValueError(
@@ -1532,6 +1837,35 @@ class Pharmacophore:
             )
         return
 
+    @property
+    def has_point(self) -> bool:
+        """Whether the pharmacophore has any point-like features."""
+        return self.is_point.any()
+
+    @property
+    def has_vector(self) -> bool:
+        """Whether the pharmacophore has any vector-like features."""
+        return self.is_vector.any()
+
+    @property
+    def has_radial(self) -> bool:
+        """Whether the pharmacophore has any radial features."""
+        return self.is_radial.any()
+
+    @property
+    def is_point(self) -> pd.Series:
+        """Boolean Series indicating which features are point-like."""
+        return self.features['repr'] == 1
+
+    @property
+    def is_vector(self) -> pd.Series:
+        """Boolean Series indicating which features are vector-like."""
+        return self.features['repr'] == 2
+
+    @property
+    def is_radial(self) -> pd.Series:
+        """Boolean Series indicating which features are radial."""
+        return self.features['repr'] == 3
 
 def merge(
     pharmacophores: Sequence[Pharmacophore],
@@ -1584,13 +1918,13 @@ def merge(
     )
 
 
-def _extrema_under_footprint(
+def _extremum_under_footprint(
     field: np.ndarray,
     field_indices: np.ndarray,
     footprint: np.ndarray,
     *,
     maximize: bool = False,
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     """Return argmin/argmax indices in `field` under a 3D boolean footprint centered at given indices.
 
     Places the center of `footprint` (which must have odd lengths along each axis) on each
@@ -1611,13 +1945,21 @@ def _extrema_under_footprint(
     footprint
         3D boolean array with odd shape along each axis (so it has a unique center).
         This footprint is aligned with the last 3 axes of `field`.
+        This can also be a 4D array, where the first axis contains one 3D footprint per
+        given field index.
+
 
     Returns
     -------
-    np.ndarray
+    extremum_indices
         Array of shape (K, N) with the global indices (same order as `field_indices`)
         of the selected extreme (min or max) element in `field` under the footprint
         for each placement.
+    in_footprint
+        Boolean array of shape (K,) indicating the points for which no element
+        under the footprint was found (i.e., footprint was completely out of bounds or all False).
+        For these points, the corresponding row in `extremum_indices` is simply a copy
+        of the input `field_indices` row.
 
     Raises
     -------
@@ -1635,10 +1977,15 @@ def _extrema_under_footprint(
     """
     if field.ndim < 3:
         raise ValueError(f"`field` must be at least 3D; got {field.ndim}D")
-    if footprint.ndim != 3:
-        raise ValueError(f"`footprint` must be 3D; got {footprint.ndim}D")
-    if any(s % 2 == 0 for s in footprint.shape):
-        raise ValueError(f"`footprint` must have odd lengths; got shape {footprint.shape}")
+    if footprint.ndim not in (3, 4):
+        raise ValueError(f"`footprint` must be 3D or 4D; got {footprint.ndim}D")
+    if footprint.ndim == 4 and footprint.shape[0] != field_indices.shape[0]:
+        raise ValueError(
+            f"If `footprint` is 4D, its first dimension must match the number of rows in `field_indices` "
+            f"({field_indices.shape[0]}); got {footprint.shape[0]}"
+        )
+    if any(s % 2 == 0 for s in footprint.shape[-3:]):
+        raise ValueError(f"`footprint` must have odd lengths on last three axes; got shape {footprint.shape}")
     if field_indices.ndim != 2 or field_indices.shape[1] != field.ndim:
         raise ValueError(
             f"`field_indices` must have shape (K, {field.ndim}); got {field_indices.shape}"
@@ -1648,10 +1995,11 @@ def _extrema_under_footprint(
 
     N = field.ndim
     K = field_indices.shape[0]
-    out = np.empty((K, N), dtype=np.int64)
+    extremum_indices = np.empty((K, N), dtype=np.int64)
+    in_footprint = np.ones((K,), dtype=bool)
 
     # Radii (half-sizes) of the footprint along its 3 axes
-    rad_z, rad_y, rad_x = (d // 2 for d in footprint.shape)
+    rad_z, rad_y, rad_x = (d // 2 for d in footprint.shape[-3:])
 
     # Helper to compute slice bounds (field and footprint) for one axis with center c, radius r, and limit L
     def _bounds(c: int, r: int, L: int) -> tuple[slice, slice]:
@@ -1684,12 +2032,15 @@ def _extrema_under_footprint(
 
         # Extract field view and footprint slice
         fview = field[(*lead_idx, fz, fy, fx)]
-        pview = footprint[pz, py, px]
 
-        # Guard: ensure pview has any True
+        footprint_k = footprint[k] if footprint.ndim == 4 else footprint
+        pview = footprint_k[pz, py, px]
+
+        # Ensure pview has any True
         if not pview.any():
             # Fallback to center (should be rare if center of footprint is True)
-            out[k] = idx
+            extremum_indices[k] = idx
+            in_footprint[k] = False
             continue
 
         # Mask invalid cells by setting them to +inf/-inf depending on min/max
@@ -1713,10 +2064,10 @@ def _extrema_under_footprint(
         gx = fx.start + local_zyx[2]
 
         if N > 3:
-            out[k, :-3] = np.array(lead_idx, dtype=np.int64)
-        out[k, -3:] = (gz, gy, gx)
+            extremum_indices[k, :-3] = np.array(lead_idx, dtype=np.int64)
+        extremum_indices[k, -3:] = (gz, gy, gx)
 
-    return out
+    return extremum_indices
 
 
 def _sample_spherical_surface(
