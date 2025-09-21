@@ -117,7 +117,7 @@ class ChemicalSystem:
     ):
         return self.new(
             trajectory=self.trajectory.minimize_aabb(
-                instance_selection=instance_selection,
+                instance=instance_selection,
                 mode=mode,
                 algorithm=algorithm,
             )
