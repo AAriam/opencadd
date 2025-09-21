@@ -517,7 +517,7 @@ class Modeler:
                 "type": types,
                 "label":list(map(tuple, grid_indices.tolist())),
                 "center": list(coordinates),
-                "radius": radii,
+                "center_tol": radii,
                 "value": self.field.tensor[mask],
                 "value_filter": tensor[mask],
             }
@@ -534,42 +534,47 @@ class Modeler:
         *,
         type_hbond_acceptor: str | None = "OA",
         type_hbond_donor: str | None = "HD",
-        type_anion: str | None = "e-",
-        type_cation: str | None = "e+",
+        type_anionic: str | None = "e-",
+        type_cationic: str | None = "e+",
         type_hydrophobic: str | None = "C",
         type_aromatic: str | None = "A",
         type_halogen_acceptor: str | None = "XA",
         type_halogen_donor: str | None = "XD",
+        atom_mask: pd.Series | np.ndarray | Sequence[bool] | None = None,
         name: str | None = None,
     ):
         """Create a pharmacophore from a receptor–ligand complex.
 
-        This function uses the PLIP library to analyze the interactions
+        This method uses the PLIP library to analyze the interactions
         between the receptor and ligand(s) in the provided complex.
-        The non-receptor interaction centers
-        are then converted into pharmacophore features.
-
+        For each detected interaction,
+        two features are created: one for each interaction partner.
         Note that if any of the `type_*` parameters are set to `None`,
         the corresponding feature type will not be included in the pharmacophore.
 
         Parameters
         ----------
-        complex
-            Complex structure containing both receptor and ligand(s).
         type_hbond_acceptor
-            Feature type ID for hydrogen bond acceptors in the ligand.
-        type_anion
-            Feature type ID for anionic centers in the ligand.
-        type_cation
-            Feature type ID for cationic centers in the ligand.
+            Feature type ID for hydrogen bond acceptor features.
+        type_hbond_donor
+            Feature type ID for hydrogen bond donor features.
+        type_anionic
+            Feature type ID for anionic features.
+        type_cationic
+            Feature type ID for cationic features.
         type_hydrophobic
-            Feature type ID for hydrophobic centers in the ligand.
+            Feature type ID for hydrophobic features.
         type_aromatic
-            Feature type ID for aromatic centers in the ligand.
+            Feature type ID for aromatic features.
         type_halogen_acceptor
-            Feature type ID for halogen bond acceptors in the ligand.
+            Feature type ID for halogen bond acceptor features.
         type_halogen_donor
-            Feature type ID for halogen bond donors in the ligand.
+            Feature type ID for halogen bond donor features.
+        atom_mask
+            Optional boolean mask to select a subset of atoms
+            from the system for pharmacophore feature perception.
+            If provided, only atoms in `self.system.composition.atoms`
+            where the mask is `True` will be considered when perceiving features.
         name
             Optional name for the pharmacophore.
         """
@@ -600,7 +605,10 @@ class Modeler:
         }
 
         atom = self.system.composition.atoms
+        if atom_mask is not None:
+            atom = atom[atom_mask]
         atom_serial_to_idx = dict(zip(atom["serial"], atom["atom_idx"]))
+        output_col_names = ["type", "center", "end", "res_idx", "atom_idxs", "interaction"]
         feat_dfs = []
         for df_name,              center, end,   res,  serial, res_rev, serial_rev, feat,                feat_rev in (
             ("hbond_acceptor",    "h",    "r",   "r",  "r",    "l",     "l",        type_hbond_donor,    type_hbond_acceptor),
@@ -609,12 +617,12 @@ class Modeler:
             ("wbridge_acceptor",  "w_h",  "r",   "r",  "r",    "w",     "w_h",      type_hbond_donor,    type_hbond_acceptor),
             ("wbridge_donor",     "l",    "w_h", "w",  "w_h",  "l",     "l",        type_hbond_acceptor, type_hbond_donor),
             ("wbridge_donor",     "w_o",  "h",   "r",  "r",    "w",     "w_o",      type_hbond_acceptor, type_hbond_donor),
-            ("saltbridge_anion",  "l",    "r",   "r",  "r",    "l",     "l",        type_cation,         type_anion),
-            ("saltbridge_cation", "l",    "r",   "r",  "r",    "l",     "l",        type_anion,          type_cation),
+            ("saltbridge_anion",  "l",    "r",   "r",  "r",    "l",     "l",        type_cationic,         type_anionic),
+            ("saltbridge_cation", "l",    "r",   "r",  "r",    "l",     "l",        type_anionic,          type_cationic),
             ("hydrophobic",       "l",    "r",   "r",  "r",    "l",     "l",        type_hydrophobic,    type_hydrophobic),
             ("aromatic",          "l",    "r",   "r",  "r",    "l",     "l",        type_aromatic,       type_aromatic),
-            ("pication_aromatic", "l",    "r",   "r",  "r",    "l",     "l",        type_cation,         type_aromatic),
-            ("pication_cation",   "l",    "r",   "r",  "r",    "l",     "l",        type_aromatic,       type_cation),
+            ("pication_aromatic", "l",    "r",   "r",  "r",    "l",     "l",        type_cationic,         type_aromatic),
+            ("pication_cation",   "l",    "r",   "r",  "r",    "l",     "l",        type_aromatic,       type_cationic),
             ("halogen_acceptor",  "l",    "r",   "r",  "r",    "l",     "l",        type_halogen_donor,  type_halogen_acceptor),
         ):
             df = interaction_df[df_name]
@@ -626,28 +634,33 @@ class Modeler:
             ):
                 if f is None:
                     continue
-                dff = df.copy()
+                atom_idxs = df[f"{s}_serials"].apply(
+                    lambda arr: tuple(
+                        atom_serial_to_idx[s] for s in arr
+                        if atom_serial_to_idx.get(s) is not None
+                    )
+                )
+                mask = atom_idxs.apply(lambda arr: len(arr) > 0)
+                dff = df[mask].copy()
                 dff["type"] = f
                 dff["center"] = dff[f"{c}_position"]
                 dff["end"] = dff[f"{e}_position"]
                 dff["res_idx"] = dff[f"{r}_res_idx"]
-                dff["atom_idxs"] = dff[f"{s}_serials"].apply(
-                    lambda arr: tuple(atom_serial_to_idx[s] for s in arr)
-                )
-                dff = dff[["type", "center", "end", "res_idx", "atom_idxs", "interaction"]]
+                dff["atom_idxs"] = atom_idxs[mask]
+                dff = dff[output_col_names]
                 feat_dfs.append(dff)
         if feat_dfs:
             feats = pd.concat(feat_dfs, ignore_index=True)
         else:
-            feats = pd.DataFrame(columns=plip.all.columns.tolist() + ["interaction", "center", "end"])
+            feats = pd.DataFrame(columns=output_col_names)
         return self._pharmacophore(
             features=feats,
             feature_types={
                 feature_type for feature_type in (
                     type_hbond_acceptor,
                     type_hbond_donor,
-                    type_anion,
-                    type_cation,
+                    type_anionic,
+                    type_cationic,
                     type_hydrophobic,
                     type_aromatic,
                     type_halogen_acceptor,
@@ -662,16 +675,109 @@ class Modeler:
     def from_structure(
         self,
         *,
+        type_hbond_acceptor: str | None = "OA",
+        type_hbond_donor: str | None = "HD",
+        type_anionic: str | None = "e-",
+        type_cationic: str | None = "e+",
+        type_hydrophobic: str | None = "C",
+        atom_mask: pd.Series | np.ndarray | Sequence[bool] | None = None,
         len_hbond: float = 2.5,
         len_ionic: float = 3.0,
         len_hydrophobic: float = 4.0,
-        type_hbond_acceptor: str = "OA",
-        type_hbond_donor: str = "HD",
-        type_anionic: str = "e-",
-        type_cationic: str = "e+",
-        type_hydrophobic: str = "C",
         name: str | None = None,
     ) -> Pharmacophore:
+        """Perceive pharmacophore features from the system structure.
+
+        This method can create vector features
+        for hydrogen bond acceptors and donors,
+        and radial features for anionic, cationic, and hydrophobic interactions.
+        If any of the `type_*` parameters are set to `None`,
+        the corresponding feature type will not be generated.
+
+        Parameters
+        ----------
+        type_hbond_acceptor
+            Feature type ID for hydrogen bond acceptor features.
+        type_hbond_donor
+            Feature type ID for hydrogen bond donor features.
+        type_anionic
+            Feature type ID for anionic features.
+        type_cationic
+            Feature type ID for cationic features.
+        type_hydrophobic
+            Feature type ID for hydrophobic features.
+        atom_mask
+            Optional boolean mask to select a subset of atoms
+            from the system for pharmacophore feature perception.
+            If provided, only atoms in `self.system.composition.atoms`
+            where the mask is `True` will be considered when perceiving features.
+        len_hbond
+            Ideal length of a hydrogen bond.
+        len_ionic
+            Ideal length of an ionic interaction.
+        len_hydrophobic
+            Ideal length of a hydrophobic interaction.
+        name
+            Optional name for the pharmacophore.
+
+        Notes
+        -----
+        The algorithm works as follows:
+        1. For hydrogen bond acceptor features,
+            all hydrogen bond donor atoms in the (masked) system are identified
+            using their AutoDock atom types (i.e., hydrogen atoms with type "HD").
+            Then, for each donor hydrogen atom,
+            its bonded heavy atom is found.
+            A hydrogen bond acceptor feature is then created
+            as a vector with its `end` at the position of the donor hydrogen atom,
+            and its `center` at a position that is `len_hbond` away
+            from the donor hydrogen atom along the H–X bond.
+        2. For hydrogen bond donor features,
+            all hydrogen bond acceptor atoms in the (masked) system are identified
+            using their AutoDock atom types
+            (i.e., nitrogen and oxygen atoms with types "NA" and "OA").
+            For each acceptor atom, N hydrogen bond donor features are created
+            (N being the number of hydrogen bonds the acceptor atom can form,
+            i.e., 1 for nitrogen and 2 for oxygen).
+            as vectors with their `end` at the position of the acceptor atom,
+            and their `center` at positions that are `len_hbond` away
+            from the acceptor atom along the directions of the acceptor atom's lone pairs.
+            The lone pair directions are approximated
+            using the number and positions of the atoms bonded to the acceptor atom
+            to fill either a trigonal planar
+            or tetrahedral geometry around the acceptor atom as follows:
+            - Nitrogen bonded to 2 atoms: one lone pair to fill trigonal planar geometry.
+            - Nitrogen bonded to 3 atoms: one lone pair to fill tetrahedral geometry.
+            - Oxygen bonded to 1 atom: two lone pairs to fill trigonal planar geometry
+              in-plane with the O–X–Y plane (Y being the heaviest atom bonded to X).
+              This is the ideal orientation for oxygens with one (mesomeric) double bond,
+              and is a good approximation for oxygens with one single bond.
+            - Oxygen bonded to 2 atoms: two lone pairs to fill tetrahedral geometry.
+        3. For anionic features,
+            all cationic atoms in the (masked) system are identified
+            using their formal charges.
+            For each cationic atom,
+            an anionic feature is created as a radial feature
+            with its `end` at the position of the cationic atom,
+            and its `radius` set to `len_ionic`.
+        4. For cationic features,
+            all anionic atoms in the (masked) system are identified
+            using their formal charges.
+            For each anionic atom,
+            a cationic feature is created as a radial feature
+            with its `end` at the position of the anionic atom,
+            and its `radius` set to `len_ionic`.
+        5. For hydrophobic features,
+            all hydrophobic atoms in the (masked) system are identified
+            using their AutoDock atom types and bonded element types
+            (i.e., carbon atoms with type "C" that are only bonded to carbon or hydrogen atoms).
+            For each hydrophobic atom,
+            a hydrophobic feature is created as a radial feature
+            with its `end` at the position of the hydrophobic atom,
+            and its `radius` set to `len_hydrophobic`.
+
+        All atom and bonding information is obtained from the Chemical Component Dictionary.
+        """
         if self._structure_modeler is None:
             self._verify_system_available("from_structure")
             self._structure_modeler = StructureBasedModeler(self.system)
@@ -688,11 +794,13 @@ class Modeler:
         return self._pharmacophore(
             features=feats,
             feature_types={
-                type_hbond_donor,
-                type_hbond_acceptor,
-                type_cationic,
-                type_anionic,
-                type_hydrophobic,
+                feature_type for feature_type in (
+                    type_hbond_donor,
+                    type_hbond_acceptor,
+                    type_cationic,
+                    type_anionic,
+                    type_hydrophobic,
+                ) if feature_type is not None
             },
             inputs=[],
             extra={},
