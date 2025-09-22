@@ -2158,6 +2158,20 @@ def distance_matrix(
         return a
 
     def _norm(v: np.ndarray, axis: int = -1) -> np.ndarray:
+        """Compute Euclidean norm along a given axis.
+
+        Parameters
+        ----------
+        v
+            Input array.
+        axis
+            Axis along which to compute the norm.
+
+        Returns
+        -------
+        np.ndarray
+            Vector of norms along the specified axis.
+        """
         return np.linalg.norm(v, axis=axis)
 
     def _unit(v: np.ndarray, eps: float = 1e-12) -> tuple[np.ndarray, np.ndarray]:
