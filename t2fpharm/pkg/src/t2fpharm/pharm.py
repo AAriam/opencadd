@@ -97,7 +97,7 @@ class Pharmacophore:
           For point features, this column should be `None`.
         - `radius_tol`, `center_tol`, `end_tol`: Optional columns representing
           the uncertainty (tolerance) in the corresponding
-          `radius`, `center`, or `end` values.
+          `radius`, `center`, and `end` values.
           These are used when matching features to allow for some flexibility
           in the feature positions and sizes.
           When a method increases the uncertainty of a feature,
@@ -969,13 +969,15 @@ class Pharmacophore:
     def cluster(
         self,
         function: ClusteringFunction | dict[str, ClusteringFunction],
+        groupby: Sequence[str] = ("instance", "type"),
+        mask: pd.Series | np.ndarray | Sequence[bool] | None = None,
         min_members: PositiveInt | dict[str, PositiveInt] = 1,
         noise_as_singleton: bool | dict[str, bool] = True,
         weights: pd.Series | np.ndarray | Sequence[float] | None = None,
         center_type: CenterType | dict[str, CenterType] = "average",
         radius_type: RadiusType | dict[str, RadiusType] = "average",
-        per_instance: bool = True,
         preserve_members: bool = True,
+        merge: bool = True,
     ) -> Self:
         """Cluster pharmacophore features using provided clustering functions.
 
@@ -1088,16 +1090,16 @@ class Pharmacophore:
         function = args.function
         center_type = args.center_type
         radius_type = args.radius_type
-        per_instance = args.per_instance
 
         df = self._features.copy()
         df["_weights"] = args.weights
+        if mask is not None:
+            df_remaining = df[~mask]
+            df = df[mask]
+
         has_old_members = "members" in df.columns
         new_features: list[dict] = []
-        for group_idx, group in df.groupby(
-            ["instance", "type"] if per_instance else ["type"],
-            sort=False
-        ):
+        for group_idx, group in df.groupby(args.groupby, sort=False):
             feature_type = group_idx[-1]
             centers = np.stack(group["center"].to_numpy())
             weights = group["_weights"].to_numpy(dtype=np.float64)
@@ -1234,154 +1236,6 @@ class Pharmacophore:
             pocket=self.pocket,
             field=self.field,
             extra=self.extra,
-        )
-
-    def cluster_agg(
-        self,
-        distance_threshold: PositiveFloat | dict[str, PositiveFloat] | None = None,
-        n_clusters: PositiveInt | dict[str, PositiveInt] | None = None,
-        linkage: AggLinkageType | dict[str, AggLinkageType] = "complete",
-        metric: AggLinkageMetricType | dict[str, AggLinkageMetricType] = "euclidean",
-        memory: Any = None,
-        # Parameters for `self.cluster()`
-        min_members: PositiveInt | dict[str, PositiveInt] = 1,
-        noise_as_singleton: bool | dict[str, bool] = True,
-        weights: pd.Series | np.ndarray | Sequence[float] | None = None,
-        center_type: CenterTypeNoFunction | dict[str, CenterTypeNoFunction] = "average",
-        radius_type: RadiusType | dict[str, RadiusType] = "average",
-        per_instance: bool = True,
-    ) -> Self:
-        """Cluster pharmacophore features using a [hierarchical agglomerative clustering](https://scikit-learn.org/stable/modules/clustering.html#hierarchical-clustering) algorithm.
-
-        This method creates the clustering functions from the agglomerative clustering parameters
-        `distance_threshold`, `n_clusters`, `linkage`, `metric`, and `memory`,
-        and then calls the `Pharmacophore.cluster` method with these functions,
-        passing the other general clustering parameters as well.
-
-        For the agglomerative clustering parameters,
-        see the documentation for the underlying clustering routine
-        [`sklearn.cluster.AgglomerativeClustering`](https://scikit-learn.org/stable/modules/generated/sklearn.cluster.AgglomerativeClustering.html#sklearn.cluster.AgglomerativeClustering).
-        For other parameters, see the `Pharmacophore.cluster` method documentation.
-        """
-        args = PharmClusterAggInput(
-            distance_threshold=distance_threshold,
-            n_clusters=n_clusters,
-            linkage=linkage,
-            metric=metric,
-            memory=memory,
-            min_members=min_members,
-            noise_as_singleton=noise_as_singleton,
-            weights=weights,
-            center_type=center_type,
-            radius_type=radius_type,
-            per_instance=per_instance,
-            n_features=len(self.features),
-            feature_types=self.feature_types,
-        )
-        return self.cluster(
-            function=args.function,
-            min_members=args.min_members,
-            noise_as_singleton=args.noise_as_singleton,
-            weights=args.weights,
-            center_type=args.center_type,
-            radius_type=args.radius_type,
-            per_instance=args.per_instance
-        )
-
-    def cluster_cnn(
-        self,
-        max_distance: PositiveFloat | Sequence[PositiveFloat] | dict[str, PositiveFloat | Sequence[PositiveFloat]],
-        min_neighbors: PositiveInt | Sequence[PositiveInt] | dict[str, PositiveInt | Sequence[PositiveInt]],
-        min_members: PositiveInt | dict[str, PositiveInt] = 1,
-        max_members: PositiveInt | dict[str, PositiveInt] | None = None,
-        # Parameters for `self.cluster()`
-        noise_as_singleton: bool | dict[str, bool] = True,
-        weights: pd.Series | np.ndarray | Sequence[float] | None = None,
-        center_type: CenterTypeNoFunction | dict[str, CenterTypeNoFunction] = "average",
-        radius_type: RadiusType | dict[str, RadiusType] = "average",
-        per_instance: bool = True,
-    ) -> Self:
-        """Cluster pharmacophore features using the Common Nearest Neighbors (CNN) algorithm.
-
-        This method creates the clustering functions from the CNN parameters
-        `max_distance`, `min_neighbors`, `min_members`, and `max_members`,
-        and then calls the `Pharmacophore.cluster` method with these functions,
-        passing the other general clustering parameters as well.
-        The CNN parameters are described below;
-        for other parameters, see the `Pharmacophore.cluster` method documentation.
-
-        Parameters
-        ----------
-        max_distance
-            Maximum distance between two feature centers
-            to consider them as neighbors during clustering.
-            - If a single number is provided,
-              it applies to all feature types and all (re)clustering runs.
-            - If a sequence of numbers is provided,
-              the sequence is applied to all feature types,
-              where the i-th number in the sequence corresponds to
-              the input for the i-th clustering run
-              (see the `max_members` parameter below for more details).
-            - If a dictionary is provided,
-              it must map each feature type in the pharmacophore
-              to a single number or a sequence of numbers.
-        min_neighbors
-            Minimum number of common neighbors
-            between two feature centers that belong to the same cluster.
-            Similar to `max_distance`, this can be a single integer,
-            a sequence of integers, or a dictionary.
-        min_members
-            Minimum number of members in a cluster.
-            Cluster with fewer members than this are discarded.
-            This can either be a single integer applied to all feature types,
-            or a dictionary mapping each feature type in the pharmacophore
-            to an integer.
-        max_members
-            Optional cap for the maximum number of members in a cluster.
-            This can either be a single integer applied to all feature types,
-            or a dictionary mapping each feature type in the pharmacophore
-            to an integer.
-            If specified, clusters with more members than this
-            are reclustered into smaller clusters.
-            For this, either one or both of `max_distance` and `min_neighbors`
-            must be a sequence of values,
-            where the i-th value corresponds to the i-th clustering step.
-            In each step, clusters from the last step
-            with more members than `max_members`
-            are reclustered until all clusters
-            have maximum `max_members` members.
-            If all `max_distance` and `min_neighbors`
-            values are exhausted without reaching the desired number of members,
-            an error is raised.
-            If only one of `max_distance` or `min_neighbors`
-            is a sequence, the other one is assumed to be constant
-            for all clustering steps.
-            If both are sequences,
-            they must have the same length,
-            and the i-th value of `max_distance` and `min_neighbors`
-            is used for the i-th clustering step.
-        """
-        args = PharmClusterCNNInput(
-            max_distance=max_distance,
-            min_neighbors=min_neighbors,
-            min_members=min_members,
-            max_members=max_members,
-            noise_as_singleton=noise_as_singleton,
-            weights=weights,
-            center_type=center_type,
-            radius_type=radius_type,
-            per_instance=per_instance,
-            n_features=len(self.features),
-            feature_types=self.feature_types,
-        )
-        return self.cluster(
-            function=args.function,
-            min_members=args.min_members,
-            noise_as_singleton=args.noise_as_singleton,
-            weights=args.weights,
-            center_type=args.center_type,
-            radius_type=args.radius_type,
-            per_instance=args.per_instance
         )
 
     def match(
@@ -2185,3 +2039,310 @@ def _uniquify(strings: list[str]) -> list[str]:
             running_counts[s] += 1
             result.append(f"{s}_{running_counts[s]}")
     return result
+
+
+def distance_matrix(
+    f0: pd.DataFrame,
+    f1: pd.DataFrame,
+    p_end_point_point: float = 0.0,
+    p_end_point_vector: float = 0.0,
+    p_end_point_radial: float = 0.0,
+    p_radius_point_point: float = 0.0,
+    p_radius_point_vector: float = 0.0,
+    p_radius_point_radial: float = 0.0,
+    p_angle_point_point: float = 0.0,
+    p_angle_point_vector: float = 0.0,
+    p_angle_point_radial: float = 0.0,
+    p_angle_radial_radial: float = 0.0,
+) -> np.ndarray:
+    """Calculate pairwise distance matrix between two sets of pharmacophore features.
+
+    This function computes four distance matrices between features in `f0` and `f1`:
+    1. Pairwise distances between feature centers, calculated as follows:
+        - For point–point, point–vector, and vector–vector pairs,
+            this is the distance between their `center` coordinates.
+        - For point–radial and vector–radial pairs, this is the distance
+            between the point/vector `center` and the surface of the radial feature.
+        - For radial–radial pairs, this is the minimum distance between the surfaces
+            of the two radial features.
+    2. Pairwise distances between feature ends, calculated as follows:
+        - For point–point, point–vector, and point–radial pairs,
+          the distance is set to the corresponding `p_end_*` parameter value,
+          since points do not have an `end`.
+        - For vector–vector, vector–radial, and radial–radial pairs,
+          this is the distance between their `end` coordinates.
+    3. Pairwise differences between feature radii, calculated as follows:
+        - For point–point, point–vector, and point–radial pairs,
+          the difference is set to the corresponding `p_radius_*` parameter value,
+          since points do not have a `radius`.
+        - For vector–vector, vector–radial, and radial–radial pairs,
+          this is the absolute difference between their `radius` values.
+    4. Pairwise angles between feature vectors, calculated as follows:
+        - For vector–vector pairs, this is the angle in radians (in [0, π] range)
+          between their unit vectors (from `center` to `end`, with `center` as origin).
+        - For vector–radial pairs, this is the angle in radians (in [0, π] range)
+          between the vector's unit vector and the unit vector
+          from the vector's center to the radial feature's end.
+        - For all other pairs, the angle is set
+          to the corresponding `p_angle_*` parameter value.
+
+    Parameters
+    ----------
+    f0
+        DataFrame of features, containing the following columns:
+        - `repr`: Integer specifying the feature representation:
+            - 1: Point feature defined by `center` only.
+            - 2: Vector feature defined by `center` and `end`.
+            - 3: Radial feature defined by `end` and `radius`.
+        - `radius`: A non-negative real number
+           representing the radius for radial features,
+           or the length of the vector for vector features.
+           For point features, this column should be `NaN`.
+        - `center`: NumPy array representing the 3D coordinates
+          of the feature's center in some reference frame.
+          For radial features, this column should be `None`.
+        - `end`: NumPy array representing the 3D coordinates
+          of the feature's end point in some reference frame.
+          For point features, this column should be `None`.
+    f1
+        DataFrame of features, with the same required columns as `f0`.
+    p_end_*
+        Fixed end distance penalties for pairs for which end distance is undefined.
+    p_radius_*
+        Fixed radius difference penalties for pairs for which radius difference is undefined.
+    p_angle_*
+        Fixed angle (in radians) penalties for pairs for which angle is undefined.
+
+    Returns
+    -------
+    distance_matrix
+        3D array of shape `(len(f0), len(f1), 4)` with pairwise distance metrics.
+        The element `distance_matrix[i, j]` contains the distances between
+        feature `f0.iloc[i]` and `f1.iloc[j]` as follows:
+        - `distance_matrix[i, j, 0]`: Center distance.
+        - `distance_matrix[i, j, 1]`: End distance.
+        - `distance_matrix[i, j, 2]`: Radius difference.
+        - `distance_matrix[i, j, 3]`: Angle between vectors (in radians).
+
+    Notes
+    -----
+    - Distances are symmetric by construction where applicable; parameter-based
+      penalties for pairs involving a point are applied symmetrically.
+    - For zero-length vectors (numerical degeneracy), the vector angle is set to π.
+    """
+    def _as_xyz(arr: object) -> np.ndarray:
+        if arr is None or (isinstance(arr, float) and math.isnan(arr)):
+            return np.array([np.nan, np.nan, np.nan], dtype=float)
+        a = np.asarray(arr, dtype=float)
+        if a.shape != (3,):
+            raise ValueError(f"Expected 3-vector, got shape {a.shape}")
+        return a
+
+    def _norm(v: np.ndarray, axis: int = -1) -> np.ndarray:
+        return np.linalg.norm(v, axis=axis)
+
+    def _unit(v: np.ndarray, eps: float = 1e-12) -> tuple[np.ndarray, np.ndarray]:
+        n = _norm(v, axis=-1)
+        safe = np.where(n > eps, n, 1.0)
+        u = v / np.expand_dims(safe, -1)
+        return u, n
+
+    def _angles_from_unit_dot(dot: np.ndarray) -> np.ndarray:
+        np.clip(dot, -1.0, 1.0, out=dot)
+        return np.arccos(dot)
+
+    def _sphere_surface_distance(
+        d: np.ndarray, r0: np.ndarray, r1: np.ndarray
+    ) -> np.ndarray:
+        """Closest separation between two spherical surfaces."""
+        # where spheres are separated: d > r0+r1 -> d - (r0+r1)
+        sep = np.maximum(0.0, d - (r0 + r1))
+        # where one sphere inside the other without touching: |r0-r1| > d -> |r0-r1| - d
+        contain = np.maximum(0.0, np.abs(r0 - r1) - d)
+        # if neither separation nor containment -> they intersect/tangent: distance 0
+        return np.maximum(sep, contain)
+
+    # ---- extract arrays ------------------------------------------------------
+    n0: Final[int] = len(f0)
+    n1: Final[int] = len(f1)
+
+    repr0 = f0["repr"].to_numpy(dtype=int)
+    repr1 = f1["repr"].to_numpy(dtype=int)
+
+    # Centers and ends as (n, 3) arrays (NaNs where not applicable)
+    c0 = np.vstack([_as_xyz(x) for x in f0["center"].to_numpy(object)])
+    c1 = np.vstack([_as_xyz(x) for x in f1["center"].to_numpy(object)])
+    e0 = np.vstack([_as_xyz(x) for x in f0["end"].to_numpy(object)])
+    e1 = np.vstack([_as_xyz(x) for x in f1["end"].to_numpy(object)])
+
+    # Radii: for vectors, prefer DataFrame 'radius' if finite; otherwise derive from length.
+    rad0_raw = f0["radius"].to_numpy(float)
+    rad1_raw = f1["radius"].to_numpy(float)
+
+    vec0_mask = repr0 == 2
+    vec1_mask = repr1 == 2
+    rad0_mask = repr0 == 3
+    rad1_mask = repr1 == 3
+    pt0_mask = repr0 == 1
+    pt1_mask = repr1 == 1
+
+    vec0_len = _norm(e0 - c0)
+    vec1_len = _norm(e1 - c1)
+
+    rad0 = rad0_raw.copy()
+    rad1 = rad1_raw.copy()
+    # Fill vector radii if missing
+    rad0[np.where(vec0_mask & ~np.isfinite(rad0))] = vec0_len[np.where(vec0_mask & ~np.isfinite(rad0))]
+    rad1[np.where(vec1_mask & ~np.isfinite(rad1))] = vec1_len[np.where(vec1_mask & ~np.isfinite(rad1))]
+
+    # ---- initialize output ---------------------------------------------------
+    out = np.zeros((n0, n1, 4), dtype=float)
+
+    # ===================== (0) CENTER DISTANCE ================================
+    # default: treat center distance as Euclidean between centers when both have centers
+    # Build full pairwise center distances (will be used for non-radial pairs)
+    cc_diff = c0[:, None, :] - c1[None, :, :]
+    cc_dist = _norm(cc_diff, axis=2)
+
+    # Start with zeros and fill by case
+    center_dist = np.zeros((n0, n1), dtype=float)
+
+    # Case A: pairs where neither is radial -> use center-center distance
+    non_rad0 = ~rad0_mask
+    non_rad1 = ~rad1_mask
+    a_mask = np.outer(non_rad0, non_rad1)
+    center_dist[a_mask] = cc_dist[a_mask]
+
+    # Case B: point/vector (has center) vs radial -> |‖c - e_r‖ - r|
+    # f0 non-radial vs f1 radial
+    b1_mask = np.outer(non_rad0, rad1_mask)
+    if b1_mask.any():
+        c_minus_er = c0[:, None, :] - e1[None, :, :]
+        dist_c_to_er = _norm(c_minus_er, axis=2)
+        center_dist[b1_mask] = np.abs(dist_c_to_er[b1_mask] - rad1[np.newaxis, :][b1_mask])
+
+    # f0 radial vs f1 non-radial
+    b2_mask = np.outer(rad0_mask, non_rad1)
+    if b2_mask.any():
+        c_minus_er = c1[None, :, :] - e0[:, None, :]
+        dist_c_to_er = _norm(c_minus_er, axis=2)
+        center_dist[b2_mask] = np.abs(dist_c_to_er[b2_mask] - rad0[:, np.newaxis][b2_mask])
+
+    # Case C: radial–radial -> closest separation between spherical surfaces
+    c_mask = np.outer(rad0_mask, rad1_mask)
+    if c_mask.any():
+        ee_diff = e0[:, None, :] - e1[None, :, :]
+        d = _norm(ee_diff, axis=2)
+        surf = _sphere_surface_distance(d, rad0[:, None], rad1[None, :])
+        center_dist[c_mask] = surf[c_mask]
+
+    out[:, :, 0] = center_dist
+
+    # ====================== (1) END DISTANCE =================================
+    end_dist = np.zeros((n0, n1), dtype=float)
+
+    # vector/vector, vector/radial, radial/radial -> Euclidean between ends
+    vv_mask = np.outer(vec0_mask, vec1_mask)
+    vr_mask = np.outer(vec0_mask, rad1_mask)
+    rv_mask = np.outer(rad0_mask, vec1_mask)
+    rr_mask = np.outer(rad0_mask, rad1_mask)
+
+    ee_diff = e0[:, None, :] - e1[None, :, :]
+    ee_dist = _norm(ee_diff, axis=2)
+
+    for m in (vv_mask, vr_mask, rv_mask, rr_mask):
+        if m.any():
+            end_dist[m] = ee_dist[m]
+
+    # pairs with at least one point: set according to parameters (symmetric)
+    pp_mask = np.outer(pt0_mask, pt1_mask)
+    pv_mask = np.outer(pt0_mask, vec1_mask) | np.outer(vec0_mask, pt1_mask)
+    pr_mask = np.outer(pt0_mask, rad1_mask) | np.outer(rad0_mask, pt1_mask)
+
+    if pp_mask.any():
+        end_dist[pp_mask] = p_end_point_point
+    if pv_mask.any():
+        end_dist[pv_mask] = p_end_point_vector
+    if pr_mask.any():
+        end_dist[pr_mask] = p_end_point_radial
+
+    out[:, :, 1] = end_dist
+
+    # ====================== (2) RADIUS DIFFERENCE =============================
+    rad_diff = np.zeros((n0, n1), dtype=float)
+
+    # Non-point pairs (vector/vector, vector/radial, radial/radial): |r0 - r1|
+    nonpt0 = ~pt0_mask
+    nonpt1 = ~pt1_mask
+    np_mask = np.outer(nonpt0, nonpt1)
+    if np_mask.any():
+        r0_mat = rad0[:, None] * np.ones((1, n1))
+        r1_mat = rad1[None, :] * np.ones((n0, 1))
+        rad_diff[np_mask] = np.abs(r0_mat[np_mask] - r1_mat[np_mask])
+
+    # Pairs with at least one point -> parameterized constants
+    if pp_mask.any():
+        rad_diff[pp_mask] = p_radius_point_point
+    if pv_mask.any():
+        rad_diff[pv_mask] = p_radius_point_vector
+    if pr_mask.any():
+        rad_diff[pr_mask] = p_radius_point_radial
+
+    out[:, :, 2] = rad_diff
+
+    # ====================== (3) ANGLE (RADIANS) ===============================
+    angle = np.zeros((n0, n1), dtype=float)
+
+    # Vector directions
+    d0, n0_len = _unit(e0 - c0)
+    d1, n1_len = _unit(e1 - c1)
+
+    # Vector–vector
+    if vv_mask.any():
+        dots = np.einsum("ik,jk->ij", d0, d1)  # (n0,n1)
+        vv_angles = _angles_from_unit_dot(dots)
+        # set undefined angles (zero-length vectors) to π
+        undefined = (np.outer(vec0_mask, vec1_mask)
+                     & ((n0_len[:, None] <= 1e-12) | (n1_len[None, :] <= 1e-12)))
+        vv_angles[undefined] = math.pi
+        angle[vv_mask] = vv_angles[vv_mask]
+
+    # Vector–radial (f0 vector, f1 radial)
+    if vr_mask.any():
+        diff = e1[None, :, :] - c0[:, None, :]
+        u, ulen = _unit(diff)
+        dots = np.einsum("ikj,ik->ij", u, d0[:, None, :])
+        vr_angles = _angles_from_unit_dot(dots)
+        undef = (np.outer(vec0_mask, rad1_mask)
+                 & ((n0_len[:, None] <= 1e-12) | (ulen <= 1e-12)))
+        vr_angles[undef] = math.pi
+        angle[vr_mask] = vr_angles[vr_mask]
+
+    # Vector–radial (f0 radial, f1 vector)
+    if rv_mask.any():
+        diff = e0[:, None, :] - c1[None, :, :]
+        u, ulen = _unit(diff)
+        dots = np.einsum("ijk,jk->ij", u, d1[None, :, :])
+        rv_angles = _angles_from_unit_dot(dots)
+        undef = (np.outer(rad0_mask, vec1_mask)
+                 & ((n1_len[None, :] <= 1e-12) | (ulen <= 1e-12)))
+        rv_angles[undef] = math.pi
+        angle[rv_mask] = rv_angles[rv_mask]
+
+    # All other pairs use parameter values
+    # point–point
+    if pp_mask.any():
+        angle[pp_mask] = p_angle_point_point
+    # point–vector (both orders)
+    if pv_mask.any():
+        angle[pv_mask] = p_angle_point_vector
+    # point–radial (both orders)
+    if pr_mask.any():
+        angle[pr_mask] = p_angle_point_radial
+    # radial–radial
+    if rr_mask.any():
+        angle[rr_mask] = p_angle_radial_radial
+
+    out[:, :, 3] = angle
+
+    return out
