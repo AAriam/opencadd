@@ -2196,6 +2196,18 @@ def distance_matrix(
         return u, n
 
     def _angles_from_unit_dot(dot: np.ndarray) -> np.ndarray:
+        """Compute angles from dot products of unit vectors.
+
+        Parameters
+        ----------
+        dot
+            Array of dot products in range [-1, 1].
+
+        Returns
+        -------
+        np.ndarray
+            Array of angles in radians, in [0, π].
+        """
         np.clip(dot, -1.0, 1.0, out=dot)
         return np.arccos(dot)
 
