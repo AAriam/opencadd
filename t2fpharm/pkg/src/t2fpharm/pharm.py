@@ -2131,7 +2131,26 @@ def distance_matrix(
     - For zero-length vectors (numerical degeneracy), the vector angle is set to π.
     """
     def _as_xyz(arr: object) -> np.ndarray:
-        if arr is None or (isinstance(arr, float) and math.isnan(arr)):
+        """Convert a feature coordinate to a 3D NumPy array.
+
+        Parameters
+        ----------
+        arr
+            Input object, expected to be either a length-3 array-like,
+            None, or NaN (float).
+
+        Returns
+        -------
+        np.ndarray
+            1D array of shape (3,) with float dtype. If input is None/NaN,
+            returns `[nan, nan, nan]`.
+
+        Raises
+        ------
+        ValueError
+            If `arr` is array-like but not of shape (3,).
+        """
+        if arr is None or (isinstance(arr, float) and np.isnan(arr)):
             return np.array([np.nan, np.nan, np.nan], dtype=float)
         a = np.asarray(arr, dtype=float)
         if a.shape != (3,):
