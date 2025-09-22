@@ -2272,7 +2272,8 @@ def distance_matrix(
     r1[vec1_no_rad_mask] = vec1_len[vec1_no_rad_mask]
 
     # ---- initialize output ---------------------------------------------------
-    out = np.zeros((n0, n1, 4), dtype=float)
+    distance_matrices = np.zeros((n0, n1, 4), dtype=float)
+    tolerances = np.zeros((n0, n1, 4), dtype=float)
 
     # ===================== (0) CENTER DISTANCE ================================
     # default: treat center distance as Euclidean between centers when both have centers
@@ -2310,7 +2311,7 @@ def distance_matrix(
         surf = _sphere_surface_distance(d, r0[:, None], r1[None, :])
         center_dist[c_mask] = surf[c_mask]
 
-    out[:, :, 0] = center_dist
+    distance_matrices[:, :, 0] = center_dist
 
     # ====================== (1) END DISTANCE =================================
     end_dist = np.zeros((n0, n1), dtype=float)
@@ -2340,7 +2341,7 @@ def distance_matrix(
     if pr_mask.any():
         end_dist[pr_mask] = p_end_point_radial
 
-    out[:, :, 1] = end_dist
+    distance_matrices[:, :, 1] = end_dist
 
     # ====================== (2) RADIUS DIFFERENCE =============================
     rad_diff = np.zeros((n0, n1), dtype=float)
@@ -2362,7 +2363,7 @@ def distance_matrix(
     if pr_mask.any():
         rad_diff[pr_mask] = p_radius_point_radial
 
-    out[:, :, 2] = rad_diff
+    distance_matrices[:, :, 2] = rad_diff
 
     # ====================== (3) ANGLE (RADIANS) ===============================
     angle = np.zeros((n0, n1), dtype=float)
@@ -2419,6 +2420,6 @@ def distance_matrix(
     if rr_mask.any():
         angle[rr_mask] = p_angle_radial_radial
 
-    out[:, :, 3] = angle
+    distance_matrices[:, :, 3] = angle
 
-    return out
+    return distance_matrices
