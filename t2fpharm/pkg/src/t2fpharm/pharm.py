@@ -2175,6 +2175,21 @@ def distance_matrix(
         return np.linalg.norm(v, axis=axis)
 
     def _unit(v: np.ndarray, eps: float = 1e-12) -> tuple[np.ndarray, np.ndarray]:
+        """Normalize vectors to unit length, returning both unit vectors and norms.
+
+        Parameters
+        ----------
+        v
+            Input array of shape (..., 3).
+        eps
+            Threshold below which a norm is considered zero to avoid division by zero.
+
+        Returns
+        -------
+        tuple
+            - Unit vectors of same shape as `v`.
+            - Norms as array of shape (...) .
+        """
         n = _norm(v, axis=-1)
         safe = np.where(n > eps, n, 1.0)
         u = v / np.expand_dims(safe, -1)
