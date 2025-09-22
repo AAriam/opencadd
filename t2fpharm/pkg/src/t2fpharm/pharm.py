@@ -2292,16 +2292,16 @@ def distance_matrix(
     # f0 non-radial vs f1 radial
     b1_mask = np.outer(mask_nonrad0, rad1_mask)
     if b1_mask.any():
-        c_minus_er = c0[:, None, :] - e1[None, :, :]
-        dist_c_to_er = _norm(c_minus_er, axis=2)
-        center_dist[b1_mask] = np.abs(dist_c_to_er[b1_mask] - r1[np.newaxis, :][b1_mask])
+        dist_c_to_er = _norm(c0[:, None, :] - e1[None, :, :], axis=2)  # (n0,n1)
+        offset = dist_c_to_er - rad1[None, :]  # broadcast across rows
+        center_dist[b1_mask] = np.abs(offset)[b1_mask]
 
     # f0 radial vs f1 non-radial
     b2_mask = np.outer(rad0_mask, mask_nonrad1)
     if b2_mask.any():
-        c_minus_er = c1[None, :, :] - e0[:, None, :]
-        dist_c_to_er = _norm(c_minus_er, axis=2)
-        center_dist[b2_mask] = np.abs(dist_c_to_er[b2_mask] - r0[:, np.newaxis][b2_mask])
+        dist_c_to_er = _norm(c1[None, :, :] - e0[:, None, :], axis=2)  # (n0,n1)
+        offset = dist_c_to_er - rad0[:, None]  # broadcast across cols
+        center_dist[b2_mask] = np.abs(offset)[b2_mask]
 
     # Case C: radial–radial -> closest separation between spherical surfaces
     c_mask = np.outer(rad0_mask, rad1_mask)
