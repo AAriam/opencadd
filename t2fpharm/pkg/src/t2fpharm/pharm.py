@@ -1,6 +1,6 @@
 """Pharmacophore."""
 
-from typing import Sequence, Any, Self, Literal
+from typing import Sequence, Any, Self, Literal, Final
 from collections import defaultdict
 import functools
 
@@ -2214,7 +2214,21 @@ def distance_matrix(
     def _sphere_surface_distance(
         d: np.ndarray, r0: np.ndarray, r1: np.ndarray
     ) -> np.ndarray:
-        """Closest separation between two spherical surfaces."""
+        """Closest separation between surfaces of two spheres.
+
+        Parameters
+        ----------
+        d
+            Pairwise center-to-center distances.
+        r0, r1
+            Radii of the two spheres.
+
+        Returns
+        -------
+        np.ndarray
+            Minimum nonnegative surface-to-surface separation.
+            Zero if the spheres intersect or are tangent.
+        """
         # where spheres are separated: d > r0+r1 -> d - (r0+r1)
         sep = np.maximum(0.0, d - (r0 + r1))
         # where one sphere inside the other without touching: |r0-r1| > d -> |r0-r1| - d
@@ -2229,31 +2243,33 @@ def distance_matrix(
     repr0 = f0["repr"].to_numpy(dtype=int)
     repr1 = f1["repr"].to_numpy(dtype=int)
 
+    pt0_mask = repr0 == 1
+    pt1_mask = repr1 == 1
+    vec0_mask = repr0 == 2
+    vec1_mask = repr1 == 2
+    rad0_mask = repr0 == 3
+    rad1_mask = repr1 == 3
+
+    mask_nonrad0 = ~rad0_mask
+    mask_nonrad1 = ~rad1_mask
+
     # Centers and ends as (n, 3) arrays (NaNs where not applicable)
     c0 = np.vstack([_as_xyz(x) for x in f0["center"].to_numpy(object)])
     c1 = np.vstack([_as_xyz(x) for x in f1["center"].to_numpy(object)])
     e0 = np.vstack([_as_xyz(x) for x in f0["end"].to_numpy(object)])
     e1 = np.vstack([_as_xyz(x) for x in f1["end"].to_numpy(object)])
 
-    # Radii: for vectors, prefer DataFrame 'radius' if finite; otherwise derive from length.
-    rad0_raw = f0["radius"].to_numpy(float)
-    rad1_raw = f1["radius"].to_numpy(float)
-
-    vec0_mask = repr0 == 2
-    vec1_mask = repr1 == 2
-    rad0_mask = repr0 == 3
-    rad1_mask = repr1 == 3
-    pt0_mask = repr0 == 1
-    pt1_mask = repr1 == 1
-
     vec0_len = _norm(e0 - c0)
     vec1_len = _norm(e1 - c1)
 
-    rad0 = rad0_raw.copy()
-    rad1 = rad1_raw.copy()
+    # Radii: for vectors, prefer DataFrame 'radius' if finite; otherwise derive from length.
+    r0 = f0["radius"].to_numpy(float)
+    r1 = f1["radius"].to_numpy(float)
     # Fill vector radii if missing
-    rad0[np.where(vec0_mask & ~np.isfinite(rad0))] = vec0_len[np.where(vec0_mask & ~np.isfinite(rad0))]
-    rad1[np.where(vec1_mask & ~np.isfinite(rad1))] = vec1_len[np.where(vec1_mask & ~np.isfinite(rad1))]
+    vec0_no_rad_mask = np.where(vec0_mask & ~np.isfinite(r0))
+    vec1_no_rad_mask = np.where(vec1_mask & ~np.isfinite(r1))
+    r0[vec0_no_rad_mask] = vec0_len[vec0_no_rad_mask]
+    r1[vec1_no_rad_mask] = vec1_len[vec1_no_rad_mask]
 
     # ---- initialize output ---------------------------------------------------
     out = np.zeros((n0, n1, 4), dtype=float)
@@ -2268,32 +2284,30 @@ def distance_matrix(
     center_dist = np.zeros((n0, n1), dtype=float)
 
     # Case A: pairs where neither is radial -> use center-center distance
-    non_rad0 = ~rad0_mask
-    non_rad1 = ~rad1_mask
-    a_mask = np.outer(non_rad0, non_rad1)
+    a_mask = np.outer(mask_nonrad0, mask_nonrad1)
     center_dist[a_mask] = cc_dist[a_mask]
 
     # Case B: point/vector (has center) vs radial -> |‖c - e_r‖ - r|
     # f0 non-radial vs f1 radial
-    b1_mask = np.outer(non_rad0, rad1_mask)
+    b1_mask = np.outer(mask_nonrad0, rad1_mask)
     if b1_mask.any():
         c_minus_er = c0[:, None, :] - e1[None, :, :]
         dist_c_to_er = _norm(c_minus_er, axis=2)
-        center_dist[b1_mask] = np.abs(dist_c_to_er[b1_mask] - rad1[np.newaxis, :][b1_mask])
+        center_dist[b1_mask] = np.abs(dist_c_to_er[b1_mask] - r1[np.newaxis, :][b1_mask])
 
     # f0 radial vs f1 non-radial
-    b2_mask = np.outer(rad0_mask, non_rad1)
+    b2_mask = np.outer(rad0_mask, mask_nonrad1)
     if b2_mask.any():
         c_minus_er = c1[None, :, :] - e0[:, None, :]
         dist_c_to_er = _norm(c_minus_er, axis=2)
-        center_dist[b2_mask] = np.abs(dist_c_to_er[b2_mask] - rad0[:, np.newaxis][b2_mask])
+        center_dist[b2_mask] = np.abs(dist_c_to_er[b2_mask] - r0[:, np.newaxis][b2_mask])
 
     # Case C: radial–radial -> closest separation between spherical surfaces
     c_mask = np.outer(rad0_mask, rad1_mask)
     if c_mask.any():
         ee_diff = e0[:, None, :] - e1[None, :, :]
         d = _norm(ee_diff, axis=2)
-        surf = _sphere_surface_distance(d, rad0[:, None], rad1[None, :])
+        surf = _sphere_surface_distance(d, r0[:, None], r1[None, :])
         center_dist[c_mask] = surf[c_mask]
 
     out[:, :, 0] = center_dist
@@ -2336,8 +2350,8 @@ def distance_matrix(
     nonpt1 = ~pt1_mask
     np_mask = np.outer(nonpt0, nonpt1)
     if np_mask.any():
-        r0_mat = rad0[:, None] * np.ones((1, n1))
-        r1_mat = rad1[None, :] * np.ones((n0, 1))
+        r0_mat = r0[:, None] * np.ones((1, n1))
+        r1_mat = r1[None, :] * np.ones((n0, 1))
         rad_diff[np_mask] = np.abs(r0_mat[np_mask] - r1_mat[np_mask])
 
     # Pairs with at least one point -> parameterized constants
@@ -2359,34 +2373,36 @@ def distance_matrix(
 
     # Vector–vector
     if vv_mask.any():
-        dots = np.einsum("ik,jk->ij", d0, d1)  # (n0,n1)
+        dots = (d0 @ d1.T)  # (n0, n1)
         vv_angles = _angles_from_unit_dot(dots)
         # set undefined angles (zero-length vectors) to π
-        undefined = (np.outer(vec0_mask, vec1_mask)
-                     & ((n0_len[:, None] <= 1e-12) | (n1_len[None, :] <= 1e-12)))
-        vv_angles[undefined] = math.pi
+        undefined = (
+            np.outer(vec0_mask, vec1_mask)
+            & ((n0_len[:, None] <= 1e-12) | (n1_len[None, :] <= 1e-12))
+        )
+        vv_angles[undefined] = np.pi
         angle[vv_mask] = vv_angles[vv_mask]
 
     # Vector–radial (f0 vector, f1 radial)
     if vr_mask.any():
-        diff = e1[None, :, :] - c0[:, None, :]
-        u, ulen = _unit(diff)
-        dots = np.einsum("ikj,ik->ij", u, d0[:, None, :])
+        diff = e1[None, :, :] - c0[:, None, :]  # (n0,n1,3)
+        u, ulen = _unit(diff)  # (n0,n1,3), (n0,n1)
+        dots = np.sum(u * d0[:, None, :], axis=2)  # broadcasted dot product
         vr_angles = _angles_from_unit_dot(dots)
         undef = (np.outer(vec0_mask, rad1_mask)
                  & ((n0_len[:, None] <= 1e-12) | (ulen <= 1e-12)))
-        vr_angles[undef] = math.pi
+        vr_angles[undef] = np.pi
         angle[vr_mask] = vr_angles[vr_mask]
 
     # Vector–radial (f0 radial, f1 vector)
     if rv_mask.any():
-        diff = e0[:, None, :] - c1[None, :, :]
-        u, ulen = _unit(diff)
-        dots = np.einsum("ijk,jk->ij", u, d1[None, :, :])
+        diff = e0[:, None, :] - c1[None, :, :]  # (n0,n1,3)
+        u, ulen = _unit(diff)  # (n0,n1,3), (n0,n1)
+        dots = np.sum(u * d1[None, :, :], axis=2)  # broadcasted dot product
         rv_angles = _angles_from_unit_dot(dots)
         undef = (np.outer(rad0_mask, vec1_mask)
                  & ((n1_len[None, :] <= 1e-12) | (ulen <= 1e-12)))
-        rv_angles[undef] = math.pi
+        rv_angles[undef] = np.pi
         angle[rv_mask] = rv_angles[rv_mask]
 
     # All other pairs use parameter values
