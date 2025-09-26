@@ -209,6 +209,28 @@ class NGLWidget(nv.NGLWidget):
         self._js(command)
         return
 
+    def add_shape(
+        self,
+        shapes: Sequence[Sequence],
+        name: str = "shape",
+        representation_params: RepresentationParameters | None = None,
+    ) -> None:
+        add_shape_lines = [
+            f"shape.add{shape[0].capitalize()}({', '.join(map(_js_repr, shape[1:]))})"
+            for shape in shapes
+        ]
+        add_repr_args = [f'"buffer"']
+        if representation_params:
+            add_repr_args.append(str(representation_params))
+        command = f"""
+            var shape = new NGL.Shape("{name}", {{ disableImpostor: true }});
+            {";\n".join(add_shape_lines)};
+            var shapeComp = this.stage.addComponentFromObject(shape);
+            shapeComp.addRepresentation({", ".join(add_repr_args)});
+            """
+        self._js(command)
+        return
+
     def add_volume(
         self,
         data: np.ndarray,
@@ -411,6 +433,94 @@ class NGLWidget(nv.NGLWidget):
         """
         self._js(js_code)
         return
+
+    def add_spherical_conical_shell(
+        self,
+        apex: np.ndarray,
+        axis: np.ndarray,
+        angle: float,
+        r_min: float,
+        r_max: float,
+        *,
+        n_theta: int = 48,
+        n_phi: int = 96,
+        n_r: int = 8,
+        color: Tuple[float, float, float] = (0.2, 0.6, 1.0),
+        name: str = "spherical_conical_shell",
+        representation_params: RepresentationParameters | None = None,
+        add: bool = True,
+    ) -> nv.NGLWidget:
+        """Add a (spherical shell ∩ cone region) mesh.
+
+        The region is defined in spherical coordinates centered at `apex`:
+        r ∈ [r_min, r_max], polar angle θ ∈ [0, angle]
+        measured about the `axis` vector (starting at `apex`), and φ ∈ [0, 2π).
+
+        Parameters
+        ----------
+        apex
+            3D point (shape (3,)) of the cone apex and the center of the spherical shells.
+        axis
+            Cone axis vector starting from `apex`.
+        angle
+            Half apex angle of the cone in radians.
+        r_min
+            Inner radius of the shell (must be positive).
+        r_max
+            Outer radius of the shell (must be > r_min).
+        n_theta
+            Angular (θ) resolution for spherical patches (excluding poles).
+            Higher -> smoother spherical patches.
+        n_phi
+            Azimuthal resolution around the axis. Higher -> smoother in φ.
+        n_r
+            Radial resolution for the lateral conical patch (between r1 and r2).
+        color
+            Either a single RGB triple in [0,1] for uniform color, or an (N,3) array for per-vertex color.
+        name
+            Mesh name shown in NGL.
+        representation_params
+            Representation parameters for the shape representation.
+        add
+            If True, add the shape to the NGLWidget immediately.
+            If False, return the shape tuple instead. This can be used to
+            combine multiple shapes in a single call to `add_shape()`.
+        """
+        verts, faces = _spherical_conical_shell_mesh(
+            apex=apex,
+            axis=axis,
+            angle=angle,
+            r_min=r_min,
+            r_max=r_max,
+            n_theta=n_theta,
+            n_phi=n_phi,
+            n_r=n_r,
+        )
+        # Prepare arrays exactly as NGL expects
+        normals = _vertex_normals(verts, faces)
+
+        # color: allow single RGB or per-vertex
+        if isinstance(color, (tuple, list)) and len(color) == 3 and not hasattr(color[0], "__len__"):
+            color_arg = list(map(float, color)) * verts.shape[0]
+        else:
+            c = np.asarray(color, dtype=np.float32)
+            if c.shape != (verts.shape[0], 3):
+                raise ValueError("Per-vertex color must have shape (N_vertices, 3).")
+            color_arg = c.ravel().tolist()
+
+        # NGL order: position, color, index, normal, name
+        shape = (
+            "mesh",
+            verts.astype(np.float32).ravel().tolist(),
+            color_arg,
+            faces.astype(np.uint32).ravel().tolist(),  # NGL accepts flat index array
+            normals.astype(np.float32).ravel().tolist(),
+            name,
+        )
+        if add:
+            self.add_shape([shape], representation_params=representation_params)
+            return
+        return shape
 
     def set_component_visibility(self, visibile: bool) -> None:
         """Set the visibility of components in the stage."""
@@ -647,15 +757,196 @@ def _to_camel_case(snake_str: str) -> str:
 
 def _js_repr(value: Any) -> str:
     if isinstance(value, str):
-        return f"'{value}'"
+        return f'"{value}"'
     elif isinstance(value, bool):
         return 'true' if value else 'false'
     elif isinstance(value, (int, float)):
         return str(value)
-    elif isinstance(value, list):
+    elif isinstance(value, list | tuple):
         return '[' + ', '.join(_js_repr(v) for v in value) + ']'
     elif isinstance(value, dict):
         return '{' + ', '.join(f"{k}: {_js_repr(v)}" for k, v in value.items()) + '}'
     elif hasattr(value, '__str__'):
         return str(value)
     return 'null'
+
+
+def _spherical_conical_shell_mesh(
+    apex: np.ndarray,
+    axis: np.ndarray,
+    angle: float,
+    r_min: float,
+    r_max: float,
+    *,
+    n_theta: int = 48,
+    n_phi: int = 96,
+    n_r: int = 8,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Generate a triangular mesh for a spherical shell ∩ cone region.
+
+    The region is defined in spherical coordinates centered at `apex`:
+    r ∈ [r_min, r_max], polar angle θ ∈ [0, angle]
+    measured about the `axis` vector (starting at `apex`), and φ ∈ [0, 2π).
+
+    The resulting surface consists of:
+    - Outer spherical patch (r = r2, 0 ≤ θ ≤ angle, 0 ≤ φ < 2π)
+    - Inner spherical patch (r = r1, same angular ranges)
+    - Lateral conical patch (θ = angle, r1 ≤ r ≤ r2, 0 ≤ φ < 2π)
+
+    Parameters
+    ----------
+    apex
+        3D point (shape (3,)) of the cone apex and the center of the spherical shells.
+    axis
+        Cone axis vector starting from `apex`.
+    angle
+        Half apex angle of the cone in radians.
+    r_min
+        Inner radius of the shell (must be positive).
+    r_max
+        Outer radius of the shell (must be > r_min).
+    n_theta
+        Angular (θ) resolution for spherical patches (excluding poles).
+        Higher -> smoother spherical patches.
+    n_phi
+        Azimuthal resolution around the axis. Higher -> smoother in φ.
+    n_r
+        Radial resolution for the lateral conical patch (between r1 and r2).
+
+    Returns
+    -------
+    vertices, faces
+        vertices: (N, 3) float32 array of 3D points.
+        faces:    (M, 3) int32 array of triangle indices (CCW).
+
+    Raises
+    ------
+    ValueError
+        If inputs are invalid (e.g., degenerate axis, nonpositive angle/radius).
+
+    Notes
+    ------
+    - Coordinates are returned in the original world frame.
+    - The mesh is watertight except for the θ=0 (axis) edge, which is a geometric line.
+      This is intentional: the region is open along the axis, matching the cone definition.
+    """
+    def local_to_world(xyz_local: np.ndarray) -> np.ndarray:
+        # xyz_local: (..., 3)
+        return apex + xyz_local[..., 0:1] * v1 + xyz_local[..., 1:2] * v2 + xyz_local[..., 2:3] * u
+
+    def sph(r: float) -> np.ndarray:
+        # Return (n_theta+1, n_phi, 3) in local coords
+        st, ct = np.sin(Theta), np.cos(Theta)
+        sp, cp = np.sin(Phi), np.cos(Phi)
+        x = r * st * cp
+        y = r * st * sp
+        z = r * ct
+        return np.stack([x, y, z], axis=-1)
+
+    apex = np.asarray(apex, dtype=float).reshape(3)
+    axis = np.asarray(axis, dtype=float).reshape(3)
+    if not np.isfinite(axis).all() or not np.isfinite(apex).all():
+        raise ValueError("center/end must be finite 3D vectors.")
+    if angle <= 0.0 or angle > 2 * np.pi:
+        raise ValueError(f"Angle must be in (0, 2π] range, but got {angle}.")
+    if r_min <= 0.0:
+        raise ValueError(f"radius must be positive, but got {r_min} for r_min.")
+    if r_max <= 0.0:
+        raise ValueError(f"radius must be positive, but got {r_max} for r_max.")
+    if r_max <= r_min:
+        raise ValueError("r_max must be greater than r_min.")
+
+    axis_norm = np.linalg.norm(axis)
+    if axis_norm == 0:
+        raise ValueError("center and end cannot coincide (undefined cone axis).")
+    u = axis / axis_norm  # axis unit vector (local +Z)
+
+    # Build an orthonormal frame {v1, v2, u}, with u along the axis.
+    # Pick a helper not parallel to u.
+    helper = np.array([0.0, 0.0, 1.0]) if abs(u[2]) < 0.999 else np.array([1.0, 0.0, 0.0])
+    v1 = np.cross(u, helper)
+    v1_norm = np.linalg.norm(v1)
+    if v1_norm == 0:
+        raise ValueError("Failed to build orthonormal basis.")
+    v1 /= v1_norm
+    v2 = np.cross(u, v1)
+
+    vertices = []
+    faces = []
+
+    # ---- Spherical patches (r = r1 and r = r2) ----
+    # θ ∈ [0, angle_tol], φ ∈ [0, 2π)
+    # We'll avoid the exact θ=0 singularity by starting from a tiny epsilon.
+    eps = 1e-9
+    theta = np.linspace(max(eps, 0.0), angle, n_theta + 1)  # n_theta+1 rings including edge
+    phi = np.linspace(0.0, 2 * np.pi, n_phi, endpoint=False)  # periodic
+    Theta, Phi = np.meshgrid(theta, phi, indexing="ij")  # (n_theta+1, n_phi)
+
+    for r_fixed in (r_max, r_min):
+        grid_local = sph(r_fixed)  # (T, P, 3)
+        grid_world = local_to_world(grid_local)  # (T, P, 3)
+        base = len(vertices)
+        vertices.extend(grid_world.reshape(-1, 3))
+
+        T, P = grid_world.shape[:2]
+        # Build quads between rings -> two triangles per cell
+        for i in range(T - 1):
+            for j in range(P):
+                a = base + i * P + j
+                b = base + i * P + ((j + 1) % P)
+                c = base + (i + 1) * P + j
+                d = base + (i + 1) * P + ((j + 1) % P)
+                # For outer surface (r2): outward normal points outward already.
+                # For inner surface (r1): flip winding so its normal points inward (toward cavity).
+                if r_fixed == r_max:
+                    faces.append([a, c, b])
+                    faces.append([b, c, d])
+                else:
+                    faces.append([a, b, c])
+                    faces.append([b, d, c])
+
+    # ---- Lateral conical patch (θ = angle_tol, r ∈ [r1, r2], φ ∈ [0, 2π)) ----
+    # Parametrize by r and φ at fixed θ.
+    rr = np.linspace(r_min, r_max, n_r + 1)
+    phi2 = np.linspace(0.0, 2 * np.pi, n_phi, endpoint=False)
+    R, Phi2 = np.meshgrid(rr, phi2, indexing="ij")  # (n_r+1, n_phi)
+    st, ct = np.sin(angle), np.cos(angle)
+    sp, cp = np.sin(Phi2), np.cos(Phi2)
+    x = R * st * cp
+    y = R * st * sp
+    z = R * ct
+    cone_local = np.stack([x, y, z], axis=-1)  # (n_r+1, n_phi, 3)
+    cone_world = local_to_world(cone_local)
+    base = len(vertices)
+    vertices.extend(cone_world.reshape(-1, 3))
+
+    Rn, Pn = cone_world.shape[:2]
+    for i in range(Rn - 1):
+        for j in range(Pn):
+            a = base + i * Pn + j
+            b = base + i * Pn + ((j + 1) % Pn)
+            c = base + (i + 1) * Pn + j
+            d = base + (i + 1) * Pn + ((j + 1) % Pn)
+            # Winding so that the conical normals point outward.
+            faces.append([a, c, b])
+            faces.append([b, c, d])
+    return np.asarray(vertices, dtype=np.float32), np.asarray(faces, dtype=np.int32)
+
+
+def _vertex_normals(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
+    """Per-vertex unit normals from area-weighted face normals."""
+    v = vertices.astype(np.float64, copy=False)
+    f = faces.astype(np.int64, copy=False)
+
+    n = np.zeros_like(v, dtype=np.float64)
+    p0, p1, p2 = v[f[:, 0]], v[f[:, 1]], v[f[:, 2]]
+    fn = np.cross(p1 - p0, p2 - p0)  # area-weighted
+    for i, tri in enumerate(f):
+        n[tri[0]] += fn[i]
+        n[tri[1]] += fn[i]
+        n[tri[2]] += fn[i]
+    lens = np.linalg.norm(n, axis=1)
+    lens[lens == 0.0] = 1.0
+    n /= lens[:, None]
+    return n.astype(np.float32, copy=False)
+
