@@ -1770,6 +1770,84 @@ class Pharmacophore:
         """Boolean Series indicating which features are radial."""
         return self.features['repr'] == 3
 
+
+def cluster_features(
+    features: pd.DataFrame,
+    function: ClusteringFunction,
+    *,
+    function_input: Callable | Literal["center", "end"] = distmatrix_linear,
+    min_members: PositiveInt = 1,
+    noise_as_singleton: bool = True,
+    weight_col: str | None = None,
+    label_col: str = "cluster_label",
+) -> pd.DataFrame:
+    """Cluster pharmacophore features.
+
+    Parameters
+    ----------
+    features
+        DataFrame of pharmacophore features to cluster.
+    function
+        Clustering function
+    """
+
+    # Only one feature
+    if len(features) == 1:
+        features[label_col] = 0 if min_members == 1 else -1
+        return features
+
+    # Perform clustering
+    if callable(function_input):
+        labels = function(function_input(features, features)[:,:,-1])
+    elif function_input in ("center", "end"):
+        if features[function_input].isna().any():
+            raise ValueError(
+                f"Cannot cluster by {function_input} since features contain NaN in the '{function_input}' column."
+            )
+        labels = function(
+            np.stack(features[function_input].to_numpy()),
+            features[weight_col].to_numpy(dtype=np.float64) if weight_col is not None else None
+        )
+    else:
+        raise ValueError(f"Invalid function_input: {function_input}")
+
+    # Validate clustering labels
+    labels = np.asarray(labels)
+    if labels.ndim != 1:
+        raise ValueError(
+            f"Clustering function must return a 1D array of labels, "
+            f"but got shape {labels.shape}."
+        )
+    if labels.size != len(features):
+        raise ValueError(
+            f"Clustering function must return labels for all features, "
+            f"but got {labels.size} labels for {len(features)} features."
+        )
+    if labels.dtype.kind != 'i':
+        raise ValueError(
+            f"Clustering function must return integer labels, "
+            f"but got dtype {labels.dtype}."
+        )
+
+    # Post-process labels
+    if min_members > 1:
+        # Re-label clusters with fewer members than min_members as noise (-1)
+        unique, counts = np.unique(labels, return_counts=True)
+        label_counts = dict(zip(unique, counts))
+        labels = np.array([
+            label if label_counts[label] >= min_members else -1
+            for label in labels
+        ])
+    elif noise_as_singleton:
+        # Re-label noise points (-1) as unique singleton clusters
+        is_noise = labels < 0
+        new_label_start = labels.max() + 1
+        new_label_end = new_label_start + is_noise.sum()
+        labels[is_noise] = np.arange(new_label_start, new_label_end)
+    features[label_col] = labels
+    return features
+
+
 def merge(
     pharmacophores: Sequence[Pharmacophore],
     name: str = "Merged Pharmacophore",
