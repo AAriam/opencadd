@@ -2088,3 +2088,220 @@ def _uniquify(strings: list[str]) -> list[str]:
             running_counts[s] += 1
             result.append(f"{s}_{running_counts[s]}")
     return result
+
+
+def merge_features(
+    features: pd.DataFrame,
+    center: Literal["mean", "midpoint"] | float | Sequence[float] = "mean",
+    end: Literal["mean", "midpoint"] | float | Sequence[float] = "mean",
+    radius: Literal["max", "mean", "min"] | float | Sequence[float] = "mean",
+    vector_length_ratio_threshold: float = 0.5,
+) -> dict[str, Any]:
+    """Merge multiple pharmacophore features into a single feature.
+
+    Parameters
+    ----------
+    features
+        DataFrame of pharmacophore features to merge.
+        The features can be of any (mixed) representation (point, vector, radial).
+    center
+        Method to merge the center of point and vector features:
+        - "mean": average of all centers.
+        - "midpoint": midpoint between min and max centers.
+        - float (0-100): percentile of centers.
+        - sequence of float: weighted average of centers with given weights.
+    end
+        Method to merge the end of vector and radial features.
+        Same options as `center`.
+    radius
+        Method to merge the radius of radial features:
+        - "mean": average of all radii.
+        - "min": minimum of all radii.
+        - "max": maximum of all radii.
+        - float (0-100): percentile of radii.
+        - sequence of float: weighted average of radii with given weights.
+    vector_length_ratio_threshold
+        Threshold (positive float) for determining if a merged vector feature has collapsed.
+        If the merged feature is a vector, but the ratio of its actual length
+        (i.e., distance between merged center and end) to the its merged radius
+        is less than this threshold, the vector is considered collapsed.
+        In this case,
+        - If it is the center that is moved too close to the end,
+          it means that all input vectors were symmetrically pointing towards
+          the same end; the merged feature will become a radial feature
+          at the merged end point with the merged radius.
+        - If it is the end that is moved too close to the center,
+          it means that all input vectors were symmetrically pointing away from
+          the same center; the merged feature will become a point feature at the
+          merged center.
+
+    Returns
+    -------
+    Dictionary defining the merged feature with keys:
+    - "repr": integer code of the merged feature representation (1 = point, 2 = vector, 3 = radial).
+    - "center": 3D coordinates of the merged center point (or None if not applicable).
+    - "end": 3D coordinates of the merged end point (or None if not applicable).
+    - "radius": radius of the merged radial feature (or None if not applicable).
+    - "center_tol": tolerance for the center point (0.0 if no center).
+    - "end_tol": tolerance for the end point (0.0 if no end).
+    - "radius_tol": tolerance for the radius (0.0 if no radius).
+    """
+    def merge_points(col: str, method: Any):
+        df = features[features[col].notna()]
+        if df.empty:
+            return None, None, None
+        points = np.stack(df[col])
+        if isinstance(method, int | float):
+            point = np.percentile(points, q=method, axis=0)
+        elif not isinstance(method, str):
+            point = np.average(points, weights=method, axis=0)
+        elif method == "mean":
+            point = points.mean(axis=0)
+        elif method == "midpoint":
+            point = (points.min(axis=0) + points.max(axis=0)) / 2
+        else:
+            raise ValueError(f"Invalid method for merging {col}: {method}")
+        return df, points, point
+
+    def merge_scalar(col: str, method: Any):
+        df = features[features[col].notna()]
+        if df.empty:
+            return None, None, None
+        values = df[col].to_numpy(dtype=float)
+        if isinstance(method, int | float):
+            value = float(np.percentile(values, q=method))
+        elif not isinstance(method, str):
+            value = float(np.average(values, weights=method))
+        elif method == "mean":
+            value = float(values.mean())
+        elif method == "min":
+            value = float(values.min())
+        elif method == "max":
+            value = float(values.max())
+        else:
+            raise ValueError(f"Invalid method for merging {col}: {method}")
+        return df, values, value
+
+    def scale_vector(
+        center: np.ndarray,
+        end: np.ndarray,
+        radius: float,
+        weight_center: float,
+        weight_end: float,
+    ) -> tuple[np.ndarray, np.ndarray, float]:
+        """Scale a vector defined by center and end to a new length.
+
+        Parameters
+        ----------
+        center
+            3D coordinates of the vector's starting point.
+        end
+            3D coordinates of the vector's end point.
+        radius
+            The desired length of the scaled vector.
+        weight_center, weight_end
+            Weighting factors for the center and end points.
+            Each weight must be a non-negative number;
+            they define the relative amounts by which the center and end
+            are moved to achieve the new length.
+            For example, if both weights are the same (even if both are zero),
+            the center and end are moved equally.
+            If one weight is zero, that point remains fixed and the other
+            point is moved to achieve the new length.
+            If both weights are non-zero and different,
+            the displacement ratio of the center and end points `delta_center / delta_end`
+            is equal to `weight_center / weight_end`.
+
+        Returns
+        -------
+        The scaled center and end points.
+        """
+        vec = end - center
+        current_length = np.linalg.norm(vec)
+
+        # Case: collapsed vector
+        if (current_length / radius) < vector_length_ratio_threshold:
+            # If center is moved close to end,
+            # it means that all vectors were symmetrically pointing towards the same end;
+            # in this case, return a radial feature instead
+            if weight_center > weight_end:
+                return None, end, radius
+            # If end is moved close to center,
+            # it means that all vectors were symmetrically pointing away from the same center;
+            # in this case, return a point feature at center instead
+            return center, None, None
+
+        # Unit direction vector
+        direction = vec / current_length
+
+        # Displacement needed (positive = expansion, negative = contraction)
+        delta_length = radius - current_length
+
+        # Special case for weights
+        if weight_center == 0 and weight_end == 0:
+            # Move both equally
+            delta_center = -0.5 * delta_length
+            delta_end = 0.5 * delta_length
+        # General weighted case
+        else:
+            total = weight_center + weight_end
+            delta_center = -(weight_end / total) * delta_length
+            delta_end = (weight_center / total) * delta_length
+
+        new_center = center + direction * delta_center
+        new_end = end + direction * delta_end
+        return new_center, new_end, radius
+
+    if features.empty:
+        raise ValueError("Cannot merge features: input DataFrame is empty.")
+
+    df_center, centers, center = merge_points("center", center)
+    df_end, ends, end = merge_points("end", end)
+    df_radius, radii, radius = merge_scalar("radius", radius)
+
+    has_center = center is not None
+    has_end = end is not None
+    has_radius = radius is not None
+    has_component = (has_center, has_end, has_radius)
+
+    if not any(has_component):
+        raise ValueError("Cannot merge features: no valid center, end, or radius found.")
+    if has_center:
+        dist_centers = np.linalg.norm(centers - center, axis=1)
+    if has_end:
+        dist_ends = np.linalg.norm(ends - end, axis=1)
+    if has_radius:
+        dist_radii = np.abs(radii - radius)
+
+    if all(has_component):
+        center, end, radius = scale_vector(
+            center=center,
+            end=end,
+            radius=radius,
+            weight_center=dist_centers.mean(),
+            weight_end=dist_ends.mean(),
+        )
+        has_center = center is not None
+        has_end = end is not None
+        has_radius = radius is not None
+        if has_center:
+            dist_centers = np.linalg.norm(centers - center, axis=1)
+        if has_end:
+            dist_ends = np.linalg.norm(ends - end, axis=1)
+
+    tols = {
+        f"{name}_tol": max(df[f"{name}_tol"].max(), dist.max()) if has else 0.0
+        for name, df, dist, has in [
+            ("center", df_center, dist_centers, has_center),
+            ("end", df_end, dist_ends, has_end),
+            ("radius", df_radius, dist_radii, has_radius),
+        ]
+    }
+    return {
+        "repr": 2 if has_center and has_end else (3 if has_radius else 1),
+        "center": center,
+        "end": end,
+        "radius": radius,
+        **tols,
+    }
+
