@@ -78,13 +78,14 @@ class PharmFeaturesInput(BaseModel):
             'radius_tol': 'float64',
             'center_tol': 'float64',
             'end_tol': 'float64',
+            'angle_tol': 'float64',
         }
         main_cols = list(col_to_dtype.keys())
 
         df = self.features
         if df.empty:
             df = pd.DataFrame(
-                columns=main_cols + [list(df.columns.difference(main_cols))]
+                columns=main_cols + list(df.columns.difference(main_cols))
             ).astype(col_to_dtype)
             self.features = df
             return self
@@ -108,7 +109,7 @@ class PharmFeaturesInput(BaseModel):
             else:
                 raise TypeError(f"Unsupported type {type(first_instance)} in Series.")
         else:
-            df["instance"] = pd.Series(0, dtype='Int64')
+            df["instance"] = pd.Series(0, index=df.index, dtype='Int64')
 
         # Validate 'type'
         if not pd.api.types.is_string_dtype(df['type']) and not pd.api.types.is_integer_dtype(df['type']):
@@ -173,7 +174,7 @@ class PharmFeaturesInput(BaseModel):
             if neg_idx:
                 raise ValueError(f"Negative radius at rows: {neg_idx}")
         else:
-            df['radius'] = pd.Series(pd.NA, dtype='float64')
+            df['radius'] = pd.Series(pd.NA, dtype='Float64')
 
         # Validate features are either points, vectors, or spherical
         has_center = df['center'].notnull()
@@ -198,7 +199,7 @@ class PharmFeaturesInput(BaseModel):
             vector_ends = np.vstack(df.loc[is_vector, 'end'])
             vector_lengths = np.linalg.norm(vector_ends - vector_centers, axis=1)
             vector_radii = pd.Series(vector_lengths, index=df.index[is_vector], dtype='float64')
-            df["radius"].fillna(vector_radii, inplace=True)
+            df["radius"] = df["radius"].fillna(vector_radii)
             current_radii = df.loc[is_vector, 'radius']
             radii_mismatch = (current_radii - vector_radii).abs() > 1e-3
             if radii_mismatch.any():
@@ -224,7 +225,7 @@ class PharmFeaturesInput(BaseModel):
             df["repr"] = repr_
 
         # Handle tolerance columns
-        for tol_col in ['radius_tol', 'center_tol', 'end_tol']:
+        for tol_col in ['radius_tol', 'center_tol', 'end_tol', 'angle_tol']:
             if tol_col in df.columns:
                 try:
                     df[tol_col] = df[tol_col].astype(float)
@@ -234,7 +235,7 @@ class PharmFeaturesInput(BaseModel):
                 if neg_idx:
                     raise ValueError(f"Negative tolerance in column '{tol_col}' at rows: {neg_idx}")
             else:
-                df[tol_col] = pd.Series(0.0, dtype='float64')
+                df[tol_col] = pd.Series(0.0, index=df.index, dtype='float64')
 
         extra_cols = [col for col in df.columns if col not in main_cols]
         all_cols = main_cols + extra_cols
