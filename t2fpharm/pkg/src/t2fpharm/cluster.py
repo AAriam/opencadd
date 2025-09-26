@@ -3,27 +3,52 @@
 This module provides functions that return clustering functions
 suitable for use with the `Pharmacophore.cluster` method.
 """
-from typing import Sequence, NamedTuple, Literal, Callable, Any
+from typing import Sequence, Literal, Callable, Any, TypeAlias
 
 import numpy as np
 import scids
 from sklearn.cluster import AgglomerativeClustering
 
-from t2fpharm.input.pharm.cluster import ClusteringFunction
 from t2fpharm.typing import PositiveInt, PositiveFloat
 
 
-class ClusteringResult(NamedTuple):
-    """Result of a clustering function."""
-    labels: np.ndarray | Sequence[int]
-    centers: np.ndarray | Sequence[tuple[float, float, float]] | None = None
+ClusteringFunction: TypeAlias = Callable[[np.ndarray, np.ndarray | None], np.ndarray | Sequence[int]]
+"""A compatible clustering function.
+
+Parameters
+----------
+input_values
+    First positional argument, corresponding to the clustering input values
+    as a 2D NumPy array of floats.
+    Depending on the clustering method,
+    this is either an array of shape `(n_features, 3)`,
+    containing the 3D coordinates of feature centers/ends,
+    or an array of shape `(n_features, n_features)`,
+    containing pairwise distance values between features.
+weights
+    Optional second positional argument, corresponding to feature weights
+    as a 1D NumPy array of floats of length `n_features`.
+    If provided, the clustering function may use these weights
+    to influence the clustering result.
+    If not provided (or None), the clustering function should treat all features equally.
+
+Returns
+-------
+    A 1D NumPy array or sequence of integers of length `n_features`,
+    where each integer represents the cluster label assigned to the corresponding feature.
+    Negative labels are considered background/noise.
+"""
+
+
+ClusterAggLinkageType: TypeAlias = Literal["average", "complete", "single", "ward"]
+ClusterAggLinkageMetricType: TypeAlias = Literal["euclidean", "l1", "l2", "manhattan", "cosine", "precomputed"] | Callable
 
 
 def agg(
     n_clusters: PositiveInt | None,
     distance_threshold: PositiveFloat | None,
-    linkage: Literal["average", "complete", "single", "ward"],
-    metric: Literal["euclidean", "l1", "l2", "manhattan", "cosine", "precomputed"] | Callable,
+    linkage: ClusterAggLinkageType,
+    metric: ClusterAggLinkageMetricType,
     memory: Any | None = None,
 ) -> ClusteringFunction:
     """Create a clustering function using a [hierarchical agglomerative clustering](https://scikit-learn.org/stable/modules/clustering.html#hierarchical-clustering) algorithm.
@@ -37,16 +62,15 @@ def agg(
     A hierarchical agglomerative clustering function
     that can be used as input for the `Pharmacophore.cluster` method.
     """
-    def clustering_function(centers: np.ndarray, weights: np.ndarray) -> ClusteringResult:
-        model = AgglomerativeClustering(
+    def clustering_function(centers: np.ndarray, weights: np.ndarray | None = None) -> np.ndarray:
+        return AgglomerativeClustering(
             n_clusters=n_clusters,
             metric=metric,
             memory=memory,
             linkage=linkage,
             distance_threshold=distance_threshold,
-        )
-        labels = model.fit_predict(centers)
-        return ClusteringResult(labels=labels)
+        ).fit_predict(centers)
+    return clustering_function
 
 
 def cnn(
@@ -97,7 +121,7 @@ def cnn(
     -------
     A CNN clustering function that can be used as input for the `Pharmacophore.cluster` method.
     """
-    def clustering_function(centers: np.ndarray, weights: np.ndarray) -> ClusteringResult:
+    def clustering_function(centers: np.ndarray, weights: np.ndarray | None = None) -> np.ndarray:
         labels = scids.pointcloud.from_array(centers).cluster_cnn(
             max_distance=max_distance,
             min_neighbors=min_neighbors,
@@ -108,5 +132,5 @@ def cnn(
             raise RuntimeError("CNN clustering returned negative labels.")
         # Adjust labels to start from 0, with -1 indicating noise
         labels -= 1
-        return ClusteringResult(labels=labels)
+        return labels
     return clustering_function
