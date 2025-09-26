@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Sequence
 from caddpy.bond import Bond
 import caddpy
 
@@ -41,6 +41,10 @@ class StructureBasedModeler:
         len_hbond: float = 2.5,
         len_ionic: float = 3.0,
         len_hydrophobic: float = 4.0,
+        len_tol_hbond: float = 1,
+        len_tol_ionic: float = 1,
+        len_tol_hydrophobic: float = 1,
+        angle_tol_hbond: float = 1.4,  # ~80 degrees
     ) -> Pharmacophore:
         self._type_hbond_donor = type_hbond_donor
         self._type_hbond_acceptor = type_hbond_acceptor
@@ -55,6 +59,10 @@ class StructureBasedModeler:
         self._len_hbond = len_hbond
         self._len_ionic = len_ionic
         self._len_hydrophobic = len_hydrophobic
+        self._len_tol_hbond = len_tol_hbond
+        self._len_tol_ionic = len_tol_ionic
+        self._len_tol_hydrophobic = len_tol_hydrophobic
+        self._angle_tol_hbond = angle_tol_hbond
 
         self._feats = (
             pd.concat(
@@ -69,16 +77,17 @@ class StructureBasedModeler:
             .sort_values(
                 (["instance"] if self._batch_ndim > 0 else []) + ["type", "res_idx", "atom_idxs"]
             )
+            .reset_index(drop=True)
         )
         return self._feats
 
     def _calc_non_directed_interactions(self) -> list[pd.DataFrame]:
         dfs = []
         charges = self._atom["charge"]
-        for ftype, radius, df_atom in (
-            (self._type_anionic, self._len_ionic, self._atom[charges > 0]),
-            (self._type_cationic, self._len_ionic, self._atom[charges < 0]),
-            (self._type_hydrophobic, self._len_hydrophobic, self._hydrophobic_atoms())
+        for ftype, radius, radius_tol, df_atom in (
+            (self._type_anionic, self._len_ionic, self._len_tol_ionic, self._atom[charges > 0]),
+            (self._type_cationic, self._len_ionic, self._len_tol_ionic, self._atom[charges < 0]),
+            (self._type_hydrophobic, self._len_hydrophobic, self._len_tol_hydrophobic, self._hydrophobic_atoms())
         ):
             if ftype is None or df_atom.empty:
                 continue
@@ -91,6 +100,7 @@ class StructureBasedModeler:
                 center=None,
                 end=end_coords,
                 radius=radius,
+                radius_tol=radius_tol,
             )
             dfs.append(df)
         return dfs
@@ -115,6 +125,8 @@ class StructureBasedModeler:
             feature_type=self._type_hbond_acceptor,
             center=feature_coords,
             end=donor_coords,
+            radius_tol=self._len_tol_hbond,
+            angle_tol=self._angle_tol_hbond,
         )
         return [df]
 
@@ -129,7 +141,10 @@ class StructureBasedModeler:
             o_num_partners = oam.groupby("atom_idx")["atom_idx"].transform("count")
             oa1 = oam[o_num_partners == 1]
             oa2 = oam[o_num_partners == 2]
-            dfs.extend([self._calc_oa1(oa1), self._calc_tetrahedral_acceptor(oa2)])
+            dfs.extend([
+                self._calc_oa1(oa1),
+                self._calc_tetrahedral_acceptor(oa2, radius_tol=self._len_tol_hbond, angle_tol=self._angle_tol_hbond)
+            ])
         if not na.empty:
             nam = self._merge_with_partners(na)
             # Add backbone bonding partner (C from previous residue) for amide nitrogens
@@ -151,10 +166,13 @@ class StructureBasedModeler:
             n_num_partners = nam.groupby("atom_idx")["atom_idx"].transform("count")
             na2 = nam[n_num_partners == 2]
             na3 = nam[n_num_partners == 3]
-            dfs.extend([self._calc_na2(na2), self._calc_tetrahedral_acceptor(na3)])
+            dfs.extend([
+                self._calc_na2(na2),
+                self._calc_tetrahedral_acceptor(na3, radius_tol=self._len_tol_hbond, angle_tol=self._angle_tol_hbond)
+            ])
         return dfs
 
-    def _calc_tetrahedral_acceptor(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _calc_tetrahedral_acceptor(self, df: pd.DataFrame, radius_tol: float, angle_tol: float) -> pd.DataFrame:
         # group each atom_idx and collect its partners
         grouped = df.groupby("atom_idx").agg({
             "res_idx": "first",
@@ -179,6 +197,8 @@ class StructureBasedModeler:
             feature_type=self._type_hbond_donor,
             center=feat_coords.reshape(-1, 3),
             end=np.stack([center_coords]*n_features_per_center, axis=-2).reshape(-1, 3),
+            radius_tol=radius_tol,
+            angle_tol=angle_tol,
         )
 
     def _calc_oa1(self, oa):
@@ -217,6 +237,8 @@ class StructureBasedModeler:
             feature_type=self._type_hbond_donor,
             center=feat_coords.reshape(-1, 3),
             end=np.stack([o_coords]*2, axis=-2).reshape(-1, 3),
+            radius_tol=self._len_tol_hbond,
+            angle_tol=self._angle_tol_hbond,
         )
 
     def _calc_na2(self, na):
@@ -244,6 +266,8 @@ class StructureBasedModeler:
             feature_type=self._type_hbond_donor,
             center=feat_coords.reshape(-1, 3),
             end=np.stack([center_coords]*n_features_per_center, axis=-2).reshape(-1, 3),
+            radius_tol=self._len_tol_hbond,
+            angle_tol=self._angle_tol_hbond,
         )
 
     def _create_df(
@@ -254,6 +278,8 @@ class StructureBasedModeler:
         center: np.ndarray | None,
         end: np.ndarray,
         radius: float | None = None,
+        radius_tol: float = 0.0,
+        angle_tol: float = 0.0,
     ):
         if self._batch_ndim == 0:
             instance = None
@@ -268,16 +294,20 @@ class StructureBasedModeler:
                 center = center.reshape(-1, 3)
         n_instances = int(np.prod(self._batch_shape))
         cols = {
-            "instance": instance,
             "type": feature_type,
             "res_idx": np.tile(res_idx, n_instances),
             "atom_idxs": atom_idx * n_instances,
-            "center": list(center) if center is not None else None,
             "end": list(end),
-            "radius": radius,
+            "radius_tol": radius_tol,
+            "angle_tol": angle_tol,
         }
-        if self._batch_ndim == 0:
-            cols.pop("instance")
+        if self._batch_ndim != 0:
+            cols["instance"] = instance
+        if center is not None:
+            cols["center"] = list(center)
+        if radius is not None:
+            cols["radius"] = radius
+
         return pd.DataFrame(cols).convert_dtypes()
 
     def _merge_with_partners(
