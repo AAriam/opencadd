@@ -1504,7 +1504,7 @@ class Pharmacophore:
         nglwidget: scishow.nglview.NGLWidget | None = None,
         feature_mask: pd.Series | np.ndarray | Sequence[bool] | None = None,
         system: System | Literal[False] | None = None,
-        min_radius: float = 0.5,
+        min_radius: float = 0.3,
         show_box: bool = True,
         show_pocket: bool = True,
         show_fields: bool = False,
@@ -1514,10 +1514,11 @@ class Pharmacophore:
         override_radius: dict[str, float] | None = None,
         gui: bool = True,
         comp_point_feats: set[Literal["center"]] = {"center"},
-        comp_vector_feats: set[Literal["center", "vector", "end"]] = {"vector"},
-        comp_radial_feats: set[Literal["end", "surface"]] = {"surface"},
+        comp_vector_feats: set[Literal["vector", "end", "cone"]] = {"vector", "end", "cone"},
+        comp_radial_feats: set[Literal["end", "surface", "surface_min", "surface_max"]] = {"end", "surface", "surface_min", "surface_max"},
         add_residues: bool = True,
         feature_sort_columns: Sequence[str] = ("instance", "type", "label"),
+        vector_thickness: float = 0.25,
     ):
         def feature_color(feature_id: str) -> tuple[float, float, float] | tuple[int, int, int]:
             """Get color for a feature type, defaulting to gray if not set."""
@@ -1530,7 +1531,6 @@ class Pharmacophore:
             if isinstance(name, tuple | list | np.ndarray):
                 return "-".join(map(str, name))
             return str(name)
-
 
         nv = nglwidget or scishow.nglview.NGLWidget()
         feature_colors = feature_colors or {}
@@ -1585,9 +1585,13 @@ class Pharmacophore:
             ftype = normalize_name(feature["type"])
             label = normalize_name(feature["label"])
             name = f"{instance}_{ftype}_{label}"
+            color = feature_color(feature["type"])
             feat_is_point = repr_type == 1
             feat_is_vector = repr_type == 2
             feat_is_radial = repr_type == 3
+            center = feature["center"].tolist() if feat_is_point or feat_is_vector else None
+            end = feature["end"].tolist() if feat_is_vector or feat_is_radial else None
+            radius = feature["radius"] if feat_is_vector or feat_is_radial else None
 
             # Display feature's interacting residue as ball-and-stick
             if atoms is not None and add_residues and pd.notna(feature["atom_idxs"]):
@@ -1597,57 +1601,81 @@ class Pharmacophore:
                 receptor_selection = residues["res_seq"].astype(str) + "^" + residues["i_code"] + ":" + residues["chain_id"]
                 system_comp.add_ball_and_stick(" ".join(receptor_selection), name=f"{name} Residue")
 
-            # Display vector of vector features
-            if feat_is_vector and "vector" in comp_vector_feats:
-                nv.shape.add_arrow(
-                    center.tolist(),
-                    end.tolist(),
-                    feature_color(feature["type"]),
-                    0.25,
-                    f"{name} Vector",
-                )
+            # Display point features
+            if feat_is_point:
+                if "center" in comp_point_feats:
+                    nv.add_spheres(
+                        coords=feature["center"],
+                        radii=override_radius.get(feature["type"], max(feature["center_tol"], min_radius)),
+                        name=name,
+                        colors=color,
+                        representation_params=scishow.nglview.RepresentationParameters(
+                            opacity=0.8,
+                            visible=show_feature_centers,
+                            lazy=True,
+                        )
+                    )
+
+            # Display vector features
+            elif feat_is_vector:
+                shapes = []
+                if "vector" in comp_vector_feats:
+                    shapes.append(('Arrow', center, end, color, vector_thickness, "Vector"))
+                if "end" in comp_vector_feats:
+                    shapes.append(('Sphere', end, color, override_radius.get(feature["type"], max(feature["end_tol"], min_radius)), "End"))
+                if "cone" in comp_vector_feats:
+                    angle_tol = feature["angle_tol"]
+                    if angle_tol > 0:
+                        cone = nv.add_spherical_conical_shell(
+                            apex=end,
+                            axis=feature["center"] - feature["end"],
+                            angle=angle_tol,
+                            r_min=radius - feature["radius_tol"],
+                            r_max=radius + feature["radius_tol"],
+                            color=color,
+                            name="Cone",
+                            representation_params=scishow.nglview.RepresentationParameters(
+                                opacity=0.6,
+                                visible=True,
+                                lazy=True,
+                            ),
+                            add=False,
+                        )
+                        shapes.append(cone)
+                if shapes:
+                    nv.add_shape(
+                        shapes,
+                        name=name,
+                        representation_params=scishow.nglview.RepresentationParameters(
+                            opacity=0.6,
+                            visible=True,
+                            lazy=True,
+                        )
+                    )
 
             # Display surface of radial feature
-            if feat_is_radial and "surface" in comp_radial_feats:
-                nv.add_spheres(
-                    coords=feature["end"],
-                    radii=feature["radius"],
-                    name=f"{name} Surface",
-                    colors=feature_color(feature["type"]),
-                    representation_params=scishow.nglview.RepresentationParameters(
-                        opacity=0.4,
-                        visible=show_feature_centers,
-                        lazy=True,
+            elif feat_is_radial:
+                shapes = []
+                if "end" in comp_radial_feats:
+                    shapes.append(('Sphere', end, color, override_radius.get(feature["type"], max(feature["end_tol"], min_radius)), "End"))
+                if "surface_min" in comp_radial_feats:
+                    shapes.append(('Sphere', end, color, max(radius - feature["radius_tol"], min_radius), "Surface min"))
+                if "surface" in comp_radial_feats:
+                    shapes.append(('Sphere', end, color, radius, "Surface"))
+                if "surface_max" in comp_radial_feats:
+                    shapes.append(('Sphere', end, color, radius + feature["radius_tol"], "Surface max"))
+                if shapes:
+                    nv.add_shape(
+                        shapes,
+                        name=name,
+                        representation_params=scishow.nglview.RepresentationParameters(
+                            opacity=0.6,
+                            visible=True,
+                            lazy=True,
+                        )
                     )
-                )
-
-            # Display end of vector features and radial features
-            if (feat_is_vector and "end" in comp_vector_feats) or (feat_is_radial and "end" in comp_radial_feats):
-                nv.add_spheres(
-                    coords=feature["end"],
-                    radii=override_radius.get(feature["type"], max(feature["end_tol"], min_radius)),
-                    name=f"{name} End",
-                    colors=feature_color(feature["type"]),
-                    representation_params=scishow.nglview.RepresentationParameters(
-                        opacity=0.8,
-                        visible=show_feature_centers,
-                        lazy=True,
-                    )
-                )
-
-            # Display center of point and vector features
-            if (feat_is_point and "center" in comp_point_feats) or (feat_is_vector and "center" in comp_vector_feats):
-                nv.add_spheres(
-                    coords=feature["center"],
-                    radii=override_radius.get(feature["type"], max(feature["center_tol"], min_radius)),
-                    name=f"{name} Center",
-                    colors=feature_color(feature["type"]),
-                    representation_params=scishow.nglview.RepresentationParameters(
-                        opacity=0.8,
-                        visible=show_feature_centers,
-                        lazy=True,
-                    )
-                )
+            else:
+                raise ValueError(f"Unknown feature representation type: {repr_type}")
         if gui:
             nv.display(gui=True)
         return nv
