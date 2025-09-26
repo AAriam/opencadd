@@ -14,7 +14,7 @@ from t2fpharm.pharm import Pharmacophore
 from t2fpharm.system import System
 from t2fpharm.modeler_structure import StructureBasedModeler
 from t2fpharm.input.modeler import ModelerLargestPeaksInput, ModelerSimpleInput
-from t2fpharm.input.pharm.cluster_agg import AggLinkageType, AggLinkageMetricType
+from t2fpharm.cluster import ClusterAggLinkageType, ClusterAggLinkageMetricType
 from t2fpharm.typing import PositiveInt, PositiveFloat
 
 
@@ -117,8 +117,8 @@ class Modeler:
         *,
         distance_threshold: PositiveFloat | dict[str, PositiveFloat] | None = None,
         n_clusters: PositiveInt | dict[str, PositiveInt] | None = None,
-        linkage: AggLinkageType | dict[str, AggLinkageType] = "complete",
-        metric: AggLinkageMetricType | dict[str, AggLinkageMetricType] = "euclidean",
+        linkage: ClusterAggLinkageType | dict[str, ClusterAggLinkageType] = "complete",
+        metric: ClusterAggLinkageMetricType | dict[str, ClusterAggLinkageMetricType] = "euclidean",
         memory: Any = None,
         min_members: PositiveInt | dict[str, PositiveInt] = 1,
         noise_as_singleton: bool | dict[str, bool] = True,
@@ -642,6 +642,8 @@ class Modeler:
                 )
                 mask = atom_idxs.apply(lambda arr: len(arr) > 0)
                 dff = df[mask].copy()
+                if dff.empty:
+                    continue
                 dff["type"] = f
                 dff["center"] = dff[f"{c}_position"]
                 dff["end"] = dff[f"{e}_position"]
@@ -650,7 +652,7 @@ class Modeler:
                 dff = dff[output_col_names]
                 feat_dfs.append(dff)
         if feat_dfs:
-            feats = pd.concat(feat_dfs, ignore_index=True)
+            feats = pd.concat(feat_dfs, ignore_index=True).reset_index(drop=True)
         else:
             feats = pd.DataFrame(columns=output_col_names)
         return self._pharmacophore(
@@ -770,7 +772,8 @@ class Modeler:
         5. For hydrophobic features,
             all hydrophobic atoms in the (masked) system are identified
             using their AutoDock atom types and bonded element types
-            (i.e., carbon atoms with type "C" that are only bonded to carbon or hydrogen atoms).
+            (i.e., aliphatic carbon atoms with type "C" that are
+            only bonded to carbon or hydrogen atoms).
             For each hydrophobic atom,
             a hydrophobic feature is created as a radial feature
             with its `end` at the position of the hydrophobic atom,
@@ -782,14 +785,15 @@ class Modeler:
             self._verify_system_available("from_structure")
             self._structure_modeler = StructureBasedModeler(self.system)
         feats = self._structure_modeler.model(
-            len_hbond=len_hbond,
-            len_ionic=len_ionic,
-            len_hydrophobic=len_hydrophobic,
             type_hbond_acceptor=type_hbond_acceptor,
             type_hbond_donor=type_hbond_donor,
             type_anionic=type_anionic,
             type_cationic=type_cationic,
             type_hydrophobic=type_hydrophobic,
+            atom_mask=atom_mask,
+            len_hbond=len_hbond,
+            len_ionic=len_ionic,
+            len_hydrophobic=len_hydrophobic,
         )
         return self._pharmacophore(
             features=feats,
