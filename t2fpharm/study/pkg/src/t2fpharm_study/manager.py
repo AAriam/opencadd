@@ -1029,8 +1029,8 @@ class Manager:
                 psp_dist_lower_mode=self.pocket_params.get("psp_dist_lower_mode", "any"),
                 psp_dist_upper_mode=self.pocket_params.get("psp_dist_upper_mode", "all"),
                 ligand_radii_offset=self.pocket_params["ligand_radii_offset"],
-                erosion_radius=self.pocket_params["erosion_radius"],
-                opening_radius=self.pocket_params["opening_radius"],
+                radius_erosion=self.pocket_params["erosion_radius"],
+                radius_opening=self.pocket_params["opening_radius"],
                 morphology_order=self.pocket_params.get("morphology_order", ("opening", "erosion")),
                 grid=self.grid(pdb_id),
                 trim=False,
@@ -1083,8 +1083,8 @@ class Manager:
             ligand_mask=ligand_mask,
             ligand_radii=None,
             ligand_radii_offset=self.pocket_params["ligand_radii_offset"],
-            erosion_radius=self.pocket_params["erosion_radius"],
-            opening_radius=self.pocket_params["opening_radius"],
+            radius_erosion=self.pocket_params["erosion_radius"],
+            radius_opening=self.pocket_params["opening_radius"],
             morphology_order=self.pocket_params.get("morphology_order", ("opening", "erosion")),
             grid=self.pocket_params["grid_spacing"],
         )
@@ -1284,8 +1284,8 @@ class Manager:
         # Select only the features that are within the pocket
         pocket = self.pocket(ref_pdb_id)
         feat_centers = np.stack(all_feats["center"])
-        _, dists = pocket.nearest_point(feat_centers)
-        selected_feats = all_feats[dists < 0.5].drop(columns=["instance", "label"]).reset_index(drop=True)
+        is_inside, indices, dists = pocket.point_coverage(feat_centers, tolerance=0.5)
+        selected_feats = all_feats[is_inside].drop(columns=["instance", "label"]).reset_index(drop=True)
 
         # Remove hydrophobic features that are too close to hydrophilic features
         if hydrophobic_hydrophilic_min_dist > 0:
@@ -1435,8 +1435,8 @@ class Manager:
             complex_pharm = self.modeler(pdb_id, system="complex", pocket=False, field=False).from_interactions(
                 type_hbond_acceptor="OA",
                 type_hbond_donor="HD",
-                type_anion="e-",
-                type_cation="e+",
+                type_anionic="e-",
+                type_cationic="e+",
                 type_hydrophobic="C",
                 type_aromatic=None,
                 type_halogen_acceptor=None,
