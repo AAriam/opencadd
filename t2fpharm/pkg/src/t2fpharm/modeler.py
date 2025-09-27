@@ -674,7 +674,7 @@ class Modeler:
             name=name or f"{self.system.name} Pharmacophore",
         )
 
-    def from_structure(
+    def from_atoms(
         self,
         *,
         type_hbond_acceptor: str | None = "OA",
@@ -686,39 +686,38 @@ class Modeler:
         len_hbond: float = 2.5,
         len_ionic: float = 3.0,
         len_hydrophobic: float = 4.0,
+        len_tol_hbond: float = 1,
+        len_tol_ionic: float = 1,
+        len_tol_hydrophobic: float = 1,
+        angle_tol_hbond: float = 1.4,
         name: str | None = None,
     ) -> Pharmacophore:
-        """Perceive pharmacophore features from the system structure.
+        """Perceive pharmacophore features from the system's atomic data.
 
         This method can create vector features
         for hydrogen bond acceptors and donors,
         and radial features for anionic, cationic, and hydrophobic interactions.
-        If any of the `type_*` parameters are set to `None`,
-        the corresponding feature type will not be generated.
 
         Parameters
         ----------
-        type_hbond_acceptor
-            Feature type ID for hydrogen bond acceptor features.
-        type_hbond_donor
-            Feature type ID for hydrogen bond donor features.
-        type_anionic
-            Feature type ID for anionic features.
-        type_cationic
-            Feature type ID for cationic features.
-        type_hydrophobic
-            Feature type ID for hydrophobic features.
+        type_*
+            Feature type IDs for the respective pharmacophore features.
+            If set to `None`, the corresponding feature type will not be generated.
         atom_mask
             Optional boolean mask to select a subset of atoms
             from the system for pharmacophore feature perception.
             If provided, only atoms in `self.system.composition.atoms`
             where the mask is `True` will be considered when perceiving features.
-        len_hbond
-            Ideal length of a hydrogen bond.
-        len_ionic
-            Ideal length of an ionic interaction.
-        len_hydrophobic
-            Ideal length of a hydrophobic interaction.
+        len_*
+            Ideal lengths for the respective interaction types.
+        len_tol_*
+            Length tolerances for the respective interaction types.
+            The length range for each interaction type is defined as
+            `[len_* - len_tol_*, len_* + len_tol_*]`.
+        angle_tol_hbond
+            Angle tolerance for hydrogen bond features in radians.
+            The angle range for hydrogen bond features is defined as
+            `[π - angle_tol_hbond, π]` (i.e., the ideal angle is 180 degrees).
         name
             Optional name for the pharmacophore.
 
@@ -794,6 +793,10 @@ class Modeler:
             len_hbond=len_hbond,
             len_ionic=len_ionic,
             len_hydrophobic=len_hydrophobic,
+            len_tol_hbond=len_tol_hbond,
+            len_tol_ionic=len_tol_ionic,
+            len_tol_hydrophobic=len_tol_hydrophobic,
+            angle_tol_hbond=angle_tol_hbond,
         )
         return self._pharmacophore(
             features=feats,
