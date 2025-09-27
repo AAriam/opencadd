@@ -5,6 +5,7 @@ from collections import defaultdict
 import functools
 
 import numpy as np
+from numpy.typing import NDArray
 import pandas as pd
 import scipy.optimize
 import scipy.spatial
@@ -17,9 +18,8 @@ from t2fpharm.dist import DistanceMatrixFunction, linear as distmatrix_linear
 from t2fpharm.system import System
 from t2fpharm.pocket import Pocket
 from t2fpharm.field import Field
-from t2fpharm.input.pharm.cluster import PharmClusterInput, ClusteringFunction, CenterType, CenterTypeNoFunction, RadiusType
-from t2fpharm.input.pharm.cluster_agg import PharmClusterAggInput, AggLinkageType, AggLinkageMetricType
-from t2fpharm.input.pharm.cluster_cnn import PharmClusterCNNInput
+from t2fpharm.cluster import ClusteringFunction
+from t2fpharm.input.pharm.cluster import PharmClusterInput, CenterType, CenterTypeNoFunction, RadiusType
 from t2fpharm.input.pharm.features import PharmFeaturesInput
 from t2fpharm.input.pharm.remove_overlaps import RemoveOverlapsInput
 from t2fpharm.typing import DataFrameLike, PositiveFloat, PositiveInt, ArrayLike
@@ -54,6 +54,27 @@ class Pharmacophore:
        the center can be anywhere on the surface of the sphere.
        They are useful for representing non-directional features
        such as hydrophobic and ionic interactions.
+
+    Moreover, features can have tolerances associated with their defining parameters,
+    allowing for some flexibility in their positions and sizes:
+    1. **Point features** have a center tolerance,
+       which expands them to a spherical region around the `center`.
+    2. **Vector features** have angular and radial tolerances,
+       which expand them to the intersection of
+       a spherical shell around the `end` point,
+       with a cone originating from the `end` and extending towards the `center`
+       with half-angle defined by the angular tolerance.
+    3. **Radial features** have a radial tolerance,
+       which expands them to a spherical shell around the `end` point,
+       with inner and outer radii defined by the `radius` ± tolerance.
+
+    These tolerance values are used in:
+    - **Visualization**: to display the volumetric extent of features.
+    - **Feature matching**: to determine if features from different pharmacophores
+      can be considered equivalent or compatible.
+
+    When a method increases the uncertainty of a feature,
+    the corresponding tolerance value is increased accordingly.
 
     Parameters
     ----------
@@ -94,16 +115,23 @@ class Pharmacophore:
           of the feature's center in some reference frame.
           For radial features, this column should be `None`.
         - `end`: NumPy array representing the 3D coordinates
-          of the feature's end point in some reference frame.
+          of the feature's end point (i.e., interaction partner)
+          in some reference frame.
           For point features, this column should be `None`.
-        - `radius_tol`, `center_tol`, `end_tol`: Optional columns representing
-          the uncertainty (tolerance) in the corresponding
-          `radius`, `center`, and `end` values.
-          These are used when matching features to allow for some flexibility
-          in the feature positions and sizes.
-          When a method increases the uncertainty of a feature,
-          the corresponding tolerance value is increased accordingly.
-          If not present, they are assumed to be zero.
+        - `radius_tol`: Tolerance for the `radius` of vector and radial features.
+           This defines a radius range of `[radius - radius_tol, radius + radius_tol]`,
+           corresponding to a spherical shell around the `end` point.
+           If not present, they are set to zero.
+        - `center_tol`: Tolerance for the `center` of point features.
+           This defines a spherical region around the `center`.
+           If not present, they are set to zero.
+        - `end_tol`: Tolerance for the `end` of vector and radial features.
+          This defines a spherical region around the `end` point.
+          If not present, they are set to zero.
+        - `angle_tol`: Tolerance for the angle of vector features.
+          This defines a cone originating from the `end` point
+          and extending towards the `center` with half-angle defined by this value.
+          If not present, they are set to zero.
     feature_types
         Set of all feature types that were considered when creating the pharmacophore.
         That is, all `type` values in the `features` DataFrame must be a subset of this set.
@@ -179,13 +207,17 @@ class Pharmacophore:
 
         # DataFrame for joining query features with target features (see `match()` method)
         self._features_for_match = self._features[
-            ['instance', 'type', 'label', 'center', 'radius']
+            ['instance', 'type', 'label', 'center', 'end', 'radius', 'center_tol', 'end_tol', 'radius_tol']
         ].rename(
             columns={
                 "instance": "target_instance",
                 "label": "target_label",
                 "center": "target_center",
-                "radius": "target_radius"
+                "end": "target_end",
+                "radius": "target_radius",
+                "center_tol": "target_center_tol",
+                "end_tol": "target_end_tol",
+                "radius_tol": "target_radius_tol"
             }
         )
 
@@ -214,7 +246,47 @@ class Pharmacophore:
 
     @property
     def features(self) -> pd.DataFrame:
-        """Pharmacophore features."""
+        """Pharmacophore features DataFrame.
+
+        The DataFrame has at least the following columns:
+        - `instance`: Integer or tuple of integers
+          representing the index of the feature instance.
+        - `type`: String or integer representing the feature type.
+        - `label`: A hashable identifier for different features of the same type
+           within the same instance. That is, for each unique (`instance`, `type`) pair,
+           each feature has a unique label.
+           Each feature in the whole pharmacophore can thus be uniquely identified
+           by its (`instance`, `type`, `label`) triplet.
+        - `atom_idxs`: Tuple of integers representing the indices of the atoms
+          in `system` that contribute to the feature center,
+          i.e., the atoms at `end` for vector and radial features.
+          If not available, it will be `None`.
+        - `repr`: Integer specifying the feature representation:
+            - 1: Point feature defined by `center` only.
+            - 2: Vector feature defined by `center` and `end`.
+            - 3: Radial feature defined by `end` and `radius`.
+        - `radius`: A non-negative real number
+           representing the radius for radial features,
+           or the length of the vector for vector features.
+           For point features, this column is `NaN`.
+        - `center`: NumPy array representing the 3D coordinates
+          of the feature's center in some reference frame.
+          For radial features, this column is `None`.
+        - `end`: NumPy array representing the 3D coordinates
+          of the feature's end point (i.e., interaction partner)
+          in some reference frame.
+          For point features, this column is `None`.
+        - `radius_tol`: Tolerance for the `radius` of vector and radial features.
+           This defines a radius range of `[radius - radius_tol, radius + radius_tol]`,
+           corresponding to a spherical shell around the `end` point.
+        - `center_tol`: Tolerance for the `center` of point features.
+           This defines a spherical region around the `center`.
+        - `end_tol`: Tolerance for the `end` of vector and radial features.
+          This defines a spherical region around the `end` point.
+        - `angle_tol`: Tolerance for the angle of vector features.
+          This defines a cone originating from the `end` point
+          and extending towards the `center` with half-angle defined by this value.
+        """
         return self._features
 
     @property
@@ -339,15 +411,16 @@ class Pharmacophore:
                 features[final_name] = tuple_series
         return features
 
-    def filter(
+    def split(
         self,
         mask: pd.Series | np.ndarray | Sequence[bool] | None = None,
         operation_mask: Literal["&", "|"] = "&",
         operation_kwargs: Literal["&", "|"] = "&",
-        name: str | None = None,
+        name_selected: str | None = None,
+        name_remaining: str | None = None,
         **kwargs,
-    ) -> Self:
-        """Filter pharmacophore features.
+    ) -> tuple[Self, Self]:
+        """Split the pharmacophore features into two new pharmacophores.
 
         Parameters
         ----------
@@ -364,8 +437,11 @@ class Pharmacophore:
         operation_kwargs
             Logical operation to combine multiple keyword argument conditions, if provided.
             It can be either `"&"` (logical AND) or `"|"` (logical OR).
-        name
-            Optional name for the new pharmacophore.
+        name_selected
+            Optional name for the selected pharmacophore.
+            If `None`, the name of the current pharmacophore is used.
+        name_remaining
+            Optional name for the remaining pharmacophore.
             If `None`, the name of the current pharmacophore is used.
         **kwargs
             Keyword arguments to filter features based on column values.
@@ -381,8 +457,12 @@ class Pharmacophore:
 
         Returns
         -------
-        A new `Pharmacophore` instance containing only the features
-        that match the provided mask and keyword argument conditions.
+        pharm_selected
+            A new `Pharmacophore` instance containing only the features
+            that match the provided mask and keyword argument conditions.
+        pharm_remaining
+            A new `Pharmacophore` instance containing only the features
+            that do not match the provided mask and keyword argument conditions.
         """
         if mask is not None:
             if len(mask) != len(self._features):
@@ -424,18 +504,79 @@ class Pharmacophore:
         elif not has_mask:
             raise ValueError("No keyword conditions or mask provided for filtering.")
 
-        return self.new(
+        pharm_selected = self.new(
             features=self._features[mask],
             inputs=self.inputs + [{"action": "filter", "params": {"mask": mask}}],
-            name=name,
+            name=name_selected,
         )
+        pharm_remaining = self.new(
+            features=self._features[~mask],
+            inputs=self.inputs + [{"action": "filter", "params": {"mask": ~mask}}],
+            name=name_remaining,
+        )
+        return pharm_selected, pharm_remaining
+
+    def select(
+        self,
+        mask: pd.Series | np.ndarray | Sequence[bool] | None = None,
+        operation_mask: Literal["&", "|"] = "&",
+        operation_kwargs: Literal["&", "|"] = "&",
+        name: str | None = None,
+        **kwargs,
+    ) -> tuple[Self, Self]:
+        """Isolate pharmacophore features as a new pharmacophore.
+
+        Parameters
+        ----------
+        mask
+            Optional boolean mask to select features.
+            It can be a `pandas.Series`, a numpy array,
+            or any sequence of boolean values.
+            It must have the same length and order as `self.features`.
+            If `None`, only the keyword arguments are used for selection.
+        operation_mask
+            Logical operation to combine the `mask` with the mask
+            derived from the keyword arguments, if both are provided.
+            It can be either `"&"` (logical AND) or `"|"` (logical OR).
+        operation_kwargs
+            Logical operation to combine multiple keyword argument conditions, if provided.
+            It can be either `"&"` (logical AND) or `"|"` (logical OR).
+        name
+            Optional name for the new pharmacophore.
+            If `None`, the name of the current pharmacophore is used.
+        **kwargs
+            Keyword arguments to select features based on column values.
+            Each keyword argument must correspond to a column in `self.features`.
+            The value can be a single value or a list of values.
+            If a single value is provided, it is used to select features
+            where the column equals that value.
+            If a list is provided, it is used to select features
+            where the column value is in that list.
+
+            For example, `type="HD"` selects all hydrogen bond donor features,
+            while `type=["HD", "OA"]` selects all hydrogen bond donor and acceptor features.
+
+        Returns
+        -------
+        A new `Pharmacophore` instance containing only the features
+        that match the provided mask and keyword argument conditions.
+        """
+        pharm_selected, _ = self.split(
+            mask=mask,
+            operation_mask=operation_mask,
+            operation_kwargs=operation_kwargs,
+            name_selected=name,
+            name_remaining=None,
+            **kwargs,
+        )
+        return pharm_selected
 
     def select_in_pocket(
         self,
         dist_tol: float | ArrayLike | None = None,
         *,
         center_distance: PositiveFloat | dict[str, PositiveFloat] = 2.0,
-        keep_radial: bool = False,
+        radial: Literal["radial", "vectors", "merge"] = "merge",
     ) -> Self:
         """Select features that are within the associated pocket.
 
@@ -489,6 +630,7 @@ class Pharmacophore:
         if has_radial:
             self.features["_converted"] = self.is_radial
             feats = self.convert_feature_radial_to_vector(distance=center_distance).features
+            self._features.drop(columns=["_converted"], inplace=True)
         else:
             feats = self.features.copy()
 
@@ -515,12 +657,27 @@ class Pharmacophore:
         feats["center_tol"] = np.maximum(feats["center_tol"], feats["_distance"])
         feats = feats[feats["_is_inside"]].drop(columns=["_is_inside", "_distance", "_distance_tol"])
         filtered_pharm = self.new(features=feats)
-        if has_radial and keep_radial:
-            filtered_pharm = filtered_pharm.convert_feature_vector_to_radial(
-                mask=filtered_pharm.features["_converted"],
-                merge=True,
-            )
         if has_radial:
+            if radial == "radial":
+                filtered_pharm = filtered_pharm.convert_feature_vector_to_radial(
+                    groupby=["label_orig"],
+                    mask=filtered_pharm.features["_converted"],
+                    merge=True,
+                )
+            elif radial == "merge":
+                feats = filtered_pharm.features
+                converted = feats[feats["_converted"]]
+                non_converted = feats[~feats["_converted"]]
+                if not non_converted.empty:
+                    non_converted["label"] = non_converted["label_orig"]
+                groups = converted.groupby(["instance", "type", "label_orig"], sort=False)
+                merged_rows = [
+                    merge_features(group) | {"instance": instance, "type": ftype, "label": label_orig}
+                    for (instance, ftype, label_orig), group in groups
+                ]
+                merged_df = pd.DataFrame(merged_rows)
+                all_df = pd.concat([merged_df, non_converted], ignore_index=True).drop(columns=["label_orig"])
+                filtered_pharm = self.new(features=all_df)
             filtered_pharm.features.drop(columns=["_converted"], inplace=True)
         return filtered_pharm
 
@@ -801,11 +958,12 @@ class Pharmacophore:
             n_centers_per_feat = centers.shape[1]
             idx = group.index.repeat(n_centers_per_feat)  # repeat each row's index
             out = group.loc[idx].copy()
+            out["repr"] = 2
             out["center"] = list(centers.reshape(-1, 3))
-            out["center_tol"] = np.maximum(distance[feature_type] / 2, group["radius_tol"])
-            out["radius_tol"] = 0.0
+            out["angle_tol"] = np.arccos(1 - (distance[feature_type] ** 2) / (2 * radius ** 2))
 
             # Vectorized sub-labels within each (instance, label) group
+            out["label_orig"] = out["label"]  # keep original label for reference
             sub_labels = out.groupby(["instance", "label"], sort=False).cumcount()
             if isinstance(out["label"].iloc[0], tuple):
                 out["label"] = [(*lbl, s) for lbl, s in zip(out["label"], sub_labels)]
@@ -843,6 +1001,7 @@ class Pharmacophore:
             if feats_remaining.empty:
                 feats_out = feats_vectorized
             else:
+                feats_remaining["label_orig"] = feats_remaining["label"]
                 feats_remaining["label"] = feats_remaining["label"].apply(lambda x: (x, 0) if not isinstance(x, tuple) else x)
                 feats_out = pd.concat([feats_remaining, feats_vectorized])
             return self.new(features=feats_out)
@@ -916,8 +1075,10 @@ class Pharmacophore:
             lengths = np.linalg.norm(ends - centers, axis=-1)
 
             row = group.sort_values("label").iloc[0].copy()
+            row["repr"] = 3
             row["center"] = None
             row["center_tol"] = 0.0
+            row["angle_tol"] = 0.0
             row["end"] = np.mean(ends, axis=0)
             row["radius"] = np.mean(lengths)
 
@@ -935,7 +1096,8 @@ class Pharmacophore:
             row["radius_tol"] = largest_delta + largest_delta_center_tol
 
             if isinstance(row["label"], tuple):
-                row["label"] = row["label"][:-1]
+                orig_label = row["label"][:-1]
+                row["label"] = orig_label if len(orig_label) > 1 else orig_label[0]
             return row
 
         feats_all = self._features
@@ -955,17 +1117,24 @@ class Pharmacophore:
         feats_radialized = pd.DataFrame(feats_rows).drop(columns=["center"])
         feats_remaining = feats_all[~feat_mask].copy()
 
+        if "label_orig" in feats_radialized.columns:
+            feats_radialized.drop(columns=["label_orig"], inplace=True)
+        if "label_orig" in feats_remaining.columns:
+            feats_remaining.drop(columns=["label_orig"], inplace=True)
+
         if merge:
             if feats_remaining.empty:
                 feats_out = feats_radialized
             else:
-                feats_remaining["label"] = feats_remaining["label"].apply(lambda x: x if not isinstance(x, tuple) else x[:-1])
+                feats_remaining["label"] = feats_remaining["label"].apply(
+                    lambda x: x if not isinstance(x, tuple) else (x[:-1] if len(x) > 2 else x[0])
+                )
                 feats_out = pd.concat([feats_remaining, feats_radialized])
             return self.new(features=feats_out)
 
         pharm_radialized = self.new(features=feats_radialized)
         pharm_remaining = self.new(features=feats_all[~feat_mask])
-        return self.new(features=feats_out)
+        return pharm_radialized, pharm_remaining
 
     def cluster(
         self,
@@ -1004,21 +1173,6 @@ class Pharmacophore:
         ----------
         function
             Clustering function(s) to use.
-            Each function is called with two positional arguments:
-            1. A 2D numpy array of shape `(n_features, 3)`
-               containing the coordinates of feature centers.
-            2. A 1D numpy array of shape `(n_features,)`
-               containing the weights for each feature center
-               (see the `weights` parameter below).
-               Note that while not all clustering algorithms accept/require weights,
-               this parameter is always passed to the function.
-
-            The function must return an object with a `labels` attribute,
-            which must be a 1D array/sequence of cluster labels as integers
-            for each feature center in the input array.
-            Negative labels are considered background/noise
-            and will not be included in the output pharmacophore,
-            unless `noise_as_singleton` is set to `True`.
         min_members
             Minimum number of members required to form a cluster.
             Clusters with fewer members are discarded.
@@ -1099,6 +1253,7 @@ class Pharmacophore:
             df_remaining = df[~mask]
             df = df[mask]
 
+        instance_idx_in_group_idx = args.groupby.index("instance") if "instance" in args.groupby else None
         has_old_members = "members" in df.columns
         new_features: list[dict] = []
         for group_idx, group in df.groupby(args.groupby, sort=False):
@@ -1115,7 +1270,7 @@ class Pharmacophore:
             # If the function input must be a distance matrix
             elif callable(function_input):
                 clustering_result = function[feature_type](
-                    function_input(np.stack(group[function_input].to_numpy()))[:,:,-1],
+                    function_input(group, group)[:,:,-1],
                 )
                 labels = np.asarray(clustering_result.labels)
 
@@ -1136,10 +1291,10 @@ class Pharmacophore:
                     f"Clustering function for feature type '{feature_type}' must return a 1D array of labels, "
                     f"but got shape {labels.shape}."
                 )
-            if labels.size != centers.shape[0]:
+            if labels.size != len(group):
                 raise ValueError(
                     f"Clustering function for feature type '{feature_type}' must return labels "
-                    f"for all feature centers, but got {labels.size} labels for {centers.shape[0]} centers."
+                    f"for all features, but got {labels.size} labels for {len(group)} features."
                 )
             if labels.dtype.kind != 'i':
                 raise ValueError(
@@ -1153,7 +1308,7 @@ class Pharmacophore:
                 labels[is_noise] = np.arange(new_label_start, new_label_end)
             unique_labels_and_noise = np.unique(labels)
             unique_labels = unique_labels_and_noise[unique_labels_and_noise >= 0]
-            instance = group_idx[0] if per_instance else 0
+            instance = group_idx[instance_idx_in_group_idx] if instance_idx_in_group_idx is not None else 0
             feature_center_type = center_type[feature_type]
             feature_radius_type = radius_type[feature_type]
             for label in unique_labels:
@@ -1161,6 +1316,7 @@ class Pharmacophore:
                 if label_mask.sum() < args.min_members[feature_type]:
                     # Skip clusters with fewer members than required
                     continue
+
                 cluster_points = centers[label_mask]
                 cluster_weight = weights[label_mask]
                 weights_sum_to_zero = np.sum(cluster_weight) == 0
@@ -1263,6 +1419,7 @@ class Pharmacophore:
         self,
         query: Self | DataFrameLike,
         algorithm: Literal["greedy", "linear"] = "linear",
+        distance_function: DistanceMatrixFunction = distmatrix_linear(),
         max_distance: float | Literal["radius_sum"] | None = "radius_sum",
         max_distance_inclusive: bool = True,
         raise_missing_types: bool = False,
@@ -1355,16 +1512,23 @@ class Pharmacophore:
         if self._features_for_match.empty:
             df = query[['instance', 'type', 'label']].copy()
             df['target_instance'] = np.nan
-            df['target_label']    = np.nan
-            df['distance']        = np.nan
-            df['radius_sum']      = np.nan
+            df['target_label'] = np.nan
+            df['dist'] = np.nan
+            df['dist_center'] = np.nan
+            df['dist_end'] = np.nan
+            df['dist_radius'] = np.nan
+            df['dist_angle'] = np.nan
+            df['center_tol'] = np.nan
+            df['end_tol'] = np.nan
+            df['radius_tol'] = np.nan
+            df['angle_tol'] = np.nan
             if max_distance is not None:
                 df['match'] = False
             return df.reset_index(drop=True)
         if algorithm == "greedy":
             matches = self._match_greedy(query=query)
         elif algorithm == "linear":
-            matches = self._match_linear(query=query)
+            matches = self._match_linear(query=query, distance_function=distance_function)
         else:
             raise ValueError(f"Unknown matching algorithm '{algorithm}'. Supported: 'greedy', 'linear'.")
         # Reorder columns
@@ -1374,8 +1538,15 @@ class Pharmacophore:
             'label',
             'target_instance',
             'target_label',
-            'radius_sum',
-            'distance',
+            'dist',
+            'dist_center',
+            'dist_end',
+            'dist_radius',
+            'dist_angle',
+            'center_tol',
+            'end_tol',
+            'radius_tol',
+            'angle_tol',
         ]
         if max_distance is not None:
             distance_threshold = matches['radius_sum'] if max_distance == "radius_sum" else max_distance
@@ -1429,7 +1600,7 @@ class Pharmacophore:
         )
         return best
 
-    def _match_linear(self, query: pd.DataFrame) -> pd.DataFrame:
+    def _match_linear(self, query: pd.DataFrame, distance_function: DistanceMatrixFunction) -> pd.DataFrame:
         """Match a query pharmacophore against this pharmacophore using a linear sum assignment approach."""
         rows: list[dict[str, Any]] = []
         # Iterate over each instance–type combination in the query
@@ -1452,22 +1623,24 @@ class Pharmacophore:
                             'label': query_feature['label'],
                             'target_instance': target_instance,
                             'target_label': np.nan,
-                            'distance': np.nan,
-                            'radius_sum': np.nan,
+                            'dist': np.nan,
+                            'dist_center': np.nan,
+                            'dist_end': np.nan,
+                            'dist_radius': np.nan,
+                            'dist_angle': np.nan,
+                            'center_tol': np.nan,
+                            'end_tol': np.nan,
+                            'radius_tol': np.nan,
+                            'angle_tol': np.nan,
                         })
                     continue
                 # Calculate distances between query and target features of the same type in this instance pair
-                query_centers = np.stack(subquery['center'].values)
-                target_centers = np.stack(subtarget['center'].values)
-                # https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.distance.cdist.html#scipy.spatial.distance.cdist
-                distances = scipy.spatial.distance.cdist(
-                    query_centers,
-                    target_centers,
-                    metric='euclidean'
-                )
+                distances = distance_function(subquery, subtarget)
+
                 # Solve the linear sum assignment problem
                 # https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.linear_sum_assignment.html
-                match_idx_query, match_idx_target = scipy.optimize.linear_sum_assignment(distances)
+                match_idx_query, match_idx_target = scipy.optimize.linear_sum_assignment(distances[:,:,4])
+
                 # Iterate over each query feature in this instance–type combination
                 for query_idx, query_feature in subquery.iterrows():
                     mask = match_idx_query == query_idx
@@ -1479,8 +1652,15 @@ class Pharmacophore:
                             'label': query_feature['label'],
                             'target_instance': target_instance,
                             'target_label': np.nan,
-                            'distance': np.nan,
-                            'radius_sum': np.nan,
+                            'dist': np.nan,
+                            'dist_center': np.nan,
+                            'dist_end': np.nan,
+                            'dist_radius': np.nan,
+                            'dist_angle': np.nan,
+                            'center_tol': np.nan,
+                            'end_tol': np.nan,
+                            'radius_tol': np.nan,
+                            'angle_tol': np.nan,
                         })
                         continue
                     target_idx = match_idx_target[mask][0]
@@ -1491,13 +1671,34 @@ class Pharmacophore:
                         'label': query_feature['label'],
                         'target_instance': target_instance,
                         'target_label': target_feature['label'],
-                        'distance': distances[query_idx, target_idx],
-                        'radius_sum': query_feature['radius'] + target_feature['radius'],
+
+                        'dist': distances[query_idx, target_idx, 4],
+                        'dist_center': distances[query_idx, target_idx, 0],
+                        'dist_end': distances[query_idx, target_idx, 1],
+                        'dist_radius': distances[query_idx, target_idx, 2],
+                        'dist_angle': distances[query_idx, target_idx, 3],
+                        'center_tol': query_feature['center_tol'] + target_feature['center_tol'],
+                        'end_tol': query_feature['end_tol'] + target_feature['end_tol'],
+                        'radius_tol': query_feature['radius_tol'] + target_feature['radius_tol'],
+                        'angle_tol': query_feature['angle_tol'] + target_feature['angle_tol'],
                     })
-        df = pd.DataFrame(rows)
-        df['distance'] = df['distance'].astype(float)
-        df['radius_sum'] = df['radius_sum'].astype(float)
-        return df.convert_dtypes()
+        df = pd.DataFrame(rows).astype({
+            'instance': query['instance'].dtype,
+            'type': query['type'].dtype,
+            'label': query['label'].dtype,
+            'target_instance': self._features['instance'].dtype,
+            'target_label': self._features['label'].dtype,
+            'dist': float,
+            'dist_center': float,
+            'dist_end': float,
+            'dist_radius': float,
+            'dist_angle': float,
+            'center_tol': float,
+            'end_tol': float,
+            'radius_tol': float,
+            'angle_tol': float,
+        })
+        return df
 
     def display(
         self,
